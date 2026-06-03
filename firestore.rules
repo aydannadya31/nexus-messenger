@@ -1,0 +1,111 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Default Deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helpers
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isParticipant(chatId) {
+      return isSignedIn() && request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isValidUser(data) {
+      return data.keys().hasAll(['uid', 'displayName', 'email']) &&
+             data.uid == request.auth.uid &&
+             data.displayName is string && data.displayName.size() <= 100 &&
+             data.email is string && data.email.size() <= 200 &&
+             (data.keys().hasAny(['onlineStatus']) ? data.onlineStatus in ['online', 'away', 'busy'] : true) &&
+             (data.keys().hasAny(['uin']) ? data.uin is string && data.uin.size() <= 20 : true) &&
+             (data.keys().hasAny(['about']) ? data.about is string && data.about.size() <= 500 : true);
+    }
+
+    function isValidChat(data) {
+      return data.keys().hasAll(['participants', 'type', 'updatedAt']) &&
+             data.participants is list && data.participants.size() >= 2 &&
+             data.type in ['private', 'group'] &&
+             request.auth.uid in data.participants &&
+             data.updatedAt == request.time &&
+             (data.type == 'group' ? data.keys().hasAll(['groupMetadata']) : true);
+    }
+
+    function isValidMessage(data) {
+      return data.keys().hasAll(['senderId', 'timestamp', 'type']) &&
+             data.senderId == request.auth.uid &&
+             data.timestamp == request.time &&
+             data.type in ['text', 'image', 'video', 'audio'] &&
+             (data.type == 'text' ? data.text is string && data.text.size() <= 6000 : true) &&
+             (data.type == 'image' ? data.imageUrl is string : true) &&
+             (data.type == 'video' ? data.videoUrl is string : true) &&
+             (data.type == 'audio' ? data.audioUrl is string && data.audioUrl.size() <= 800000 : true) &&
+             (data.keys().hasAny(['status']) ? data.status in ['sent', 'delivered', 'read'] : true);
+    }
+
+    function isValidCall(data) {
+      return data.keys().hasAll(['participants', 'chatId', 'callerId', 'type', 'status', 'createdAt']) &&
+             data.participants is list && request.auth.uid in data.participants &&
+             data.status in ['calling', 'ongoing', 'ended'] &&
+             data.createdAt == request.time;
+    }
+
+    function isValidSignal(data) {
+      return data.keys().hasAll(['from', 'to', 'type', 'data', 'createdAt']) &&
+             data.from == request.auth.uid &&
+             data.type in ['offer', 'answer', 'candidate'] &&
+             data.createdAt == request.time;
+    }
+
+    // User Profiles
+    match /users/{userId} {
+      allow get: if isSignedIn();
+      allow list: if isSignedIn(); // For searching contacts
+      allow create, update: if isOwner(userId) && isValidUser(request.resource.data);
+    }
+
+    // Chats
+    match /chats/{chatId} {
+      allow get: if isSignedIn() && request.auth.uid in resource.data.participants;
+      allow list: if isSignedIn() && request.auth.uid in resource.data.participants;
+      allow create: if isSignedIn() && isValidChat(request.resource.data);
+      allow update: if isSignedIn() && request.auth.uid in resource.data.participants;
+
+      // Messages subcollection
+      match /messages/{messageId} {
+        allow list, get: if isParticipant(chatId);
+        allow create: if isParticipant(chatId) && isValidMessage(request.resource.data);
+        allow delete: if false; // Messages are permanent for now
+        allow update: if isParticipant(chatId) && (
+          (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status']) && request.resource.data.status in ['delivered', 'read']) ||
+          (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['reactions'])) ||
+          (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['isDeleted', 'deletedAt']) && request.auth.uid == resource.data.senderId)
+        );
+      }
+    }
+
+    // Calls
+    match /calls/{callId} {
+      allow get, list: if isSignedIn() && request.auth.uid in resource.data.participants;
+      allow create: if isSignedIn() && isValidCall(request.resource.data);
+      allow update: if isSignedIn() && request.auth.uid in resource.data.participants;
+
+      match /signals/{signalId} {
+        allow list, get: if isSignedIn() && request.auth.uid in get(/databases/$(database)/documents/calls/$(callId)).data.participants;
+        allow create: if isSignedIn() && isValidSignal(request.resource.data);
+        allow delete: if isSignedIn() && (resource.data.to == request.auth.uid || resource.data.from == request.auth.uid);
+      }
+    }
+  }
+}

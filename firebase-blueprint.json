@@ -1,0 +1,117 @@
+{
+  "entities": {
+    "User": {
+      "title": "User Profile",
+      "description": "User account information and presence state.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "displayName": { "type": "string" },
+        "email": { "type": "string" },
+        "photoURL": { "type": "string" },
+        "lastSeen": { "type": "string", "format": "date-time" },
+        "status": { "type": "string" },
+        "about": { "type": "string" },
+        "uin": { "type": "string" },
+        "onlineStatus": { "type": "string", "enum": ["online", "away", "busy"] }
+      },
+      "required": ["uid", "displayName", "email"]
+    },
+    "Chat": {
+      "title": "Chat Session",
+      "description": "Metadata for a conversation between users.",
+      "type": "object",
+      "properties": {
+        "participants": { "type": "array", "items": { "type": "string" } },
+        "type": { "type": "string", "enum": ["private", "group"] },
+        "groupMetadata": {
+          "type": "object",
+          "properties": {
+            "name": { "type": "string" },
+            "photoURL": { "type": "string" },
+            "createdBy": { "type": "string" }
+          }
+        },
+        "lastMessage": {
+          "type": "object",
+          "properties": {
+            "text": { "type": "string" },
+            "senderId": { "type": "string" },
+            "senderName": { "type": "string" },
+            "timestamp": { "type": "string", "format": "date-time" }
+          }
+        },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["participants", "type", "updatedAt"]
+    },
+    "Message": {
+      "title": "Message",
+      "description": "An individual message within a chat.",
+      "type": "object",
+      "properties": {
+        "text": { "type": "string" },
+        "senderId": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "type": { "type": "string", "enum": ["text", "image", "video", "audio"] },
+        "imageUrl": { "type": "string" },
+        "videoUrl": { "type": "string" },
+        "audioUrl": { "type": "string" },
+        "status": { "type": "string", "enum": ["sending", "sent", "delivered", "read"] },
+        "reactions": { "type": "object", "additionalProperties": { "type": "string" } },
+        "isDeleted": { "type": "boolean" },
+        "deletedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["senderId", "timestamp", "type"]
+    },
+    "Call": {
+      "title": "Call",
+      "description": "Video/Voice call signaling data.",
+      "type": "object",
+      "properties": {
+        "participants": { "type": "array", "items": { "type": "string" } },
+        "chatId": { "type": "string" },
+        "callerId": { "type": "string" },
+        "type": { "type": "string", "enum": ["private", "group"] },
+        "status": { "type": "string", "enum": ["calling", "ongoing", "ended"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "offer": { "type": "object" },
+        "answer": { "type": "object" }
+      },
+      "required": ["participants", "chatId", "callerId", "type", "status", "createdAt"]
+    },
+    "Candidate": {
+      "title": "ICE Candidate",
+      "description": "WebRTC ICE candidate for connectivity.",
+      "type": "object",
+      "properties": {
+        "candidate": { "type": "object" },
+        "senderId": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["candidate", "senderId", "createdAt"]
+    }
+  },
+  "firestore": {
+    "users/{userId}": {
+      "schema": "User",
+      "description": "Public user profiles."
+    },
+    "chats/{chatId}": {
+      "schema": "Chat",
+      "description": "Conversation metadata."
+    },
+    "chats/{chatId}/messages/{messageId}": {
+      "schema": "Message",
+      "description": "Messages for a specific chat."
+    },
+    "calls/{callId}": {
+      "schema": "Call",
+      "description": "Call signaling sessions."
+    },
+    "calls/{callId}/candidates/{candidateId}": {
+      "schema": "Candidate",
+      "description": "ICE candidates for a call."
+    }
+  }
+}

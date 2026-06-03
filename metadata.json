@@ -1,0 +1,6 @@
+{
+  "name": "Nexus Messenger",
+  "description": "A feature-rich, real-time messaging application inspired by WhatsApp but featuring a unique, high-performance technical aesthetic.",
+  "requestFramePermissions": ["camera", "microphone"],
+  "majorCapabilities": ["real-time messaging", "user authentication", "media sharing"]
+}
