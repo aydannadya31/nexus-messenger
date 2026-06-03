@@ -15,6 +15,8 @@ interface ChatAreaProps {
 
 const AudioPlayer: React.FC<{ url: string; isMe: boolean }> = ({ url, isMe }) => {
   const [isPlaying, setIsPlaying] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [duration, setDuration] = useState(0);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
   const togglePlay = useCallback(() => {
@@ -27,31 +29,52 @@ const AudioPlayer: React.FC<{ url: string; isMe: boolean }> = ({ url, isMe }) =>
     setIsPlaying(!isPlaying);
   }, [isPlaying]);
 
+  const formatTime = (s: number) => {
+    const m = Math.floor(s / 60);
+    const sec = Math.floor(s % 60);
+    return `${m}:${sec.toString().padStart(2, '0')}`;
+  };
+
   return (
     <div className={cn(
-      "flex items-center gap-3 min-w-[200px] py-1",
+      "flex items-center gap-3 min-w-[180px] py-1",
       isMe ? "text-white" : "text-slate-800"
     )}>
       <button 
         onClick={togglePlay}
         className={cn(
-          "w-9 h-9 rounded-full flex items-center justify-center transition-all",
+          "w-9 h-9 rounded-full flex items-center justify-center transition-all shrink-0",
           isMe ? "bg-white/20 hover:bg-white/30" : "bg-blue-50 hover:bg-blue-100 text-blue-600 shadow-sm"
         )}
       >
-        {isPlaying ? <Pause size={18} fill="currentColor" /> : <Play size={18} fill="currentColor" className="ml-0.5" />}
+        {isPlaying ? <Pause size={16} fill="currentColor" /> : <Play size={16} fill="currentColor" className="ml-0.5" />}
       </button>
-      <div className="flex-1 flex flex-col gap-1">
-        <div className="h-1 bg-current opacity-20 rounded-full relative overflow-hidden">
-           <div className="absolute inset-0 bg-current rounded-full" style={{ width: '40%' }} />
+      <div className="flex-1 flex items-center gap-2">
+        <div className="flex-1 h-1.5 bg-current opacity-20 rounded-full relative overflow-hidden">
+          <div
+            className="absolute inset-y-0 left-0 bg-current rounded-full transition-all duration-200"
+            style={{ width: `${duration > 0 ? (progress / duration) * 100 : 0}%` }}
+          />
         </div>
-        <span className="text-[10px] font-bold opacity-60">Ses Mesajı</span>
+        <span className="text-[10px] font-bold opacity-60 tabular-nums shrink-0">
+          {isPlaying || progress > 0 ? formatTime(duration - progress) : formatTime(duration)}
+        </span>
       </div>
-      <audio 
-        ref={audioRef} 
-        src={url} 
-        onEnded={() => setIsPlaying(false)}
-        className="hidden" 
+      <audio
+        ref={audioRef}
+        src={url}
+        preload="metadata"
+        onLoadedMetadata={() => {
+          if (audioRef.current) setDuration(audioRef.current.duration);
+        }}
+        onTimeUpdate={() => {
+          if (audioRef.current) setProgress(audioRef.current.currentTime);
+        }}
+        onEnded={() => {
+          setIsPlaying(false);
+          setProgress(0);
+        }}
+        className="hidden"
       />
     </div>
   );
@@ -69,7 +92,6 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
   const [reactionMenu, setReactionMenu] = useState<{ msgId: string, x: number, y: number } | null>(null);
   const [isHeaderMenuOpen, setIsHeaderMenuOpen] = useState(false);
   const [isEmojiMenuOpen, setIsEmojiMenuOpen] = useState(false);
-  const [showDeletedMessages, setShowDeletedMessages] = useState(false);
   const [customDialog, setCustomDialog] = useState<{
     isOpen: boolean;
     title: string;
@@ -77,6 +99,8 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
     type: 'alert' | 'confirm';
     onConfirm?: () => void;
   } | null>(null);
+
+  const [deleteTarget, setDeleteTarget] = useState<{ msgId: string; isMine: boolean } | null>(null);
 
   const showCustomAlert = (title: string, message: string) => {
     setCustomDialog({
@@ -95,6 +119,39 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
       type: 'confirm',
       onConfirm
     });
+  };
+
+  const showDeleteMenu = (msg: Message) => {
+    const isMyMessage = msg.senderId === user?.uid;
+    setDeleteTarget({ msgId: msg.id, isMine: isMyMessage });
+  };
+
+  const closeDeleteMenu = () => setDeleteTarget(null);
+
+  const handleDeleteMsg = async (msgId: string, type: 'me' | 'everyone') => {
+    if (!chatId || !user) return;
+    try {
+      const msgRef = doc(db, 'chats', chatId, 'messages', msgId);
+      const msgSnap = await getDoc(msgRef);
+      if (!msgSnap.exists()) return;
+      const msgData = msgSnap.data();
+      const currentDeletedBy = msgData.deletedBy || [];
+
+      if (type === 'everyone') {
+        const chatSnap = await getDoc(doc(db, 'chats', chatId));
+        if (!chatSnap.exists()) return;
+        const allParticipants = chatSnap.data().participants || [];
+        await updateDoc(msgRef, {
+          deletedBy: Array.from(new Set([...currentDeletedBy, ...allParticipants]))
+        });
+      } else {
+        await updateDoc(msgRef, {
+          deletedBy: Array.from(new Set([...currentDeletedBy, user.uid]))
+        });
+      }
+    } catch (error) {
+      console.error("Delete message error:", error);
+    }
   };
 
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -274,10 +331,12 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
   const audioChunksRef = useRef<Blob[]>([]);
   const timerRef = useRef<any>(null);
 
+  const MAX_RECORDING_SECONDS = 30;
+
   const startRecording = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mediaRecorder = new MediaRecorder(stream);
+      const mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm;codecs=opus' });
       mediaRecorderRef.current = mediaRecorder;
       audioChunksRef.current = [];
 
@@ -291,8 +350,8 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
         reader.readAsDataURL(audioBlob);
         reader.onloadend = async () => {
           const base64Audio = reader.result as string;
-          if (base64Audio.length > 800000) {
-            showCustomAlert("Ses Kaydı Sınırı", "Ses mesajı çok uzun, lütfen daha kısa bir kayıt yapın.");
+          if (base64Audio.length > 900000) {
+            showCustomAlert("Ses Kaydı Sınırı", "Ses mesajı çok uzun, lütfen daha kısa bir kayıt yapın (maks. 30 saniye).");
             return;
           }
           await sendAudioMessage(base64Audio);
@@ -304,7 +363,13 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
       setIsRecording(true);
       setRecordingTime(0);
       timerRef.current = setInterval(() => {
-        setRecordingTime(prev => prev + 1);
+        setRecordingTime(prev => {
+          if (prev >= MAX_RECORDING_SECONDS - 1) {
+            stopRecording();
+            return prev;
+          }
+          return prev + 1;
+        });
       }, 1000);
     } catch (error) {
       console.error("Microphone access error:", error);
@@ -384,24 +449,6 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
     };
     reader.readAsDataURL(file);
     e.target.value = '';
-  };
-
-  const handleDeleteMessage = async (msgId: string) => {
-    if (!chatId) return;
-    showCustomConfirm(
-      "Mesajı Sil",
-      "Bu mesajı silmek istediğinizden emin misiniz? Silinen bu mesaj sadece sizin 'Sildiğim Mesajları Göster' seçeneğiniz açıkken görüntülenebilir.",
-      async () => {
-        try {
-          await updateDoc(doc(db, 'chats', chatId, 'messages', msgId), {
-            isDeleted: true,
-            deletedAt: serverTimestamp()
-          });
-        } catch (error) {
-          console.error("Delete message error:", error);
-        }
-      }
-    );
   };
 
   const handleClearChat = async () => {
@@ -633,18 +680,6 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
                   </button>
                   <button 
                     onClick={() => {
-                      setShowDeletedMessages(!showDeletedMessages);
-                      setIsHeaderMenuOpen(false);
-                    }}
-                    className={cn(
-                      "w-full text-left px-4 py-3 text-xs font-bold transition-colors flex items-center gap-2",
-                      showDeletedMessages ? "text-amber-600 hover:bg-amber-50" : "text-blue-600 hover:bg-blue-50"
-                    )}
-                  >
-                    {showDeletedMessages ? '🙈 Sildiğim Mesajları Gizle' : '👁️ Sildiğim Mesajları Göster'}
-                  </button>
-                  <button 
-                    onClick={() => {
                       const uinList = chat?.type === 'group' 
                         ? chat.participants.map(pId => `👤 ${participantInfo[pId]?.displayName || 'Katılımcı'} (UIN: #${participantInfo[pId]?.uin || 'Yok'})`).join('\n')
                         : `👤 ${headerInfo.name} (UIN: #${headerInfo.uin || 'Yok'})`;
@@ -673,11 +708,11 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
 
         <AnimatePresence>
           {messages
-            .filter(msg => !msg.isDeleted || (showDeletedMessages && msg.senderId === user?.uid))
+            .filter(msg => !msg.deletedBy?.includes(user?.uid || ''))
             .map((msg, idx) => {
               const isMe = msg.senderId === user?.uid;
               const sender = participantInfo[msg.senderId];
-              const isDeleted = msg.isDeleted === true;
+              const isDeleted = (msg.deletedBy?.length || 0) > 0;
 
               return (
                 <motion.div 
@@ -716,7 +751,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
                     >
                       {isDeleted && (
                         <div className="text-[9px] font-black uppercase tracking-wider text-rose-500 flex items-center gap-1 mb-1.5 bg-rose-50 border border-rose-100 px-1.5 py-0.5 rounded w-max select-none">
-                          <Trash2 size={10} /> SİLDİĞİNİZ MESAJ
+                          <Trash2 size={10} /> SİLİNMİŞ MESAJ
                         </div>
                       )}
 
@@ -792,14 +827,12 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
                           <Smile size={14} />
                         </button>
                         
-                        {isMe && (
+                        {msg.id && (
                           <button
                             type="button"
                             onClick={(e) => {
                               e.stopPropagation();
-                              if (msg.id) {
-                                handleDeleteMessage(msg.id);
-                              }
+                              showDeleteMenu(msg);
                             }}
                             className="p-1 px-1.5 text-slate-400 hover:text-red-500 active:scale-110 transition-all rounded-full flex items-center justify-center cursor-pointer"
                             title="Mesajı Sil"
@@ -918,7 +951,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
             <div className="flex items-center gap-3 px-4 py-1 bg-red-50 text-red-600 rounded-xl animate-in fade-in zoom-in-95 duration-200">
                <div className="w-2 h-2 bg-red-600 rounded-full animate-ping" />
                <span className="text-xs font-black tabular-nums">{Math.floor(recordingTime / 60)}:{String(recordingTime % 60).padStart(2, '0')}</span>
-               <button onClick={stopRecording} className="p-1 px-2 bg-red-600 text-white rounded-lg text-[10px] font-bold uppercase tracking-wider">Durur ve Gönder</button>
+               <button onClick={stopRecording} className="p-1 px-2 bg-red-600 text-white rounded-lg text-[10px] font-bold uppercase tracking-wider">Durdur ve Gönder</button>
             </div>
           ) : (
             <button 
@@ -1020,6 +1053,63 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
                   Tamam
                 </button>
               </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Delete Menu */}
+      <AnimatePresence>
+        {deleteTarget && (
+          <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-in fade-in duration-200">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 10 }}
+              className="bg-white rounded-3xl p-6 shadow-2xl border border-slate-100 max-w-sm w-full flex flex-col gap-3 text-center relative z-[120]"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="w-12 h-12 bg-red-50 text-red-500 rounded-2xl flex items-center justify-center mx-auto">
+                <Trash2 size={22} />
+              </div>
+              <div>
+                <h3 className="text-base font-black text-slate-900 leading-tight">Mesajı Sil</h3>
+                <p className="text-xs text-slate-500 font-bold mt-2 leading-relaxed">
+                  {deleteTarget.isMine
+                    ? 'Bu mesajı kimler için silmek istiyorsun?'
+                    : 'Bu mesajı sadece sizin için sil?'}
+                </p>
+              </div>
+              <div className="flex gap-3 justify-center mt-2">
+                <button
+                  onClick={closeDeleteMenu}
+                  className="flex-1 py-2.5 rounded-xl text-xs font-bold text-slate-500 hover:bg-slate-50 active:scale-95 transition-all border border-slate-200 cursor-pointer"
+                >
+                  Vazgeç
+                </button>
+                <button
+                  onClick={() => {
+                    const id = deleteTarget.msgId;
+                    closeDeleteMenu();
+                    handleDeleteMsg(id, 'me');
+                  }}
+                  className="flex-1 py-2.5 rounded-xl text-xs font-bold text-red-600 hover:bg-red-50 active:scale-95 transition-all border border-red-200 cursor-pointer"
+                >
+                  Sadece Benim İçin Sil
+                </button>
+              </div>
+              {deleteTarget.isMine && (
+                <button
+                  onClick={() => {
+                    const id = deleteTarget.msgId;
+                    closeDeleteMenu();
+                    handleDeleteMsg(id, 'everyone');
+                  }}
+                  className="py-2.5 rounded-xl text-xs font-bold text-white bg-red-600 hover:bg-red-700 active:scale-95 transition-all shadow-lg shadow-red-600/20 cursor-pointer"
+                >
+                  Herkes İçin Sil
+                </button>
+              )}
             </motion.div>
           </div>
         )}

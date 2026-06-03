@@ -38,9 +38,8 @@ export interface Message {
   videoUrl?: string;
   audioUrl?: string;
   status?: 'sending' | 'sent' | 'delivered' | 'read';
-  reactions?: Record<string, string>; // userId -> emoji
-  isDeleted?: boolean;
-  deletedAt?: any;
+  reactions?: Record<string, string>;
+  deletedBy?: string[];
 }
 
 export interface Call {
