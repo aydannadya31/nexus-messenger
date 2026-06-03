@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { onAuthStateChanged, getRedirectResult, User } from 'firebase/auth';
+import { onAuthStateChanged, User } from 'firebase/auth';
 import { doc, setDoc, serverTimestamp, getDoc } from 'firebase/firestore';
 import { auth, db } from '../lib/firebase';
 
@@ -15,33 +15,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const init = async () => {
-      // Handle redirect result (for signInWithRedirect)
-      try {
-        const result = await getRedirectResult(auth);
-        if (result?.user) {
-          await syncUser(result.user);
-          setLoading(false);
-          return;
-        }
-      } catch (err: any) {
-        if (err?.code === 'auth/unauthorized-domain') {
-          console.warn('Redirect sign-in failed (unauthorized domain). Try popup instead.');
-        }
-      }
-    };
-    init();
+    let cancelled = false;
 
-    const unsubscribe = onAuthStateChanged(auth, async (user) => {
-      if (user) {
-        await syncUser(user);
+    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      if (cancelled) return;
+
+      if (firebaseUser) {
+        await syncUser(firebaseUser);
       } else {
         setUser(null);
       }
-      setLoading(false);
+      if (!cancelled) setLoading(false);
     });
 
-    return () => unsubscribe();
+    return () => {
+      cancelled = true;
+      unsubscribe();
+    };
   }, []);
 
   const syncUser = async (user: User) => {

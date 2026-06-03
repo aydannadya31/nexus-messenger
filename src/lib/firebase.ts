@@ -1,5 +1,5 @@
 import { initializeApp } from 'firebase/app';
-import { getAuth, GoogleAuthProvider, signInWithRedirect, signOut, getRedirectResult } from 'firebase/auth';
+import { getAuth, GoogleAuthProvider, signInWithPopup, signOut } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
 import firebaseConfig from '../../firebase-applet-config.json';
 
@@ -9,12 +9,5 @@ export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 
 const googleProvider = new GoogleAuthProvider();
 
-export const signInWithGoogle = async () => {
-  try {
-    await signInWithRedirect(auth, googleProvider);
-  } catch (err: any) {
-    throw err;
-  }
-};
-
+export const signInWithGoogle = () => signInWithPopup(auth, googleProvider);
 export const logout = () => signOut(auth);
