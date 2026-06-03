@@ -20,46 +20,55 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       if (cancelled) return;
 
-      if (firebaseUser) {
-        await syncUser(firebaseUser);
-      } else {
+      try {
+        if (firebaseUser) {
+          setUser(firebaseUser);
+
+          try {
+            const userRef = doc(db, 'users', firebaseUser.uid);
+            const userDoc = await getDoc(userRef);
+
+            let uin = userDoc.exists() ? (userDoc.data() as any).uin : null;
+
+            if (!uin) {
+              const locale = navigator.language || 'en-US';
+              const countryCode = locale.split('-')[1] || locale.split('-')[0].toUpperCase();
+              const prefix = countryCode.padEnd(3, 'X').slice(0, 3).toUpperCase();
+              uin = `${prefix}-${Math.floor(10000000 + Math.random() * 90000000)}`;
+            }
+
+            await setDoc(userRef, {
+              uid: firebaseUser.uid,
+              displayName: firebaseUser.displayName || 'Anonymous',
+              email: firebaseUser.email || '',
+              photoURL: firebaseUser.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${firebaseUser.uid}`,
+              lastSeen: serverTimestamp(),
+              uin: uin
+            }, { merge: true });
+          } catch (firestoreErr) {
+            console.warn('Firestore sync failed (non-critical):', firestoreErr);
+          }
+        } else {
+          setUser(null);
+        }
+      } catch (err) {
+        console.error('Auth callback error:', err);
         setUser(null);
       }
+
       if (!cancelled) setLoading(false);
     });
+
+    const timeoutId = setTimeout(() => {
+      if (!cancelled) setLoading(false);
+    }, 8000);
 
     return () => {
       cancelled = true;
       unsubscribe();
+      clearTimeout(timeoutId);
     };
   }, []);
-
-  const syncUser = async (user: User) => {
-    const userRef = doc(db, 'users', user.uid);
-    const userDoc = await getDoc(userRef);
-    
-    let uin = userDoc.exists() ? (userDoc.data() as any).uin : null;
-    
-    // Generate UIN if not exists (ICQ style with Country Prefix)
-    if (!uin) {
-      const locale = navigator.language || 'en-US';
-      const countryCode = locale.split('-')[1] || locale.split('-')[0].toUpperCase();
-      const prefix = countryCode.padEnd(3, 'X').slice(0, 3).toUpperCase();
-      uin = `${prefix}-${Math.floor(10000000 + Math.random() * 90000000)}`;
-    }
-
-    await setDoc(userRef, {
-      uid: user.uid,
-      displayName: user.displayName || 'Anonymous',
-      email: user.email || '',
-      photoURL: user.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.uid}`,
-      lastSeen: serverTimestamp(),
-      uin: uin
-    }, { merge: true });
-    
-    const d = await getDoc(userRef);
-    setUser({ ...user, ...(d.data() as any) });
-  };
 
   return (
     <AuthContext.Provider value={{ user, loading }}>
