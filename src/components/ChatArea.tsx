@@ -100,7 +100,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
     onConfirm?: () => void;
   } | null>(null);
 
-  const [deleteTarget, setDeleteTarget] = useState<{ msgId: string; isMine: boolean } | null>(null);
+
 
   const showCustomAlert = (title: string, message: string) => {
     setCustomDialog({
@@ -121,34 +121,26 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
     });
   };
 
-  const showDeleteMenu = (msg: Message) => {
-    const isMyMessage = msg.senderId === user?.uid;
-    setDeleteTarget({ msgId: msg.id, isMine: isMyMessage });
+  const confirmDeleteMsg = (msgId: string, isMine: boolean) => {
+    showCustomConfirm(
+      isMine ? 'Mesajı Sil' : 'Mesajı Benden Sil',
+      isMine
+        ? 'Bu mesajı silmek istediğinize emin misiniz? (Sadece sizden silinir, karşı tarafta kalır)'
+        : 'Bu mesajı benden silmek istediğinize emin misiniz? (Karşı tarafta kalmaya devam eder)',
+      () => handleDeleteMsg(msgId)
+    );
   };
 
-  const closeDeleteMenu = () => setDeleteTarget(null);
-
-  const handleDeleteMsg = async (msgId: string, type: 'me' | 'everyone') => {
+  const handleDeleteMsg = async (msgId: string) => {
     if (!chatId || !user) return;
     try {
       const msgRef = doc(db, 'chats', chatId, 'messages', msgId);
       const msgSnap = await getDoc(msgRef);
       if (!msgSnap.exists()) return;
-      const msgData = msgSnap.data();
-      const currentDeletedBy = msgData.deletedBy || [];
-
-      if (type === 'everyone') {
-        const chatSnap = await getDoc(doc(db, 'chats', chatId));
-        if (!chatSnap.exists()) return;
-        const allParticipants = chatSnap.data().participants || [];
-        await updateDoc(msgRef, {
-          deletedBy: Array.from(new Set([...currentDeletedBy, ...allParticipants]))
-        });
-      } else {
-        await updateDoc(msgRef, {
-          deletedBy: Array.from(new Set([...currentDeletedBy, user.uid]))
-        });
-      }
+      const currentDeletedBy = msgSnap.data().deletedBy || [];
+      await updateDoc(msgRef, {
+        deletedBy: Array.from(new Set([...currentDeletedBy, user.uid]))
+      });
     } catch (error) {
       console.error("Delete message error:", error);
     }
@@ -832,10 +824,10 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
                             type="button"
                             onClick={(e) => {
                               e.stopPropagation();
-                              showDeleteMenu(msg);
+                              confirmDeleteMsg(msg.id, isMe);
                             }}
                             className="p-1 px-1.5 text-slate-400 hover:text-red-500 active:scale-110 transition-all rounded-full flex items-center justify-center cursor-pointer"
-                            title="Mesajı Sil"
+                            title={isMe ? 'Mesajı Sil' : 'Benden Sil'}
                           >
                             <Trash2 size={13} />
                           </button>
@@ -1058,62 +1050,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
         )}
       </AnimatePresence>
 
-      {/* Delete Menu */}
-      <AnimatePresence>
-        {deleteTarget && (
-          <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-in fade-in duration-200">
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95, y: 10 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 10 }}
-              className="bg-white rounded-3xl p-6 shadow-2xl border border-slate-100 max-w-sm w-full flex flex-col gap-3 text-center relative z-[120]"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <div className="w-12 h-12 bg-red-50 text-red-500 rounded-2xl flex items-center justify-center mx-auto">
-                <Trash2 size={22} />
-              </div>
-              <div>
-                <h3 className="text-base font-black text-slate-900 leading-tight">Mesajı Sil</h3>
-                <p className="text-xs text-slate-500 font-bold mt-2 leading-relaxed">
-                  {deleteTarget.isMine
-                    ? 'Bu mesajı kimler için silmek istiyorsun?'
-                    : 'Bu mesajı sadece sizin için sil?'}
-                </p>
-              </div>
-              <div className="flex gap-3 justify-center mt-2">
-                <button
-                  onClick={closeDeleteMenu}
-                  className="flex-1 py-2.5 rounded-xl text-xs font-bold text-slate-500 hover:bg-slate-50 active:scale-95 transition-all border border-slate-200 cursor-pointer"
-                >
-                  Vazgeç
-                </button>
-                <button
-                  onClick={() => {
-                    const id = deleteTarget.msgId;
-                    closeDeleteMenu();
-                    handleDeleteMsg(id, 'me');
-                  }}
-                  className="flex-1 py-2.5 rounded-xl text-xs font-bold text-red-600 hover:bg-red-50 active:scale-95 transition-all border border-red-200 cursor-pointer"
-                >
-                  Sadece Benim İçin Sil
-                </button>
-              </div>
-              {deleteTarget.isMine && (
-                <button
-                  onClick={() => {
-                    const id = deleteTarget.msgId;
-                    closeDeleteMenu();
-                    handleDeleteMsg(id, 'everyone');
-                  }}
-                  className="py-2.5 rounded-xl text-xs font-bold text-white bg-red-600 hover:bg-red-700 active:scale-95 transition-all shadow-lg shadow-red-600/20 cursor-pointer"
-                >
-                  Herkes İçin Sil
-                </button>
-              )}
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
+
     </div>
   );
 };
