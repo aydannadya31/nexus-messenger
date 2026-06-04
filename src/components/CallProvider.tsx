@@ -57,8 +57,11 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
           setActiveCall(null);
         }
       } else {
-        // If I'm the caller and call just started
-        const myActive = calls.find(c => c.callerId === user.uid && c.activeParticipants?.includes(user.uid));
+        // If I'm in an ongoing call (as caller or participant who accepted)
+        const myActive = calls.find(c =>
+          c.activeParticipants?.includes(user.uid) &&
+          (c.status === 'ongoing' || (c.callerId === user.uid && c.status === 'calling'))
+        );
         if (myActive) setActiveCall(myActive);
       }
     });

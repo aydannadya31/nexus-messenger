@@ -366,6 +366,9 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
   const videoChunksRef = useRef<Blob[]>([]);
   const videoTimerRef = useRef<any>(null);
   const videoPreviewRef = useRef<HTMLVideoElement | null>(null);
+  const videoStreamRef = useRef<MediaStream | null>(null);
+  const [useFrontCamera, setUseFrontCamera] = useState(true);
+  const videoRecordingContainerRef = useRef<HTMLDivElement | null>(null);
 
   const MAX_RECORDING_SECONDS = 30;
 
@@ -449,13 +452,19 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
 
   const startVideoRecording = async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 15 } }, audio: true });
+      const facingMode = useFrontCamera ? 'user' : 'environment';
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { width: { ideal: 320 }, height: { ideal: 240 }, frameRate: { ideal: 10 }, facingMode },
+        audio: { echoCancellation: true, noiseSuppression: true }
+      });
+      videoStreamRef.current = stream;
+
       const mimeType = MediaRecorder.isTypeSupported('video/webm;codecs=vp9,opus')
         ? 'video/webm;codecs=vp9,opus'
         : MediaRecorder.isTypeSupported('video/webm;codecs=vp8,opus')
         ? 'video/webm;codecs=vp8,opus'
         : 'video/webm';
-      const mediaRecorder = new MediaRecorder(stream, { mimeType });
+      const mediaRecorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: 250000 });
       videoRecorderRef.current = mediaRecorder;
       videoChunksRef.current = [];
 
@@ -475,13 +484,16 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
           const base64Video = reader.result as string;
           await sendVideoMessage(base64Video);
         };
-        stream.getTracks().forEach(track => track.stop());
+        if (videoStreamRef.current) {
+          videoStreamRef.current.getTracks().forEach(track => track.stop());
+          videoStreamRef.current = null;
+        }
         if (videoPreviewRef.current) {
           videoPreviewRef.current.srcObject = null;
         }
       };
 
-      mediaRecorder.start();
+      mediaRecorder.start(100);
       setIsVideoRecording(true);
       setVideoRecordingTime(0);
       videoTimerRef.current = setInterval(() => {
@@ -507,10 +519,15 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
     }
   };
 
+  const toggleCamera = async () => {
+    if (isVideoRecording) return;
+    setUseFrontCamera(prev => !prev);
+  };
+
   const sendVideoMessage = async (videoUrl: string) => {
     if (!user || !chatId) return;
-    if (videoUrl.length > 900000) {
-      showCustomAlert("Video Çok Büyük", "Video dosyası çok büyük. Lütfen daha kısa bir kayıt yapın (maks. 10 saniye).");
+    if (videoUrl.length > 1200000) {
+      showCustomAlert("Video Çok Büyük", "Video dosyası çok büyük. Lütfen daha kısa bir kayıt yapın.");
       return;
     }
     try {
@@ -1092,8 +1109,11 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
             <Image size={18} className="sm:size-[20px]" />
           </button>
           {isVideoRecording ? (
-            <div className="flex items-center gap-1.5 sm:gap-3 px-2 sm:px-4 py-1 bg-red-50 text-red-600 rounded-lg sm:rounded-xl animate-in fade-in zoom-in-95 duration-200 shrink-0">
-              <video ref={videoPreviewRef} className="w-10 h-8 rounded object-cover bg-black" muted playsInline />
+            <div ref={videoRecordingContainerRef} className="flex items-center gap-1.5 sm:gap-3 px-2 sm:px-4 py-1 bg-red-50 text-red-600 rounded-lg sm:rounded-xl animate-in fade-in zoom-in-95 duration-200 shrink-0">
+              <video ref={videoPreviewRef} className="w-12 h-9 rounded object-cover bg-black border border-red-300" muted playsInline />
+              <button onClick={toggleCamera} className="p-1 bg-slate-200 hover:bg-slate-300 rounded-lg text-slate-600 transition-all" title="Kamera Değiştir">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+              </button>
               <div className="w-2 h-2 bg-red-600 rounded-full animate-ping shrink-0" />
               <span className="text-[10px] sm:text-xs font-black tabular-nums">{Math.floor(videoRecordingTime / 60)}:{String(videoRecordingTime % 60).padStart(2, '0')}</span>
               <button onClick={stopVideoRecording} className="p-1 px-1.5 sm:px-2 bg-red-600 text-white rounded-lg text-[9px] sm:text-[10px] font-bold uppercase tracking-wider whitespace-nowrap">Gönder</button>
@@ -1103,6 +1123,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
               type="button" 
               onClick={startVideoRecording}
               className="p-1.5 sm:p-2 text-slate-400 hover:text-slate-600 transition-colors shrink-0"
+              title="Video Kaydı (10sn)"
             >
               <Video size={18} className="sm:size-[20px]" />
             </button>

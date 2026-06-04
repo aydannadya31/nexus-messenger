@@ -41,6 +41,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
   useEffect(() => {
     if (!user) return;
 
+    const profileUnsubs: (() => void)[] = [];
+
     const q = query(
       collection(db, 'chats'),
       where('participants', 'array-contains', user.uid),
@@ -71,28 +73,31 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
 
       setChats(chatList);
 
-      // Fetch other participants info only for private chats
-      const details = { ...chatDetailsRef.current };
-      let changed = false;
+      // Subscribe to profile changes for all private chat participants
       for (const chat of chatList) {
         if (chat.type === 'private') {
           const otherId = chat.participants.find(p => p !== user.uid);
-          if (otherId && !details[otherId]) {
-            const userDoc = await getDoc(doc(db, 'users', otherId));
-            if (userDoc.exists()) {
-              details[otherId] = userDoc.data() as UserProfile;
-              changed = true;
-            }
+          if (otherId && !chatDetailsRef.current[otherId]) {
+            chatDetailsRef.current[otherId] = {} as UserProfile; // mark as loading
+            (async (id) => {
+              const unsub = onSnapshot(doc(db, 'users', id), (snap) => {
+                if (snap.exists()) {
+                  chatDetailsRef.current[id] = snap.data() as UserProfile;
+                  setChatDetails({ ...chatDetailsRef.current });
+                }
+              });
+              // Store unsub for cleanup
+              profileUnsubs.push(unsub);
+            })(otherId);
           }
         }
       }
-      if (changed) {
-        chatDetailsRef.current = details;
-        setChatDetails(details);
-      }
     });
 
-    return () => unsubscribe();
+    return () => {
+      unsubscribe();
+      profileUnsubs.forEach(fn => fn());
+    };
   }, [user]);
 
   const getChatInfo = (chat: Chat) => {

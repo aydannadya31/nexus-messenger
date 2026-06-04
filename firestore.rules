@@ -45,8 +45,8 @@ service cloud.firestore {
              data.type in ['text', 'image', 'video', 'audio'] &&
              (data.type == 'text' ? data.text is string && data.text.size() <= 6000 : true) &&
              (data.type == 'image' ? data.imageUrl is string : true) &&
-             (data.type == 'video' ? data.videoUrl is string && data.videoUrl.size() <= 900000 : true) &&
-             (data.type == 'audio' ? data.audioUrl is string && data.audioUrl.size() <= 800000 : true) &&
+             (data.type == 'video' ? data.videoUrl is string && data.videoUrl.size() <= 1200000 : true) &&
+             (data.type == 'audio' ? data.audioUrl is string && data.audioUrl.size() <= 1200000 : true) &&
              (data.keys().hasAny(['status']) ? data.status in ['sent', 'delivered', 'read'] : true);
     }
 
