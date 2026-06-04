@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { collection, query, where, onSnapshot, addDoc, serverTimestamp, doc, updateDoc, getDoc, getDocs, deleteDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { useAuth } from './AuthProvider';
@@ -21,11 +21,15 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const { user } = useAuth();
   const [activeCall, setActiveCall] = useState<Call | null>(null);
   const [incomingCall, setIncomingCall] = useState<Call | null>(null);
+  const activeCallRef = useRef<Call | null>(null);
+
+  useEffect(() => {
+    activeCallRef.current = activeCall;
+  }, [activeCall]);
 
   useEffect(() => {
     if (!user) return;
 
-    // Listen for incoming calls and current active call updates
     const q = query(
       collection(db, 'calls'),
       where('participants', 'array-contains', user.uid),
@@ -33,41 +37,45 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
     );
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      const calls = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Call));
-      
-      // Handle Incoming Call
-      const incoming = calls.find(c => 
-        c.status === 'calling' && 
-        c.callerId !== user.uid && 
-        !c.activeParticipants?.includes(user.uid) &&
-        !activeCall
-      );
-      setIncomingCall(incoming || null);
+      try {
+        const calls = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Call));
+        const currentActive = activeCallRef.current;
 
-      // Handle Active Call Update
-      if (activeCall) {
-        const updated = calls.find(c => c.id === activeCall.id);
-        if (updated) {
-          if (updated.status === 'ended' || (updated.type === 'private' && updated.activeParticipants?.length === 0)) {
-            setActiveCall(null);
+        const incoming = calls.find(c =>
+          c.status === 'calling' &&
+          c.callerId !== user.uid &&
+          !c.activeParticipants?.includes(user.uid) &&
+          !currentActive
+        );
+        setIncomingCall(incoming || null);
+
+        if (currentActive) {
+          const updated = calls.find(c => c.id === currentActive.id);
+          if (updated) {
+            if (updated.status === 'ended' || (updated.type === 'private' && updated.activeParticipants?.length === 0)) {
+              setActiveCall(null);
+            } else {
+              setActiveCall(updated);
+            }
           } else {
-            setActiveCall(updated);
+            setActiveCall(null);
           }
         } else {
-          setActiveCall(null);
+          const myActive = calls.find(c =>
+            c.activeParticipants?.includes(user.uid) &&
+            (c.status === 'ongoing' || (c.callerId === user.uid && c.status === 'calling'))
+          );
+          if (myActive) setActiveCall(myActive);
         }
-      } else {
-        // If I'm in an ongoing call (as caller or participant who accepted)
-        const myActive = calls.find(c =>
-          c.activeParticipants?.includes(user.uid) &&
-          (c.status === 'ongoing' || (c.callerId === user.uid && c.status === 'calling'))
-        );
-        if (myActive) setActiveCall(myActive);
+      } catch (err) {
+        console.error("Call listener error:", err);
       }
+    }, (err) => {
+      console.error("Call listener failed:", err);
     });
 
     return () => unsubscribe();
-  }, [user, activeCall?.id]);
+  }, [user]);
 
   const startCall = async (chatId: string, participants: string[], type: 'private' | 'group', mediaType: 'audio' | 'video' = 'audio') => {
     if (!user) return;

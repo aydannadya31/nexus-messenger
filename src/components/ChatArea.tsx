@@ -451,7 +451,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
 
   const MAX_VIDEO_RECORDING_SECONDS = 10;
 
-  const startVideoStream = useCallback(async (facing: 'user' | 'environment') => {
+  const startVideoStream = async (facing: 'user' | 'environment') => {
     try {
       if (videoStreamRef.current) {
         videoStreamRef.current.getTracks().forEach(t => t.stop());
@@ -459,7 +459,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
       }
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { width: { ideal: 320 }, height: { ideal: 240 }, frameRate: { ideal: 10 }, facingMode: facing },
-        audio: { echoCancellation: true, noiseSuppression: true }
+        audio: false
       });
       videoStreamRef.current = stream;
       if (videoPreviewRef.current) {
@@ -467,10 +467,17 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
       }
     } catch (error) {
       console.error("Camera access error:", error);
-      showCustomAlert("Kamera Erişim Hatası", "Kameraya erişilemedi.");
+      showCustomAlert("Kamera Erişim Hatası", "Kameraya erişilemedi. İzinleri kontrol edin.");
       setShowVideoDialog(false);
     }
-  }, []);
+  };
+
+  const videoRefCallback = useCallback((el: HTMLVideoElement | null) => {
+    videoPreviewRef.current = el;
+    if (el && showVideoDialog && videoDialogState === 'preview' && !videoStreamRef.current) {
+      startVideoStream(useFrontCamera ? 'user' : 'environment');
+    }
+  }, [showVideoDialog, videoDialogState, useFrontCamera]);
 
   const openVideoDialog = () => {
     setShowVideoDialog(true);
@@ -479,7 +486,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
     setVideoRecordingTime(0);
   };
 
-  const stopVideoStream = useCallback(() => {
+  const stopVideoStream = () => {
     if (videoStreamRef.current) {
       videoStreamRef.current.getTracks().forEach(t => t.stop());
       videoStreamRef.current = null;
@@ -487,16 +494,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
     if (videoPreviewRef.current) {
       videoPreviewRef.current.srcObject = null;
     }
-  }, []);
-
-  useEffect(() => {
-    if (showVideoDialog && videoDialogState === 'preview') {
-      startVideoStream(useFrontCamera ? 'user' : 'environment');
-    }
-    if (!showVideoDialog) {
-      stopVideoStream();
-    }
-  }, [showVideoDialog, useFrontCamera, videoDialogState, startVideoStream, stopVideoStream]);
+  };
 
   const toggleCamera = () => {
     setUseFrontCamera(prev => !prev);
@@ -1378,74 +1376,66 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
         )}
 
         {/* Video Recording Dialog */}
-        <AnimatePresence>
-          {showVideoDialog && (
-            <div className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-900/80 backdrop-blur-sm" onClick={() => {}}>
-              <motion.div
-                initial={{ opacity: 0, scale: 0.9 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.9 }}
-                className="bg-slate-950 rounded-3xl overflow-hidden shadow-2xl w-full max-w-md mx-4"
-                onClick={e => e.stopPropagation()}
-              >
-                {/* Camera Preview */}
-                <div className="relative bg-black aspect-[3/4] flex items-center justify-center">
-                  {videoDialogState !== 'result' ? (
-                    <video ref={videoPreviewRef} autoPlay playsInline muted className="w-full h-full object-cover" />
-                  ) : (
-                    <video src={recordedVideoUrl || ''} controls playsInline className="w-full h-full object-cover" />
-                  )}
+        {showVideoDialog && (
+          <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/70" onClick={closeVideoDialog}>
+            <div className="bg-slate-950 rounded-2xl overflow-hidden shadow-2xl w-full max-w-sm mx-3" onClick={e => e.stopPropagation()}>
+              {/* Camera Preview */}
+              <div className="relative bg-black aspect-[3/4] flex items-center justify-center">
+                {videoDialogState !== 'result' ? (
+                  <video ref={videoRefCallback} autoPlay playsInline muted className="w-full h-full object-cover" />
+                ) : (
+                  <video src={recordedVideoUrl || ''} controls playsInline className="w-full h-full object-cover" />
+                )}
 
-                  {/* Close button */}
-                  <button onClick={closeVideoDialog} className="absolute top-4 right-4 p-2 bg-slate-900/60 hover:bg-slate-900/80 rounded-full text-white transition-all z-10">
-                    <X size={20} />
-                  </button>
+                {/* Close button */}
+                <button onClick={closeVideoDialog} className="absolute top-3 right-3 p-1.5 bg-slate-900/60 hover:bg-slate-900/80 rounded-full text-white transition-all z-10">
+                  <X size={18} />
+                </button>
 
-                  {/* Timer */}
-                  {videoDialogState === 'recording' && (
-                    <div className="absolute top-4 left-4 flex items-center gap-2 bg-black/60 px-3 py-1.5 rounded-full">
-                      <div className="w-2.5 h-2.5 bg-red-500 rounded-full animate-ping" />
-                      <span className="text-white text-sm font-black tabular-nums">{Math.floor(videoRecordingTime / 60)}:{String(videoRecordingTime % 60).padStart(2, '0')}</span>
-                    </div>
-                  )}
-                </div>
+                {/* Timer */}
+                {videoDialogState === 'recording' && (
+                  <div className="absolute top-3 left-3 flex items-center gap-1.5 bg-black/60 px-2.5 py-1 rounded-full">
+                    <div className="w-2 h-2 bg-red-500 rounded-full animate-ping" />
+                    <span className="text-white text-xs font-black tabular-nums">{Math.floor(videoRecordingTime / 60)}:{String(videoRecordingTime % 60).padStart(2, '0')}</span>
+                  </div>
+                )}
+              </div>
 
-                {/* Controls */}
-                <div className="p-6 flex items-center justify-center gap-6 bg-slate-900">
-                  {videoDialogState === 'preview' && (
-                    <>
-                      <button onClick={toggleCamera} className="p-3 bg-slate-800 hover:bg-slate-700 rounded-full text-white transition-all" title="Kamera Değiştir">
-                        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
-                      </button>
-                      <button onClick={startVideoRecording} className="w-16 h-16 bg-red-600 hover:bg-red-700 rounded-full flex items-center justify-center text-white shadow-lg shadow-red-600/30 active:scale-95 transition-all">
-                        <div className="w-7 h-7 rounded-full bg-white" />
-                      </button>
-                      <div className="w-[58px]" />
-                    </>
-                  )}
-                  {videoDialogState === 'recording' && (
-                    <>
-                      <button onClick={stopVideoRecording} className="w-16 h-16 bg-red-600 hover:bg-red-700 rounded-full flex items-center justify-center text-white shadow-lg shadow-red-600/30 active:scale-95 transition-all">
-                        <div className="w-6 h-6 rounded-sm bg-white" />
-                      </button>
-                      <span className="text-xs text-slate-400 font-bold">Kaydediliyor...</span>
-                    </>
-                  )}
-                  {videoDialogState === 'result' && (
-                    <>
-                      <button onClick={discardVideo} className="p-3 bg-slate-800 hover:bg-slate-700 rounded-full text-red-400 transition-all">
-                        <Trash2 size={22} />
-                      </button>
-                      <button onClick={sendRecordedVideo} className="px-8 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl font-black text-sm shadow-lg transition-all active:scale-95">
-                        Gönder
-                      </button>
-                    </>
-                  )}
-                </div>
-              </motion.div>
+              {/* Controls */}
+              <div className="p-5 flex items-center justify-center gap-5 bg-slate-900">
+                {videoDialogState === 'preview' && (
+                  <>
+                    <button onClick={toggleCamera} className="p-3 bg-slate-800 hover:bg-slate-700 rounded-full text-white transition-all" title="Kamera Değiştir">
+                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+                    </button>
+                    <button onClick={startVideoRecording} className="w-14 h-14 bg-red-600 hover:bg-red-700 rounded-full flex items-center justify-center text-white shadow-lg active:scale-95 transition-all">
+                      <div className="w-6 h-6 rounded-full bg-white" />
+                    </button>
+                    <div className="w-[52px]" />
+                  </>
+                )}
+                {videoDialogState === 'recording' && (
+                  <>
+                    <button onClick={stopVideoRecording} className="w-14 h-14 bg-red-600 hover:bg-red-700 rounded-full flex items-center justify-center text-white shadow-lg active:scale-95 transition-all">
+                      <div className="w-5 h-5 rounded-sm bg-white" />
+                    </button>
+                    <span className="text-xs text-slate-400 font-bold">Kaydediliyor...</span>
+                  </>
+                )}
+                {videoDialogState === 'result' && (
+                  <>
+                    <button onClick={discardVideo} className="p-3 bg-slate-800 hover:bg-slate-700 rounded-full text-red-400 transition-all">
+                      <Trash2 size={20} />
+                    </button>
+                    <button onClick={sendRecordedVideo} className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-black text-xs shadow-lg transition-all active:scale-95">
+                      Gönder
+                    </button>
+                  </>
+                )}
+              </div>
             </div>
-          )}
-        </AnimatePresence>
+          </div>
+        )}
 
     </div>
   );
