@@ -7,6 +7,7 @@ import { Call } from '../types';
 interface CallContextType {
   activeCall: Call | null;
   incomingCall: Call | null;
+  callError: string | null;
   startCall: (chatId: string, participants: string[], type: 'private' | 'group', mediaType?: 'audio' | 'video') => Promise<void>;
   inviteToCall: (userIds: string[]) => Promise<void>;
   acceptCall: () => Promise<void>;
@@ -21,6 +22,7 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const { user } = useAuth();
   const [activeCall, setActiveCall] = useState<Call | null>(null);
   const [incomingCall, setIncomingCall] = useState<Call | null>(null);
+  const [callError, setCallError] = useState<string | null>(null);
   const activeCallRef = useRef<Call | null>(null);
 
   useEffect(() => {
@@ -79,6 +81,7 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const startCall = async (chatId: string, participants: string[], type: 'private' | 'group', mediaType: 'audio' | 'video' = 'audio') => {
     if (!user) return;
+    setCallError(null);
     
     try {
       const callData = {
@@ -93,8 +96,13 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
       };
       
       await addDoc(collection(db, 'calls'), callData);
-    } catch (error) {
+    } catch (error: any) {
       console.error("Start call error:", error);
+      if (error?.code === 'permission-denied') {
+        setCallError('Arama başlatılamadı: Firestore güvenlik kuralları henüz yayınlanmamış. Lütfen kuralları Firebase Console\'dan yayınlayın.');
+      } else {
+        setCallError('Arama başlatılamadı: ' + (error?.message || 'Bilinmeyen hata'));
+      }
     }
   };
 
@@ -172,7 +180,7 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   return (
-    <CallContext.Provider value={{ activeCall, incomingCall, startCall, inviteToCall, acceptCall, rejectCall, leaveCall, endCall }}>
+    <CallContext.Provider value={{ activeCall, incomingCall, callError, startCall, inviteToCall, acceptCall, rejectCall, leaveCall, endCall }}>
       {children}
     </CallContext.Provider>
   );

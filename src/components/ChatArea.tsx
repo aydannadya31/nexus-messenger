@@ -83,9 +83,13 @@ const AudioPlayer: React.FC<{ url: string; isMe: boolean }> = ({ url, isMe }) =>
 
 export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
   const { user } = useAuth();
-  const { startCall, activeCall, acceptCall } = useCall();
+  const { startCall, activeCall, acceptCall, callError } = useCall();
   const [messages, setMessages] = useState<Message[]>([]);
   const [chat, setChat] = useState<Chat | null>(null);
+
+  useEffect(() => {
+    if (callError) showCustomAlert('Arama Hatası', callError);
+  }, [callError]);
   const [otherUser, setOtherUser] = useState<UserProfile | null>(null);
   const [participantInfo, setParticipantInfo] = useState<Record<string, UserProfile>>({});
   const [inputText, setInputText] = useState('');
@@ -470,21 +474,8 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
     }
   };
 
-  const videoRefCallback = useCallback((el: HTMLVideoElement | null) => {
-    videoPreviewRef.current = el;
-    if (el && showVideoDialog && videoDialogState === 'preview' && !videoStreamRef.current) {
-      startVideoStream(useFrontCamera ? 'user' : 'environment');
-    }
-  }, [showVideoDialog, videoDialogState, useFrontCamera]);
-
-  const openVideoDialog = () => {
-    setShowVideoDialog(true);
-    setVideoDialogState('preview');
-    setRecordedVideoUrl(null);
-    setVideoRecordingTime(0);
-  };
-
   const stopVideoStream = () => {
+    clearInterval(videoTimerRef.current);
     if (videoStreamRef.current) {
       videoStreamRef.current.getTracks().forEach(t => t.stop());
       videoStreamRef.current = null;
@@ -494,7 +485,26 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
     }
   };
 
+  useEffect(() => {
+    if (!showVideoDialog) {
+      stopVideoStream();
+      return;
+    }
+    const t = setTimeout(() => {
+      startVideoStream(useFrontCamera ? 'user' : 'environment');
+    }, 300);
+    return () => { clearTimeout(t); };
+  }, [showVideoDialog, useFrontCamera]);
+
+  const openVideoDialog = () => {
+    setShowVideoDialog(true);
+    setVideoDialogState('preview');
+    setRecordedVideoUrl(null);
+    setVideoRecordingTime(0);
+  };
+
   const toggleCamera = () => {
+    stopVideoStream();
     setUseFrontCamera(prev => !prev);
   };
 
@@ -551,7 +561,6 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
     setShowVideoDialog(false);
     setVideoDialogState('preview');
     stopVideoStream();
-    clearInterval(videoTimerRef.current);
   };
 
   const sendRecordedVideo = async () => {
@@ -568,7 +577,6 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
     setRecordedVideoUrl(null);
     setVideoDialogState('preview');
     stopVideoStream();
-    clearInterval(videoTimerRef.current);
   };
 
   const sendVideoMessage = async (videoUrl: string) => {
@@ -824,7 +832,10 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
           
           {!activeCallForChat && (
             <button 
-              onClick={() => chat && startCall(chat.id, chat.participants, chat.type, 'audio')}
+              onClick={() => {
+                if (callError) return;
+                chat && startCall(chat.id, chat.participants, chat.type, 'audio');
+              }}
               className="hover:text-blue-600 transition-colors"
               title="Sesli Arama Başlat"
             >
@@ -1063,15 +1074,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
         </AnimatePresence>
 
         {/* Persistent Admin Message Button */}
-        <div className="flex justify-center py-2 sm:py-3">
-          <button
-            onClick={() => setShowAdminDialog(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 rounded-xl text-[11px] font-bold uppercase tracking-wider transition-all active:scale-95 shadow-sm"
-          >
-            📩 Yöneticiye Mesaj Gönder
-          </button>
         </div>
-      </div>
 
       {/* Input Area */}
       <footer id="chat-input-footer" className="p-2 sm:p-6 bg-white border-t border-slate-200 shrink-0 z-10 transition-all duration-200 safe-area-bottom">
@@ -1302,7 +1305,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
               {/* Camera Preview */}
               <div className="relative bg-black aspect-[3/4] flex items-center justify-center">
                 {videoDialogState !== 'result' ? (
-                  <video ref={videoRefCallback} autoPlay playsInline muted className="w-full h-full object-cover" />
+                    <video ref={el => { videoPreviewRef.current = el; }} autoPlay playsInline muted className="w-full h-full object-cover" />
                 ) : (
                   <video src={recordedVideoUrl || ''} controls playsInline className="w-full h-full object-cover" />
                 )}
