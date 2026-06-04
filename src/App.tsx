@@ -15,6 +15,7 @@ import { NewChatModal } from './components/NewChatModal';
 import { BroadcastModal } from './components/BroadcastModal';
 import { CallProvider } from './components/CallProvider';
 import { CallOverlay } from './components/CallOverlay';
+import { cn } from './lib/utils';
 import { MessageSquare, Ban } from 'lucide-react';
 
 function NexusApp() {
@@ -23,6 +24,7 @@ function NexusApp() {
   const [isNewChatModalOpen, setIsNewChatModalOpen] = useState(false);
   const [isBroadcastModalOpen, setIsBroadcastModalOpen] = useState(false);
   const [isAIChatOpen, setIsAIChatOpen] = useState(false);
+  const [showMobileSidebar, setShowMobileSidebar] = useState(true);
   const [banned, setBanned] = useState<{ until: Date; reason?: string } | null>(null);
 
   useEffect(() => {
@@ -91,16 +93,42 @@ function NexusApp() {
   }
 
   return (
-    <div className="flex h-screen overflow-hidden bg-neutral-950">
-      <Sidebar 
-        selectedChatId={selectedChatId} 
-        onSelectChat={(id) => { setSelectedChatId(id); setIsAIChatOpen(false); }}
-        onStartNewChat={() => setIsNewChatModalOpen(true)}
-        onOpenBroadcast={() => setIsBroadcastModalOpen(true)}
-        onOpenAI={() => { setIsAIChatOpen(true); setSelectedChatId(undefined); }}
-      />
-      <div className="flex-1 flex flex-col min-w-0">
-        {isAIChatOpen ? <AIChat /> : <ChatArea chatId={selectedChatId || ''} />}
+    <div className="flex h-dvh overflow-hidden bg-neutral-950">
+      {/* Sidebar - hidden on mobile when chat is open */}
+      <div className={cn(
+        "w-full sm:w-[350px] sm:block",
+        showMobileSidebar || !selectedChatId ? "block" : "hidden sm:block"
+      )}>
+        <Sidebar 
+          selectedChatId={selectedChatId} 
+          onSelectChat={(id) => {
+            setSelectedChatId(id);
+            setIsAIChatOpen(false);
+            setShowMobileSidebar(false);
+          }}
+          onStartNewChat={() => setIsNewChatModalOpen(true)}
+          onOpenBroadcast={() => setIsBroadcastModalOpen(true)}
+          onOpenAI={() => {
+            setIsAIChatOpen(true);
+            setSelectedChatId(undefined);
+            setShowMobileSidebar(false);
+          }}
+        />
+      </div>
+
+      {/* Chat/AI Area - hidden on mobile when showing sidebar */}
+      <div className={cn(
+        "flex-1 flex flex-col min-w-0",
+        !showMobileSidebar || !selectedChatId ? "flex" : "hidden sm:flex"
+      )}>
+        {isAIChatOpen ? (
+          <AIChat onBack={() => setShowMobileSidebar(true)} />
+        ) : (
+          <ChatArea 
+            chatId={selectedChatId || ''} 
+            onBack={() => setShowMobileSidebar(true)}
+          />
+        )}
       </div>
 
       {isNewChatModalOpen && (
@@ -109,6 +137,7 @@ function NexusApp() {
           onChatCreated={(id) => {
             setSelectedChatId(id);
             setIsNewChatModalOpen(false);
+            setShowMobileSidebar(false);
           }}
         />
       )}

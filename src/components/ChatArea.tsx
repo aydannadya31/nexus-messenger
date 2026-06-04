@@ -5,12 +5,13 @@ import { useAuth } from './AuthProvider';
 import { useCall } from './CallProvider';
 import { Chat, Message, UserProfile, Call } from '../types';
 import { cn } from '../lib/utils';
-import { Image, MoreVertical, Send, Smile, Phone, Video, MessageSquarePlus, Clock, Play, Mic, Pause, Trash2 } from 'lucide-react';
+import { Image, MoreVertical, Send, Smile, Phone, Video, MessageSquarePlus, Clock, Play, Mic, Pause, Trash2, ArrowLeft } from 'lucide-react';
 import { format } from 'date-fns';
 import { motion, AnimatePresence } from 'motion/react';
 
 interface ChatAreaProps {
   chatId: string;
+  onBack?: () => void;
 }
 
 const AudioPlayer: React.FC<{ url: string; isMe: boolean }> = ({ url, isMe }) => {
@@ -80,7 +81,7 @@ const AudioPlayer: React.FC<{ url: string; isMe: boolean }> = ({ url, isMe }) =>
   );
 };
 
-export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
+export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
   const { user } = useAuth();
   const { startCall, activeCall, acceptCall } = useCall();
   const [messages, setMessages] = useState<Message[]>([]);
@@ -94,6 +95,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
   const [isEmojiMenuOpen, setIsEmojiMenuOpen] = useState(false);
   const [showAdminDialog, setShowAdminDialog] = useState(false);
   const [adminMessageText, setAdminMessageText] = useState('');
+  const [selectedActionMsg, setSelectedActionMsg] = useState<string | null>(null);
   const [customDialog, setCustomDialog] = useState<{
     isOpen: boolean;
     title: string;
@@ -254,14 +256,40 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
       }
     });
 
-    const handleClickOutside = () => setReactionMenu(null);
+    const handleClickOutside = () => {
+      setReactionMenu(null);
+      setSelectedActionMsg(null);
+    };
     window.addEventListener('click', handleClickOutside);
+
+    // VisualViewport for mobile keyboard
+    let originalHeight = window.innerHeight;
+    const handleViewport = () => {
+      const inputFooter = document.getElementById('chat-input-footer');
+      if (!inputFooter) return;
+      if (window.visualViewport) {
+        const diff = originalHeight - window.visualViewport.height;
+        if (diff > 100) {
+          inputFooter.style.paddingBottom = `${diff}px`;
+        } else {
+          inputFooter.style.paddingBottom = '';
+        }
+      }
+    };
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener('resize', handleViewport);
+      window.visualViewport.addEventListener('scroll', handleViewport);
+    }
 
     return () => {
       unsubCalls();
       unsubChat();
       unsubMsgs();
       window.removeEventListener('click', handleClickOutside);
+      if (window.visualViewport) {
+        window.visualViewport.removeEventListener('resize', handleViewport);
+        window.visualViewport.removeEventListener('scroll', handleViewport);
+      }
     };
   }, [chatId, user]);
 
@@ -570,31 +598,34 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
       </div>
 
       {/* Chat Header */}
-      <header className="h-20 bg-white border-b border-slate-200 flex items-center justify-between px-8 shrink-0 relative z-10">
-        <div className="flex items-center">
-          <div className="w-10 h-10 bg-gradient-to-br from-blue-400 to-indigo-500 rounded-full mr-4 shadow-sm overflow-hidden border-2 border-white">
+      <header className="min-h-14 sm:h-20 bg-white border-b border-slate-200 flex items-center justify-between px-3 sm:px-8 shrink-0 relative z-10">
+        <div className="flex items-center min-w-0 flex-1">
+          <button onClick={onBack} className="p-1.5 mr-1.5 sm:hidden text-slate-500 hover:bg-slate-100 rounded-lg shrink-0">
+            <ArrowLeft size={20} />
+          </button>
+          <div className="w-8 h-8 sm:w-10 sm:h-10 bg-gradient-to-br from-blue-400 to-indigo-500 rounded-full mr-2 sm:mr-4 shadow-sm overflow-hidden border-2 border-white shrink-0">
             <img 
               src={headerInfo.photoURL} 
               alt={headerInfo.name} 
               className="w-full h-full object-cover"
             />
           </div>
-          <div className="flex flex-col">
-            <div className="flex items-center gap-2">
-              <h3 className="text-base font-bold text-slate-900 leading-none">{headerInfo.name}</h3>
+          <div className="flex flex-col min-w-0">
+            <div className="flex items-center gap-1 sm:gap-2 flex-wrap">
+              <h3 className="text-sm sm:text-base font-bold text-slate-900 leading-none truncate max-w-[120px] sm:max-w-none">{headerInfo.name}</h3>
               {headerInfo.status && (
                 <span className={cn(
-                  "text-[9px] font-black uppercase px-2 py-0.5 rounded-full shadow-sm",
+                  "text-[8px] sm:text-[9px] font-black uppercase px-1.5 sm:px-2 py-0.5 rounded-full shadow-sm",
                   headerInfo.status === 'online' ? "bg-green-500 text-white" : 
                   headerInfo.status === 'away' ? "bg-amber-500 text-white" : "bg-red-500 text-white"
                 )}>
                   {headerInfo.status === 'online' ? 'Çevrimiçi' : headerInfo.status === 'away' ? 'Uzakta' : 'Meşgul'}
                 </span>
               )}
-              {headerInfo.uin && <span className="text-[10px] font-black text-blue-500 bg-blue-50 px-1.5 py-0.5 rounded tracking-tighter">#{headerInfo.uin}</span>}
+              {headerInfo.uin && <span className="text-[9px] sm:text-[10px] font-black text-blue-500 bg-blue-50 px-1 sm:px-1.5 py-0.5 rounded tracking-tighter hidden sm:inline">#{headerInfo.uin}</span>}
             </div>
             <span className={cn(
-              "text-[11px] font-bold uppercase tracking-wider flex items-center gap-1 mt-1",
+              "text-[10px] sm:text-[11px] font-bold uppercase tracking-wider flex items-center gap-1 mt-0.5",
               headerInfo.status === 'online' ? "text-green-500" : headerInfo.status === 'away' ? "text-amber-500" : "text-red-500"
             )}>
               <span className={cn(
@@ -605,7 +636,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
             </span>
           </div>
         </div>
-        <div className="flex items-center space-x-6 text-slate-400 relative">
+        <div className="flex items-center space-x-3 sm:space-x-6 text-slate-400 relative shrink-0">
           {activeCallForChat && !activeCall && (
             <button 
               onClick={() => acceptCall()}
@@ -697,9 +728,9 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
       {/* Messages */}
       <div 
         ref={scrollRef}
-        className="flex-1 overflow-y-auto p-10 space-y-6 custom-scrollbar z-10"
+        className="flex-1 overflow-y-auto p-3 sm:p-10 space-y-4 sm:space-y-6 custom-scrollbar z-10"
       >
-        <div className="flex justify-center mb-8">
+        <div className="flex justify-center mb-4 sm:mb-8">
           <span className="px-3 py-1 bg-slate-200 text-slate-500 rounded-full text-[10px] font-bold uppercase tracking-widest shadow-sm">BUGÜN</span>
         </div>
 
@@ -717,7 +748,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
                   animate={{ opacity: 1, y: 0 }}
                   key={msg.id || idx}
                   className={cn(
-                    "flex items-end space-x-3 max-w-[80%] sm:max-w-[70%]",
+                    "flex items-end space-x-2 sm:space-x-3 max-w-[90%] sm:max-w-[70%]",
                     isMe ? "self-end flex-row-reverse space-x-reverse" : "self-start"
                   )}
                 >
@@ -744,13 +775,20 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
                     )}
                     <div 
                       onContextMenu={(e) => msg.id && !isDeleted && onContextMenu(e, msg.id)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (msg.id && !isDeleted) {
+                          setSelectedActionMsg(prev => prev === msg.id ? null : msg.id);
+                        }
+                      }}
                       className={cn(
-                        "px-5 py-3 rounded-2xl shadow-sm border overflow-hidden relative group/bubble transition-all duration-300",
+                        "px-5 py-3 rounded-2xl shadow-sm border overflow-hidden transition-all duration-300",
                         isDeleted
                           ? "bg-slate-100 text-slate-400 border-slate-200/60 opacity-60 rounded-br-none"
                           : isMe 
                             ? "bg-blue-600 text-white border-blue-500 rounded-br-none shadow-blue-100" 
-                            : "bg-white text-slate-800 border-slate-100 rounded-bl-none"
+                            : "bg-white text-slate-800 border-slate-100 rounded-bl-none",
+                        !isDeleted && msg.id && "cursor-pointer"
                       )}
                     >
                       {isDeleted && (
@@ -811,39 +849,37 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
                       </div>
                     </div>
 
-                    {/* Hover Actions: Reaction & Delete */}
-                    {!isDeleted && msg.id && (
+                    {/* Click-to-show Actions: Reaction & Delete */}
+                    {!isDeleted && msg.id && selectedActionMsg === msg.id && (
                       <div className={cn(
-                        "absolute flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-200 bg-white border border-slate-200 p-1 rounded-full shadow-lg z-20",
-                        isMe ? "right-full mr-3 top-1/2 -translate-y-1/2" : "left-full ml-3 top-1/2 -translate-y-1/2"
+                        "flex items-center gap-1 animate-in fade-in zoom-in-95 duration-150",
+                        isMe ? "justify-end mt-1.5" : "justify-start mt-1.5"
                       )}>
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            if (msg.id) {
-                              setReactionMenu({ msgId: msg.id, x: e.clientX, y: e.clientY });
-                            }
-                          }}
-                          className="p-1 px-1.5 text-slate-400 hover:text-slate-600 active:scale-110 transition-all rounded-full flex items-center justify-center cursor-pointer"
-                          title="Tepki Bırak"
-                        >
-                          <Smile size={14} />
-                        </button>
-                        
-                        {msg.id && (
+                        <div className="inline-flex items-center gap-1 bg-white border border-slate-200 p-1 rounded-full shadow-lg">
                           <button
                             type="button"
                             onClick={(e) => {
                               e.stopPropagation();
+                              setReactionMenu({ msgId: msg.id, x: e.clientX, y: e.clientY });
+                            }}
+                            className="p-1.5 px-2 text-slate-500 hover:text-slate-700 hover:bg-slate-100 active:scale-110 transition-all rounded-full cursor-pointer"
+                            title="Tepki Bırak"
+                          >
+                            <Smile size={14} />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setSelectedActionMsg(null);
                               confirmDeleteMsg(msg.id);
                             }}
-                            className="p-1 px-1.5 text-slate-400 hover:text-red-500 active:scale-110 transition-all rounded-full flex items-center justify-center cursor-pointer"
+                            className="p-1.5 px-2 text-slate-500 hover:text-red-500 hover:bg-red-50 active:scale-110 transition-all rounded-full cursor-pointer"
                             title={isMe ? 'Mesajı Sil' : 'Benden Sil'}
                           >
                             <Trash2 size={13} />
                           </button>
-                        )}
+                        </div>
                       </div>
                     )}
 
@@ -883,8 +919,8 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
       </div>
 
       {/* Input Area */}
-      <footer className="p-6 bg-white border-t border-slate-200 shrink-0 z-10">
-        <div className="max-w-4xl mx-auto flex items-center bg-slate-100 rounded-2xl p-2 focus-within:ring-2 focus-within:ring-blue-500 transition-all relative">
+      <footer id="chat-input-footer" className="p-2 sm:p-6 bg-white border-t border-slate-200 shrink-0 z-10 transition-all duration-200 safe-area-bottom">
+        <div className="max-w-4xl mx-auto flex items-center bg-slate-100 rounded-xl sm:rounded-2xl p-1 sm:p-2 focus-within:ring-2 focus-within:ring-blue-500 transition-all relative gap-0.5 sm:gap-0">
           
           {/* Hidden inputs for real uploads */}
           <input 
@@ -902,22 +938,22 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
             className="hidden"
           />
 
-          <div className="relative">
+          <div className="relative shrink-0">
             <button 
               type="button" 
               onClick={() => setIsEmojiMenuOpen(!isEmojiMenuOpen)}
               className={cn(
-                "p-2 text-slate-400 hover:text-slate-600 transition-colors rounded-xl",
+                "p-1.5 sm:p-2 text-slate-400 hover:text-slate-600 transition-colors rounded-lg sm:rounded-xl",
                 isEmojiMenuOpen && "bg-slate-200 text-slate-700"
               )}
             >
-              <Smile size={20} />
+              <Smile size={18} className="sm:size-[20px]" />
             </button>
 
             {isEmojiMenuOpen && (
               <>
                 <div className="fixed inset-0 z-30" onClick={() => setIsEmojiMenuOpen(false)} />
-                <div className="absolute bottom-12 left-0 w-64 bg-white border border-slate-150 rounded-2xl shadow-xl p-3 z-40 grid grid-cols-5 gap-1.5 animate-in fade-in slide-in-from-bottom-2 duration-155">
+                <div className="absolute bottom-full mb-2 left-0 sm:bottom-12 sm:left-0 w-56 sm:w-64 bg-white border border-slate-150 rounded-2xl shadow-xl p-2 sm:p-3 z-40 grid grid-cols-5 gap-1 animate-in fade-in slide-in-from-bottom-2 duration-155">
                   {['😀', '😂', '😍', '👍', '🔥', '🎉', '❤️', '🤔', '😎', '👏', '🙏', '😭', '😡', '😮', '🚀'].map(emoji => (
                     <button
                       type="button"
@@ -939,53 +975,53 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
           <button 
             type="button" 
             onClick={handleImageSend}
-            className="p-2 text-slate-400 hover:text-slate-600 transition-colors"
+            className="p-1.5 sm:p-2 text-slate-400 hover:text-slate-600 transition-colors shrink-0"
           >
-            <Image size={20} />
+            <Image size={18} className="sm:size-[20px]" />
           </button>
           <button 
             type="button" 
             onClick={handleVideoSend}
-            className="p-2 text-slate-400 hover:text-slate-600 transition-colors"
+            className="p-1.5 sm:p-2 text-slate-400 hover:text-slate-600 transition-colors shrink-0"
           >
-            <Video size={20} />
+            <Video size={18} className="sm:size-[20px]" />
           </button>
 
           {isRecording ? (
-            <div className="flex items-center gap-3 px-4 py-1 bg-red-50 text-red-600 rounded-xl animate-in fade-in zoom-in-95 duration-200">
-               <div className="w-2 h-2 bg-red-600 rounded-full animate-ping" />
-               <span className="text-xs font-black tabular-nums">{Math.floor(recordingTime / 60)}:{String(recordingTime % 60).padStart(2, '0')}</span>
-               <button onClick={stopRecording} className="p-1 px-2 bg-red-600 text-white rounded-lg text-[10px] font-bold uppercase tracking-wider">Durdur ve Gönder</button>
+            <div className="flex items-center gap-1.5 sm:gap-3 px-2 sm:px-4 py-1 bg-red-50 text-red-600 rounded-lg sm:rounded-xl animate-in fade-in zoom-in-95 duration-200 shrink-0">
+               <div className="w-2 h-2 bg-red-600 rounded-full animate-ping shrink-0" />
+               <span className="text-[10px] sm:text-xs font-black tabular-nums">{Math.floor(recordingTime / 60)}:{String(recordingTime % 60).padStart(2, '0')}</span>
+               <button onClick={stopRecording} className="p-1 px-1.5 sm:px-2 bg-red-600 text-white rounded-lg text-[9px] sm:text-[10px] font-bold uppercase tracking-wider whitespace-nowrap">Gönder</button>
             </div>
           ) : (
             <button 
               type="button" 
               onClick={startRecording}
-              className="p-2 text-slate-400 hover:text-red-500 transition-colors"
+              className="p-1.5 sm:p-2 text-slate-400 hover:text-red-500 transition-colors shrink-0"
             >
-              <Mic size={20} />
+              <Mic size={18} className="sm:size-[20px]" />
             </button>
           )}
 
-          <form onSubmit={handleSend} className="flex-1 flex items-center">
+          <form onSubmit={handleSend} className="flex-1 flex items-center min-w-0">
             <input 
               type="text" 
               value={inputText}
               onChange={(e) => setInputText(e.target.value)}
               placeholder="Mesaj yaz..."
-              className="flex-1 bg-transparent border-none focus:ring-0 text-sm py-2 px-4 text-slate-900 placeholder:text-slate-400"
+              className="flex-1 bg-transparent border-none focus:ring-0 text-sm py-1.5 sm:py-2 px-2 sm:px-4 text-slate-900 placeholder:text-slate-400 min-w-0 w-0"
             />
             <button 
               type="submit"
               disabled={!inputText.trim()}
               className={cn(
-                "p-2 rounded-xl transition-all flex items-center justify-center shadow-lg",
+                "p-1.5 sm:p-2 rounded-lg sm:rounded-xl transition-all flex items-center justify-center shadow-lg shrink-0",
                 inputText.trim() 
                   ? "bg-blue-600 text-white shadow-blue-200 hover:bg-blue-700" 
                   : "bg-slate-200 text-slate-400 cursor-not-allowed shadow-none"
               )}
             >
-              <Send size={18} />
+              <Send size={16} className="sm:size-[18px]" />
             </button>
           </form>
         </div>
@@ -1000,8 +1036,8 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
             exit={{ opacity: 0, scale: 0.9, y: 10 }}
             className="fixed z-[100] bg-white/80 backdrop-blur-xl border border-slate-200 shadow-2xl rounded-2xl p-2 flex gap-1 items-center"
             style={{ 
-              top: Math.min(reactionMenu.y, window.innerHeight - 80), 
-              left: Math.min(reactionMenu.x, window.innerWidth - 300) 
+              top: Math.min(reactionMenu.y, window.innerHeight - 100), 
+              left: Math.max(8, Math.min(reactionMenu.x, window.innerWidth - 320))
             }}
             onClick={(e) => e.stopPropagation()}
           >
@@ -1009,7 +1045,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
               <button
                 key={emoji}
                 onClick={() => handleReaction(reactionMenu.msgId, emoji)}
-                className="w-10 h-10 flex items-center justify-center text-xl hover:bg-slate-100 rounded-xl transition-all active:scale-125"
+                className="w-9 h-9 sm:w-10 sm:h-10 flex items-center justify-center text-lg sm:text-xl hover:bg-slate-100 rounded-xl transition-all active:scale-125"
               >
                 {emoji}
               </button>

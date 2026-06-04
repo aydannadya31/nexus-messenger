@@ -4,7 +4,7 @@ import { db, logout } from '../lib/firebase';
 import { useAuth } from './AuthProvider';
 import { Chat, UserProfile } from '../types';
 import { cn } from '../lib/utils';
-import { LogOut, MessageSquarePlus, Search, User as UserIcon, ChevronUp, Settings, Radio } from 'lucide-react';
+import { LogOut, MessageSquarePlus, Search, User as UserIcon, ChevronUp, Settings, Radio, Bot } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import ProfileModal from './ProfileModal';
 
@@ -28,9 +28,10 @@ interface SidebarProps {
   selectedChatId?: string;
   onStartNewChat: () => void;
   onOpenBroadcast: () => void;
+  onOpenAI?: () => void;
 }
 
-export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, onStartNewChat, onOpenBroadcast }) => {
+export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, onStartNewChat, onOpenBroadcast, onOpenAI }) => {
   const { user } = useAuth();
   const [chats, setChats] = useState<Chat[]>([]);
   const [chatDetails, setChatDetails] = useState<Record<string, UserProfile>>({});
@@ -140,9 +141,9 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
   });
 
   return (
-    <div className="flex flex-col h-full bg-white border-r border-slate-200 w-full sm:w-[350px]">
+    <div className="flex flex-col h-full bg-white sm:border-r border-slate-200 w-full sm:max-w-[350px]">
       {/* Sidebar Header */}
-      <header className="p-6 space-y-4 shadow-sm z-10">
+      <header className="p-4 sm:p-6 space-y-3 sm:space-y-4 shadow-sm z-10">
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-bold tracking-tight text-slate-900">Mesajlar</h1>
           <div className="flex items-center space-x-2">
@@ -159,6 +160,13 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
               className="p-2.5 bg-slate-100/50 hover:bg-slate-100 rounded-xl text-slate-600 transition-all active:scale-95"
             >
               <MessageSquarePlus size={20} />
+            </button>
+            <button 
+              onClick={onOpenAI}
+              className="p-2.5 bg-purple-50 hover:bg-purple-100 rounded-xl text-purple-600 transition-all active:scale-95"
+              title="Nexus AI Asistan"
+            >
+              <Bot size={20} />
             </button>
             <button 
               onClick={() => logout()}
@@ -193,7 +201,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
               key={chat.id}
               onClick={() => onSelectChat(chat.id)}
               className={cn(
-                "px-6 py-4 flex items-center gap-4 cursor-pointer transition-colors",
+                "px-4 sm:px-6 py-3 sm:py-4 flex items-center gap-3 sm:gap-4 cursor-pointer transition-colors",
                 isSelected 
                   ? "bg-blue-50 border-r-4 border-blue-500" 
                   : "hover:bg-slate-50"
@@ -271,7 +279,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
       </div>
 
       {/* Footer Profile */}
-      <footer className="p-6 border-t border-slate-100 bg-white shrink-0 relative">
+      <footer className="p-4 sm:p-6 border-t border-slate-100 bg-white shrink-0 relative">
         {showStatusMenu && (
           <div className="absolute bottom-full left-6 mb-2 bg-white rounded-2xl shadow-xl border border-slate-100 overflow-hidden z-20 w-40 animate-in fade-in slide-in-from-bottom-2">
             {(['online', 'away', 'busy'] as const).map(s => (
