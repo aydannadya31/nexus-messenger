@@ -93,8 +93,6 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
   const [reactionMenu, setReactionMenu] = useState<{ msgId: string, x: number, y: number } | null>(null);
   const [isHeaderMenuOpen, setIsHeaderMenuOpen] = useState(false);
   const [isEmojiMenuOpen, setIsEmojiMenuOpen] = useState(false);
-  const [showAdminDialog, setShowAdminDialog] = useState(false);
-  const [adminMessageText, setAdminMessageText] = useState('');
   const [viewProfile, setViewProfile] = useState<UserProfile | null>(null);
   const [selectedActionMsg, setSelectedActionMsg] = useState<string | null>(null);
   const [customDialog, setCustomDialog] = useState<{
@@ -860,31 +858,10 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
                     <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">Sohbet İşlemleri</p>
                   </div>
                   <button 
-                    onClick={handleClearChat}
-                    className="w-full text-left px-4 py-3 text-xs font-bold text-red-600 hover:bg-red-50 transition-colors flex items-center gap-2"
-                  >
-                    🗑️ Sohbet Geçmişini Temizle
-                  </button>
-                  <button 
-                    onClick={() => {
-                      const uinList = chat?.type === 'group' 
-                        ? chat.participants.map(pId => `👤 ${participantInfo[pId]?.displayName || 'Katılımcı'} (UIN: #${participantInfo[pId]?.uin || 'Yok'})`).join('\n')
-                        : `👤 ${headerInfo.name} (UIN: #${headerInfo.uin || 'Yok'})`;
-                      showCustomAlert("Sohbet / Katılımcı Bilgileri", uinList);
-                      setIsHeaderMenuOpen(false);
-                    }}
+                    onClick={() => { setIsHeaderMenuOpen(false); }}
                     className="w-full text-left px-4 py-3 text-xs font-bold text-slate-700 hover:bg-slate-50 transition-colors flex items-center gap-2"
                   >
                     ℹ️ Sohbet / Katılımcı Bilgileri
-                  </button>
-                  <button 
-                    onClick={() => {
-                      setShowAdminDialog(true);
-                      setIsHeaderMenuOpen(false);
-                    }}
-                    className="w-full text-left px-4 py-3 text-xs font-bold text-amber-600 hover:bg-amber-50 transition-colors flex items-center gap-2"
-                  >
-                    📩 Yöneticiye Mesaj Gönder
                   </button>
                 </div>
               </>
@@ -1317,63 +1294,6 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
             </div>
           )}
         </AnimatePresence>
-
-        {showAdminDialog && (
-          <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm" onClick={() => { setShowAdminDialog(false); setAdminMessageText(''); }}>
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              className="bg-white rounded-3xl p-6 shadow-2xl border border-slate-100 max-w-sm w-full"
-              onClick={e => e.stopPropagation()}
-            >
-              <div className="w-12 h-12 bg-amber-50 text-amber-600 rounded-2xl flex items-center justify-center mx-auto mb-4 text-xl font-bold">
-                📩
-              </div>
-              <h3 className="text-base font-black text-slate-900 text-center mb-2">Yöneticiye Mesaj Gönder</h3>
-              <p className="text-[10px] text-slate-400 font-bold text-center mb-6">Sorun, öneri veya ihlal bildirimi gönderebilirsiniz.</p>
-              <textarea
-                value={adminMessageText}
-                onChange={e => setAdminMessageText(e.target.value)}
-                placeholder="Mesajınız..."
-                className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-4 text-sm font-bold text-slate-900 outline-none min-h-[100px] resize-none"
-              />
-              <div className="flex gap-3 mt-4">
-                <button
-                  onClick={() => { setShowAdminDialog(false); setAdminMessageText(''); }}
-                  className="flex-1 py-2.5 bg-slate-100 text-slate-600 rounded-xl text-[10px] font-black uppercase tracking-wider"
-                >
-                  İptal
-                </button>
-                <button
-                  disabled={!adminMessageText.trim()}
-                  onClick={async () => {
-                    try {
-                      await addDoc(collection(db, 'adminMessages'), {
-                        userId: user?.uid,
-                        userDisplayName: user?.displayName || '',
-                        userNickname: user?.displayName || '',
-                        userUIN: otherUser?.uin || '',
-                        message: adminMessageText.trim(),
-                        timestamp: serverTimestamp()
-                      });
-                      setShowAdminDialog(false);
-                      setAdminMessageText('');
-                      showCustomAlert('Gönderildi', 'Mesajınız yöneticiye iletildi.');
-                    } catch (err) {
-                      console.error('Admin message send error:', err);
-                      setShowAdminDialog(false);
-                      setAdminMessageText('');
-                      showCustomAlert('Hata', 'Mesaj gönderilemedi. Admin ile iletişime geçin veya tekrar deneyin.');
-                    }
-                  }}
-                  className="flex-1 py-2.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-[10px] font-black uppercase tracking-wider disabled:opacity-40"
-                >
-                  Gönder
-                </button>
-              </div>
-            </motion.div>
-          </div>
-        )}
 
         {/* Video Recording Dialog */}
         {showVideoDialog && (

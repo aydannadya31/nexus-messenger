@@ -1,10 +1,10 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { collection, query, where, onSnapshot, orderBy, doc, getDoc, updateDoc } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, orderBy, doc, getDoc, updateDoc, addDoc, serverTimestamp } from 'firebase/firestore';
 import { db, logout } from '../lib/firebase';
 import { useAuth } from './AuthProvider';
 import { Chat, UserProfile } from '../types';
 import { cn } from '../lib/utils';
-import { LogOut, MessageSquarePlus, Search, User as UserIcon, ChevronUp, Settings, Radio, Bot } from 'lucide-react';
+import { LogOut, MessageSquarePlus, Search, User as UserIcon, ChevronUp, Settings, Radio, Bot, X } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import ProfileModal from './ProfileModal';
 
@@ -133,6 +133,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
   const myStatus = profile?.onlineStatus || 'online';
 
   const [searchQuery, setSearchQuery] = useState('');
+  const [showAdminMsg, setShowAdminMsg] = useState(false);
+  const [adminMsgText, setAdminMsgText] = useState('');
 
   const filteredChats = chats.filter(chat => {
     if (!searchQuery) return true;
@@ -147,39 +149,46 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
 
   return (
     <div className="flex flex-col h-full bg-white sm:border-r border-slate-200 w-full sm:max-w-[350px]">
-      {/* Sidebar Header */}
+       {/* Sidebar Header */}
       <header className="p-4 sm:p-6 space-y-3 sm:space-y-4 shadow-sm z-10">
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-bold tracking-tight text-slate-900">Mesajlar</h1>
-          <div className="flex items-center space-x-2">
-            <button 
-              onClick={onOpenBroadcast}
-              className="p-2.5 bg-blue-50 hover:bg-blue-100 rounded-xl text-blue-600 transition-all active:scale-95 group relative"
-              title="Broadcast Message"
-            >
-              <Radio size={20} />
-              <div className="absolute -top-1 -right-1 w-2 h-2 bg-red-500 rounded-full animate-ping" />
-            </button>
-            <button 
-              onClick={onStartNewChat}
-              className="p-2.5 bg-slate-100/50 hover:bg-slate-100 rounded-xl text-slate-600 transition-all active:scale-95"
-            >
-              <MessageSquarePlus size={20} />
-            </button>
-            <button 
-              onClick={onOpenAI}
-              className="p-2.5 bg-purple-50 hover:bg-purple-100 rounded-xl text-purple-600 transition-all active:scale-95"
-              title="Nexus AI Asistan"
-            >
-              <Bot size={20} />
-            </button>
-            <button 
-              onClick={() => logout()}
-              className="p-2.5 bg-slate-100/50 hover:bg-slate-100 rounded-xl text-slate-400 hover:text-red-500 transition-all active:scale-95"
-            >
-              <LogOut size={20} />
-            </button>
-          </div>
+        </div>
+        <div className="flex items-center space-x-2">
+          <button 
+            onClick={onOpenBroadcast}
+            className="p-2.5 bg-blue-50 hover:bg-blue-100 rounded-xl text-blue-600 transition-all active:scale-95 group relative"
+            title="Broadcast Message"
+          >
+            <Radio size={20} />
+            <div className="absolute -top-1 -right-1 w-2 h-2 bg-red-500 rounded-full animate-ping" />
+          </button>
+          <button 
+            onClick={onStartNewChat}
+            className="p-2.5 bg-slate-100/50 hover:bg-slate-100 rounded-xl text-slate-600 transition-all active:scale-95"
+          >
+            <MessageSquarePlus size={20} />
+          </button>
+          <button 
+            onClick={onOpenAI}
+            className="p-2.5 bg-purple-50 hover:bg-purple-100 rounded-xl text-purple-600 transition-all active:scale-95"
+            title="Nexus AI Asistan"
+          >
+            <Bot size={20} />
+          </button>
+          <button 
+            onClick={() => setShowAdminMsg(true)}
+            className="p-2.5 bg-amber-50 hover:bg-amber-100 rounded-xl text-amber-600 transition-all active:scale-95"
+            title="Yöneticiye Mesaj Gönder"
+          >
+            <MessageSquarePlus size={20} />
+          </button>
+          <button 
+            onClick={() => logout()}
+            className="p-2.5 bg-slate-100/50 hover:bg-slate-100 rounded-xl text-slate-400 hover:text-red-500 transition-all active:scale-95"
+          >
+            <LogOut size={20} />
+          </button>
         </div>
         
         {/* Search */}
@@ -354,6 +363,58 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
           user={profile} 
           onClose={() => setShowProfileModal(false)} 
         />
+      )}
+
+      {/* Admin Message Dialog */}
+      {showAdminMsg && (
+        <div className="fixed inset-0 z-[9999] bg-black/50 flex items-center justify-center p-4" onClick={() => { setShowAdminMsg(false); setAdminMsgText(''); }}>
+          <div className="bg-white rounded-3xl p-6 shadow-2xl max-w-sm w-full" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-base font-black text-slate-900">Yöneticiye Mesaj Gönder</h3>
+              <button onClick={() => { setShowAdminMsg(false); setAdminMsgText(''); }} className="p-1.5 hover:bg-slate-100 rounded-full text-slate-400">
+                <X size={18} />
+              </button>
+            </div>
+            <p className="text-[10px] text-slate-400 font-bold mb-4">Sorun, öneri veya ihlal bildirimi gönderebilirsiniz.</p>
+            <textarea
+              value={adminMsgText}
+              onChange={e => setAdminMsgText(e.target.value)}
+              placeholder="Mesajınız..."
+              className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-4 text-sm font-bold text-slate-900 outline-none min-h-[100px] resize-none"
+            />
+            <div className="flex gap-3 mt-4">
+              <button
+                onClick={() => { setShowAdminMsg(false); setAdminMsgText(''); }}
+                className="flex-1 py-2.5 bg-slate-100 text-slate-600 rounded-xl text-[10px] font-black uppercase tracking-wider"
+              >
+                İptal
+              </button>
+              <button
+                disabled={!adminMsgText.trim()}
+                onClick={async () => {
+                  try {
+                    await addDoc(collection(db, 'adminMessages'), {
+                      userId: user?.uid,
+                      userDisplayName: user?.displayName || '',
+                      userNickname: profile?.nickname || user?.displayName || '',
+                      userUIN: profile?.uin || '',
+                      message: adminMsgText.trim(),
+                      timestamp: serverTimestamp()
+                    });
+                    setShowAdminMsg(false);
+                    setAdminMsgText('');
+                    alert('Mesajınız yöneticiye iletilmiştir.');
+                  } catch {
+                    alert('Mesaj gönderilemedi. Lütfen tekrar deneyin.');
+                  }
+                }}
+                className="flex-1 py-2.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-[10px] font-black uppercase tracking-wider disabled:opacity-40"
+              >
+                Gönder
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
