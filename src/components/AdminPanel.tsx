@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { collection, query, getDocs, doc, getDoc, where, orderBy, deleteDoc, updateDoc, Timestamp, serverTimestamp, onSnapshot, addDoc } from 'firebase/firestore';
+import { collection, query, getDocs, doc, getDoc, where, orderBy, deleteDoc, updateDoc, Timestamp, serverTimestamp, onSnapshot, addDoc, collectionGroup } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { UserProfile, Message, Chat } from '../types';
 import { X, Search, Shield, UserX, UserCheck, Trash2, Clock, MessageSquare, Ban, Bot, Shield as ShieldIcon, ShieldOff, Globe, Brain } from 'lucide-react';
@@ -29,8 +29,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
   const [banDuration, setBanDuration] = useState({ value: 30, unit: 'minutes' as 'minutes' | 'hours' | 'days' });
   const [loadingUsers, setLoadingUsers] = useState(false);
 
-  // Tab: users, admin-msgs, ai
-  const [tab, setTab] = useState<'users' | 'admin-msgs' | 'ai'>('users');
+  // Tab: users, admin-msgs, ai, deleted
+  const [tab, setTab] = useState<'users' | 'admin-msgs' | 'ai' | 'deleted'>('users');
   const DEFAULT_RULES = [
     { id: 'harmful', label: 'Zararlı içerik üretme', enabled: true },
     { id: 'illegal', label: 'Yasa dışı konularda yardım etme', enabled: true },
@@ -69,6 +69,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
     return () => unsub();
   }, [step, tab]);
   const [adminMessages, setAdminMessages] = useState<{ id: string; message: string; userId: string; userDisplayName: string; userNickname?: string; userUIN?: string; timestamp: any }[]>([]);
+  const [deletedMessages, setDeletedMessages] = useState<any[]>([]);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
   const handlePasswordSubmit = () => {
     if (password === ADMIN_PASSWORD) {
@@ -100,6 +102,29 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
     );
     const unsub = onSnapshot(q, (snap) => {
       setAdminMessages(snap.docs.map(d => ({ id: d.id, ...d.data() } as any)));
+    });
+    return () => unsub();
+  }, [step, tab]);
+
+  // Fetch deleted messages (messages where deletedBy has 2+ entries = both users deleted)
+  useEffect(() => {
+    if (step !== 'panel' || tab !== 'deleted') return;
+    const q = query(
+      collectionGroup(db, 'messages'),
+      where('deletedBy', '!=', null),
+      orderBy('deletedBy'),
+      orderBy('timestamp', 'desc')
+    );
+    const unsub = onSnapshot(q, (snap) => {
+      const all = snap.docs.map(d => ({ 
+        id: d.id, 
+        chatId: d.ref.parent.parent?.id || '',
+        ...d.data() 
+      }));
+      setDeletedMessages(all);
+    }, (err) => {
+      console.error("Deleted messages query error:", err);
+      setDeletedMessages([]);
     });
     return () => unsub();
   }, [step, tab]);
@@ -333,6 +358,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
           >
             <Bot size={14} />
             AI Ayarları
+          </button>
+          <button
+            onClick={() => setTab('deleted')}
+            className={cn("px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wider transition-all", tab === 'deleted' ? "bg-blue-600 text-white" : "bg-slate-800 text-slate-400 hover:text-white")}
+          >
+            Silinen Mesajlar
           </button>
           <button onClick={onClose} className="p-2 hover:bg-slate-800 rounded-full text-slate-400"><X size={20} /></button>
         </div>
@@ -657,6 +688,99 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                         <span className="text-[10px] text-slate-500 ml-auto">{m.timestamp?.toDate ? format(m.timestamp.toDate(), 'dd.MM HH:mm') : ''}</span>
                       </div>
                       <p className="text-sm text-slate-200">{m.message}</p>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
+        {tab === 'deleted' && (
+          <div className="flex-1 overflow-y-auto custom-scrollbar p-6">
+            <h2 className="text-lg font-black text-white mb-6">Silinen Mesajlar</h2>
+            <p className="text-[10px] text-slate-500 font-bold mb-4">Her iki kullanıcı tarafından silinen mesajlar burada görünür.</p>
+            {deletedMessages.length === 0 ? (
+              <p className="text-slate-500 text-sm font-bold">Henüz silinen mesaj yok.</p>
+            ) : (
+              <div className="space-y-3">
+                {deletedMessages.map((m) => {
+                  const sender = users.find(u => u.uid === m.senderId);
+                  return (
+                    <div key={m.id} className="bg-slate-800 rounded-2xl p-4 border border-slate-700">
+                      <div className="flex items-center gap-2 mb-2">
+                        <img src={sender?.photoURL || ''} className="w-6 h-6 rounded-lg object-cover bg-slate-700" />
+                        <span className="text-xs font-bold text-blue-400">{sender?.displayName || m.senderId?.slice(0, 8)}</span>
+                        <span className="text-[10px] text-slate-500">→</span>
+                        <span className="text-xs font-bold text-slate-300">{m.chatId?.slice(0, 12)}...</span>
+                        <span className="text-[10px] text-slate-500 ml-auto">{m.timestamp?.toDate ? format(m.timestamp.toDate(), 'dd.MM HH:mm') : ''}</span>
+                      </div>
+                      <div className="mb-3">
+                        {m.type === 'text' && <p className="text-sm text-slate-200">{m.text}</p>}
+                        {m.type === 'image' && <p className="text-sm text-blue-400">📷 Resim mesajı</p>}
+                        {m.type === 'video' && <p className="text-sm text-blue-400">🎥 Video mesajı</p>}
+                        {m.type === 'audio' && <p className="text-sm text-blue-400">🎤 Ses mesajı</p>}
+                      </div>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={async () => {
+                            if (m.type === 'image' && m.imageUrl) {
+                              const a = document.createElement('a');
+                              a.href = m.imageUrl;
+                              a.download = `image-${m.id}.jpg`;
+                              a.click();
+                            } else if (m.type === 'video' && m.videoUrl) {
+                              const a = document.createElement('a');
+                              a.href = m.videoUrl;
+                              a.download = `video-${m.id}.webm`;
+                              a.click();
+                            } else if (m.type === 'audio' && m.audioUrl) {
+                              const a = document.createElement('a');
+                              a.href = m.audioUrl;
+                              a.download = `audio-${m.id}.webm`;
+                              a.click();
+                            } else if (m.text) {
+                              navigator.clipboard.writeText(m.text).catch(() => {});
+                              alert('Metin panoya kopyalandı.');
+                            }
+                          }}
+                          className="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-white rounded-lg text-[10px] font-bold"
+                        >
+                          Bilgisayara Kaydet
+                        </button>
+                        <button
+                          onClick={() => setConfirmDeleteId(m.id)}
+                          className="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-lg text-[10px] font-bold"
+                        >
+                          Silmeyi Onayla
+                        </button>
+                      </div>
+                      {confirmDeleteId === m.id && (
+                        <div className="mt-3 p-3 bg-red-900/30 rounded-xl border border-red-800">
+                          <p className="text-xs text-red-300 font-bold mb-2">Bu mesajı kalıcı olarak silmek istediğinize emin misiniz?</p>
+                          <div className="flex gap-2">
+                            <button
+                              onClick={async () => {
+                                try {
+                                  await deleteDoc(doc(db, 'chats', m.chatId, 'messages', m.id));
+                                  setConfirmDeleteId(null);
+                                } catch (e) {
+                                  console.error("Permanent delete error:", e);
+                                }
+                              }}
+                              className="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-lg text-[10px] font-bold"
+                            >
+                              Evet, Sil
+                            </button>
+                            <button
+                              onClick={() => setConfirmDeleteId(null)}
+                              className="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-white rounded-lg text-[10px] font-bold"
+                            >
+                              İptal
+                            </button>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   );
                 })}
