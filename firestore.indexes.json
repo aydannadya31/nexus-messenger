@@ -24,5 +24,6 @@
         { "fieldPath": "uid", "order": "ASCENDING" }
       ]
     }
-  ]
+  ],
+  "fieldOverrides": []
 }

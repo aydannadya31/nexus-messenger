@@ -1149,8 +1149,11 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
                       setShowAdminDialog(false);
                       setAdminMessageText('');
                       showCustomAlert('Gönderildi', 'Mesajınız yöneticiye iletildi.');
-                    } catch {
-                      showCustomAlert('Hata', 'Mesaj gönderilemedi. Lütfen tekrar deneyin.');
+                    } catch (err) {
+                      console.error('Admin message send error:', err);
+                      setShowAdminDialog(false);
+                      setAdminMessageText('');
+                      showCustomAlert('Hata', 'Mesaj gönderilemedi. Admin ile iletişime geçin veya tekrar deneyin.');
                     }
                   }}
                   className="flex-1 py-2.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-[10px] font-black uppercase tracking-wider disabled:opacity-40"
