@@ -29,7 +29,14 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
 
   // Tab: users, admin-msgs, ai
   const [tab, setTab] = useState<'users' | 'admin-msgs' | 'ai'>('users');
-  const [aiSettings, setAiSettings] = useState<AISettings>({ enabled: true, ethicsRules: [] });
+  const DEFAULT_RULES = [
+    { id: 'harmful', label: 'Zararlı içerik üretme', enabled: true },
+    { id: 'illegal', label: 'Yasa dışı konularda yardım etme', enabled: true },
+    { id: 'hate-speech', label: 'Nefret söylemi kullanma', enabled: true },
+    { id: 'safety', label: 'Kullanıcı güvenliğini önceliklendir', enabled: true },
+  ];
+
+  const [aiSettings, setAiSettings] = useState<AISettings>({ enabled: true, ethicsRules: DEFAULT_RULES });
   const [aiSettingsLoading, setAiSettingsLoading] = useState(true);
   const [editingRuleId, setEditingRuleId] = useState<string | null>(null);
   const [editingLabel, setEditingLabel] = useState('');
@@ -43,7 +50,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
         setAiSettings(s);
         setAiSettingsLoading(false);
       },
-      () => setAiSettingsLoading(false)
+      () => {
+        setAiSettings({ enabled: true, ethicsRules: DEFAULT_RULES });
+        setAiSettingsLoading(false);
+      }
     );
     return () => unsub();
   }, [step, tab]);
