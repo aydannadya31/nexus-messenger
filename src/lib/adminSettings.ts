@@ -20,9 +20,16 @@ export const updateAISettings = async (settings: Partial<AISettings>) => {
   await setDoc(AI_SETTINGS_REF, settings, { merge: true });
 };
 
-export const subscribeAISettings = (callback: (settings: AISettings) => void) => {
-  return onSnapshot(AI_SETTINGS_REF, (snap) => {
-    if (snap.exists()) callback(snap.data() as AISettings);
-    else callback({ enabled: true, ethicsFilter: true });
-  });
+export const subscribeAISettings = (callback: (settings: AISettings) => void, onError?: () => void) => {
+  return onSnapshot(
+    AI_SETTINGS_REF,
+    (snap) => {
+      if (snap.exists()) callback(snap.data() as AISettings);
+      else callback({ enabled: true, ethicsFilter: true });
+    },
+    () => {
+      if (onError) onError();
+      else callback({ enabled: true, ethicsFilter: true });
+    }
+  );
 };

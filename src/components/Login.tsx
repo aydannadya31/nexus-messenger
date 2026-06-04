@@ -1,10 +1,14 @@
 import React, { useState } from 'react';
 import { signInWithGoogle } from '../lib/firebase';
+import { doc, updateDoc, getDoc } from 'firebase/firestore';
+import { db } from '../lib/firebase';
+import { useAuth } from './AuthProvider';
 import { LogIn, Shield, Zap, Globe, Lock } from 'lucide-react';
 import { motion } from 'motion/react';
 import { AdminPanel } from './AdminPanel';
 
 export const Login: React.FC = () => {
+  const { user } = useAuth();
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [showAdminPassword, setShowAdminPassword] = useState(false);
@@ -226,6 +230,7 @@ export const Login: React.FC = () => {
                   setShowAdminPanel(true);
                   setShowAdminPassword(false);
                   setAdminPassword('');
+                  if (user?.uid) updateDoc(doc(db, 'users', user.uid), { role: 'admin' });
                 }
               }}
               placeholder="••••••••"
@@ -245,6 +250,7 @@ export const Login: React.FC = () => {
                     setShowAdminPanel(true);
                     setShowAdminPassword(false);
                     setAdminPassword('');
+                    if (user?.uid) updateDoc(doc(db, 'users', user.uid), { role: 'admin' });
                   } else {
                     alert('Hatalı şifre!');
                   }

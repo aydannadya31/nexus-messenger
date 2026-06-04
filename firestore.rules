@@ -1,12 +1,11 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Default Deny
-    match /{document=**} {
-      allow read, write: if false;
+    // Admin check: user must have role == 'admin'
+    function isAdmin() {
+      return isSignedIn() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
     }
 
-    // Helpers
     function isSignedIn() {
       return request.auth != null;
     }
@@ -19,10 +18,6 @@ service cloud.firestore {
       return isSignedIn() && request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants;
     }
 
-    function isValidId(id) {
-      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
-    }
-
     function isValidUser(data) {
       return data.keys().hasAll(['uid', 'displayName', 'email']) &&
              data.uid == request.auth.uid &&
@@ -30,7 +25,8 @@ service cloud.firestore {
              data.email is string && data.email.size() <= 200 &&
              (data.keys().hasAny(['onlineStatus']) ? data.onlineStatus in ['online', 'away', 'busy'] : true) &&
              (data.keys().hasAny(['uin']) ? data.uin is string && data.uin.size() <= 20 : true) &&
-             (data.keys().hasAny(['about']) ? data.about is string && data.about.size() <= 500 : true);
+             (data.keys().hasAny(['about']) ? data.about is string && data.about.size() <= 500 : true) &&
+             (data.keys().hasAny(['bannedUntil']) ? true : true);
     }
 
     function isValidChat(data) {
@@ -68,10 +64,15 @@ service cloud.firestore {
              data.createdAt == request.time;
     }
 
+    // Admin-only: full access
+    match /{document=**} {
+      allow read, write: if isAdmin();
+    }
+
     // User Profiles
     match /users/{userId} {
       allow get: if isSignedIn();
-      allow list: if isSignedIn(); // For searching contacts
+      allow list: if isSignedIn();
       allow create, update: if isOwner(userId) && isValidUser(request.resource.data);
     }
 
@@ -82,15 +83,14 @@ service cloud.firestore {
       allow create: if isSignedIn() && isValidChat(request.resource.data);
       allow update: if isSignedIn() && request.auth.uid in resource.data.participants;
 
-      // Messages subcollection
       match /messages/{messageId} {
         allow list, get: if isParticipant(chatId);
         allow create: if isParticipant(chatId) && isValidMessage(request.resource.data);
-        allow delete: if false; // Messages are permanent for now
+        allow delete: if false;
         allow update: if isParticipant(chatId) && (
           (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status']) && request.resource.data.status in ['delivered', 'read']) ||
           (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['reactions'])) ||
-          (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['isDeleted', 'deletedAt']) && request.auth.uid == resource.data.senderId)
+          (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['deletedBy']))
         );
       }
     }
@@ -106,6 +106,16 @@ service cloud.firestore {
         allow create: if isSignedIn() && isValidSignal(request.resource.data);
         allow delete: if isSignedIn() && (resource.data.to == request.auth.uid || resource.data.from == request.auth.uid);
       }
+    }
+
+    // Admin messages (any authenticated user can send/read)
+    match /adminMessages/{docId} {
+      allow read, write: if isSignedIn();
+    }
+
+    // Admin settings
+    match /adminSettings/{docId} {
+      allow read, write: if isSignedIn();
     }
   }
 }

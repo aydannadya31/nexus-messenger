@@ -35,10 +35,13 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
   useEffect(() => {
     if (step !== 'panel' || tab !== 'ai') return;
     setAiSettingsLoading(true);
-    const unsub = subscribeAISettings((s) => {
-      setAiSettings(s);
-      setAiSettingsLoading(false);
-    });
+    const unsub = subscribeAISettings(
+      (s) => {
+        setAiSettings(s);
+        setAiSettingsLoading(false);
+      },
+      () => setAiSettingsLoading(false)
+    );
     return () => unsub();
   }, [step, tab]);
   const [adminMessages, setAdminMessages] = useState<{ id: string; message: string; userId: string; userDisplayName: string; userNickname?: string; userUIN?: string; timestamp: any }[]>([]);
@@ -81,47 +84,56 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
     setSelectedUser(u);
     setUserMessages([]);
 
-    const chatsQuery = query(
-      collection(db, 'chats'),
-      where('participants', 'array-contains', u.uid)
-    );
-    const chatSnap = await getDocs(chatsQuery);
-    const chatNames: Record<string, string> = {};
-    const allMessages: { chatId: string; msg: Message; chatName: string }[] = [];
+    try {
+      const chatsQuery = query(
+        collection(db, 'chats'),
+        where('participants', 'array-contains', u.uid)
+      );
+      const chatSnap = await getDocs(chatsQuery);
+      const chatNames: Record<string, string> = {};
+      const allMessages: { chatId: string; msg: Message; chatName: string }[] = [];
 
-    for (const chatDoc of chatSnap.docs) {
-      const chatData = chatDoc.data() as Chat;
-      const chatId = chatDoc.id;
+      for (const chatDoc of chatSnap.docs) {
+        const chatData = chatDoc.data() as Chat;
+        const chatId = chatDoc.id;
 
-      if (chatData.type === 'private') {
-        const otherId = chatData.participants.find(p => p !== u.uid);
-        const otherUser = users.find(us => us.uid === otherId);
-        chatNames[chatId] = otherUser?.displayName || otherId || 'Bilinmeyen';
-      } else {
-        chatNames[chatId] = chatData.groupMetadata?.name || 'Grup';
+        if (chatData.type === 'private') {
+          const otherId = chatData.participants.find(p => p !== u.uid);
+          const otherUser = users.find(us => us.uid === otherId);
+          chatNames[chatId] = otherUser?.displayName || otherId || 'Bilinmeyen';
+        } else {
+          chatNames[chatId] = chatData.groupMetadata?.name || 'Grup';
+        }
+
+        try {
+          const msgSnap = await getDocs(query(
+            collection(db, 'chats', chatId, 'messages'),
+            orderBy('timestamp', 'desc')
+          ));
+          msgSnap.docs.forEach(d => {
+            allMessages.push({
+              chatId,
+              msg: { id: d.id, ...d.data() } as Message,
+              chatName: chatNames[chatId]
+            });
+          });
+        } catch (msgErr) {
+          console.warn('Could not load messages for chat', chatId, msgErr);
+        }
       }
 
-      const msgSnap = await getDocs(query(
-        collection(db, 'chats', chatId, 'messages'),
-        orderBy('timestamp', 'desc')
-      ));
-      msgSnap.docs.forEach(d => {
-        allMessages.push({
-          chatId,
-          msg: { id: d.id, ...d.data() } as Message,
-          chatName: chatNames[chatId]
-        });
+      allMessages.sort((a, b) => {
+        const ta = a.msg.timestamp?.toMillis?.() || 0;
+        const tb = b.msg.timestamp?.toMillis?.() || 0;
+        return tb - ta;
       });
+
+      setUserMessages(allMessages.slice(0, 200));
+      setUserChats(chatNames);
+    } catch (err) {
+      console.error('loadUserMessages error:', err);
+      alert('Kullanıcı mesajları yüklenirken bir hata oluştu. Admin yetkilerinizi kontrol edin.');
     }
-
-    allMessages.sort((a, b) => {
-      const ta = a.msg.timestamp?.toMillis?.() || 0;
-      const tb = b.msg.timestamp?.toMillis?.() || 0;
-      return tb - ta;
-    });
-
-    setUserMessages(allMessages.slice(0, 200));
-    setUserChats(chatNames);
   };
 
   const permanentlyDeleteMessage = async (chatId: string, msgId: string) => {

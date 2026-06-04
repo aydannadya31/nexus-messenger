@@ -916,6 +916,16 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
             );
           })}
         </AnimatePresence>
+
+        {/* Persistent Admin Message Button */}
+        <div className="flex justify-center py-2 sm:py-3">
+          <button
+            onClick={() => setShowAdminDialog(true)}
+            className="flex items-center gap-2 px-4 py-2 bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 rounded-xl text-[11px] font-bold uppercase tracking-wider transition-all active:scale-95 shadow-sm"
+          >
+            📩 Yöneticiye Mesaj Gönder
+          </button>
+        </div>
       </div>
 
       {/* Input Area */}

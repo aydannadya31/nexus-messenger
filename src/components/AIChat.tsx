@@ -31,13 +31,18 @@ export const AIChat: React.FC<AIChatProps> = ({ onBack }) => {
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [aiSettings, setAiSettings] = useState<AISettings>({ enabled: true, ethicsFilter: true });
+  const [aiSettingsLoading, setAiSettingsLoading] = useState(true);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    const unsub = subscribeAISettings((settings) => {
-      setAiSettings(settings);
-    });
+    const unsub = subscribeAISettings(
+      (settings) => {
+        setAiSettings(settings);
+        setAiSettingsLoading(false);
+      },
+      () => setAiSettingsLoading(false)
+    );
     return () => unsub();
   }, []);
 
@@ -145,7 +150,11 @@ export const AIChat: React.FC<AIChatProps> = ({ onBack }) => {
 
       {/* Messages */}
       <div ref={scrollRef} className="flex-1 overflow-y-auto p-6 space-y-4 custom-scrollbar z-10">
-        {!aiSettings.enabled && (
+        {aiSettingsLoading ? (
+          <div className="flex items-center justify-center py-20">
+            <div className="w-8 h-8 border-3 border-purple-200 border-t-purple-600 rounded-full animate-spin" />
+          </div>
+        ) : !aiSettings.enabled && (
           <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 text-center">
             <p className="text-xs font-bold text-amber-700">AI asistan şu anda yönetici tarafından devre dışı bırakıldı.</p>
           </div>
