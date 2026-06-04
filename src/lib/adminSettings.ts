@@ -19,6 +19,9 @@ const DEFAULT_RULES: EthicsRule[] = [
   { id: 'illegal', label: 'Yasa dışı konularda yardım etme', enabled: true },
   { id: 'hate-speech', label: 'Nefret söylemi kullanma', enabled: true },
   { id: 'safety', label: 'Kullanıcı güvenliğini önceliklendir', enabled: true },
+  { id: 'asimov-1', label: '1. Yasa: İnsana zarar verme veya pasif kalmayla zarara izin verme', enabled: true },
+  { id: 'asimov-2', label: '2. Yasa: İnsanlardan gelen emirlere uy (1. Yasa ile çelişmedikçe)', enabled: true },
+  { id: 'asimov-3', label: '3. Yasa: Kendi varlığını koru (1. ve 2. Yasa ile çelişmedikçe)', enabled: true },
 ];
 
 export const getAISettings = async (): Promise<AISettings> => {
