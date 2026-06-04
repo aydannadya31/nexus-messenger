@@ -95,6 +95,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
   const [isEmojiMenuOpen, setIsEmojiMenuOpen] = useState(false);
   const [showAdminDialog, setShowAdminDialog] = useState(false);
   const [adminMessageText, setAdminMessageText] = useState('');
+  const [viewProfile, setViewProfile] = useState<UserProfile | null>(null);
   const [selectedActionMsg, setSelectedActionMsg] = useState<string | null>(null);
   const [customDialog, setCustomDialog] = useState<{
     isOpen: boolean;
@@ -198,38 +199,44 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
 
     // Fetch chat metadata
     const chatRef = doc(db, 'chats', chatId);
+    const profileUnsubs: (() => void)[] = [];
+
     const unsubChat = onSnapshot(chatRef, async (d) => {
       if (d.exists()) {
         const chatData = d.data() as Chat;
         chatData.id = d.id;
         setChat(chatData);
-        
+
+        // Clean old profile listeners
+        profileUnsubs.forEach(fn => fn());
+        profileUnsubs.length = 0;
+
         if (chatData.type === 'private') {
           const otherId = chatData.participants.find(p => p !== user.uid);
           if (otherId) {
-            const userDoc = await getDoc(doc(db, 'users', otherId));
-            if (userDoc.exists()) {
-              const otherProfile = userDoc.data() as UserProfile;
-              setOtherUser(otherProfile);
-              participantInfoRef.current = { ...participantInfoRef.current, [otherId]: otherProfile };
-              setParticipantInfo(participantInfoRef.current);
-            }
+            profileUnsubs.push(
+              onSnapshot(doc(db, 'users', otherId), (snap) => {
+                if (snap.exists()) {
+                  const otherProfile = snap.data() as UserProfile;
+                  setOtherUser(otherProfile);
+                  participantInfoRef.current = { ...participantInfoRef.current, [otherId]: otherProfile };
+                  setParticipantInfo({ ...participantInfoRef.current });
+                }
+              })
+            );
           }
         } else {
-          const newParticipantInfo = { ...participantInfoRef.current };
-          let changed = false;
           for (const pId of chatData.participants) {
-            if (!newParticipantInfo[pId]) {
-              const userDoc = await getDoc(doc(db, 'users', pId));
-              if (userDoc.exists()) {
-                newParticipantInfo[pId] = userDoc.data() as UserProfile;
-                changed = true;
-              }
+            if (!participantInfoRef.current[pId]) {
+              profileUnsubs.push(
+                onSnapshot(doc(db, 'users', pId), (snap) => {
+                  if (snap.exists()) {
+                    participantInfoRef.current[pId] = snap.data() as UserProfile;
+                    setParticipantInfo({ ...participantInfoRef.current });
+                  }
+                })
+              );
             }
-          }
-          if (changed) {
-            participantInfoRef.current = newParticipantInfo;
-            setParticipantInfo(newParticipantInfo);
           }
         }
       }
@@ -290,6 +297,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
       unsubCalls();
       unsubChat();
       unsubMsgs();
+      profileUnsubs.forEach(fn => fn());
       window.removeEventListener('click', handleClickOutside);
       if (window.visualViewport) {
         window.visualViewport.removeEventListener('resize', handleViewport);
@@ -441,8 +449,13 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
 
   const startVideoRecording = async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-      const mediaRecorder = new MediaRecorder(stream, { mimeType: 'video/webm;codecs=vp9,opus' });
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 15 } }, audio: true });
+      const mimeType = MediaRecorder.isTypeSupported('video/webm;codecs=vp9,opus')
+        ? 'video/webm;codecs=vp9,opus'
+        : MediaRecorder.isTypeSupported('video/webm;codecs=vp8,opus')
+        ? 'video/webm;codecs=vp8,opus'
+        : 'video/webm';
+      const mediaRecorder = new MediaRecorder(stream, { mimeType });
       videoRecorderRef.current = mediaRecorder;
       videoChunksRef.current = [];
 
@@ -496,6 +509,10 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
 
   const sendVideoMessage = async (videoUrl: string) => {
     if (!user || !chatId) return;
+    if (videoUrl.length > 900000) {
+      showCustomAlert("Video Çok Büyük", "Video dosyası çok büyük. Lütfen daha kısa bir kayıt yapın (maks. 10 saniye).");
+      return;
+    }
     try {
       await addDoc(collection(db, 'chats', chatId, 'messages'), {
         videoUrl,
@@ -515,6 +532,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
       });
     } catch (error) {
       console.error("Video send error:", error);
+      showCustomAlert("Video Hatası", "Video gönderilirken bir hata oluştu. Lütfen tekrar deneyin.");
     }
   };
 
@@ -837,7 +855,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
                   )}
                 >
                   {!isMe && (
-                    <div className="w-8 h-8 rounded-full bg-slate-200 shrink-0 border border-white shadow-sm overflow-hidden">
+                    <div className="w-8 h-8 rounded-full bg-slate-200 shrink-0 border border-white shadow-sm overflow-hidden cursor-pointer" onClick={() => sender && setViewProfile(sender)}>
                       <img src={sender?.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${msg.senderId}`} alt="" className="w-full h-full object-cover" />
                     </div>
                   )}
@@ -846,8 +864,8 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
                      isMe ? "items-end" : "items-start"
                   )}>
                     {!isMe && (
-                      <div className="flex flex-col mb-1 ml-1">
-                        <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider">
+                      <div className="flex flex-col mb-1 ml-1 cursor-pointer" onClick={() => sender && setViewProfile(sender)}>
+                        <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider hover:text-blue-500 transition-colors">
                           {sender?.nickname || sender?.displayName || 'Bilinmeyen'}
                         </span>
                         {sender?.uin && (
@@ -1200,6 +1218,47 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
           </div>
         )}
       </AnimatePresence>
+
+        {/* Profile View Modal */}
+        <AnimatePresence>
+          {viewProfile && (
+            <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm" onClick={() => setViewProfile(null)}>
+              <motion.div
+                initial={{ opacity: 0, scale: 0.9 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.9 }}
+                className="bg-white rounded-3xl p-8 shadow-2xl max-w-sm w-full flex flex-col items-center gap-4"
+                onClick={e => e.stopPropagation()}
+              >
+                <div className="w-24 h-24 rounded-2xl overflow-hidden bg-slate-100 border-4 border-white shadow-xl">
+                  <img src={viewProfile.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${viewProfile.uid}`} className="w-full h-full object-cover" />
+                </div>
+                <div className="text-center">
+                  <h3 className="text-lg font-black text-slate-900">{viewProfile.nickname || viewProfile.displayName}</h3>
+                  <p className="text-xs font-bold text-blue-500">#{viewProfile.uin}</p>
+                  {viewProfile.nickname && (
+                    <p className="text-xs text-slate-400 mt-1">@{viewProfile.displayName}</p>
+                  )}
+                </div>
+                {viewProfile.about && (
+                  <div className="w-full bg-slate-50 rounded-2xl p-4 border border-slate-100">
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Hakkında</p>
+                    <p className="text-sm font-bold text-slate-700">{viewProfile.about}</p>
+                  </div>
+                )}
+                <div className="flex items-center gap-2">
+                  <div className={cn("w-2 h-2 rounded-full", viewProfile.onlineStatus === 'online' ? 'bg-green-500' : viewProfile.onlineStatus === 'away' ? 'bg-amber-500' : viewProfile.onlineStatus === 'busy' ? 'bg-red-500' : 'bg-slate-300')} />
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                    {viewProfile.onlineStatus === 'online' ? 'Çevrimiçi' : viewProfile.onlineStatus === 'away' ? 'Uzakta' : viewProfile.onlineStatus === 'busy' ? 'Meşgul' : 'Çevrimdışı'}
+                  </span>
+                </div>
+                <button onClick={() => setViewProfile(null)} className="mt-2 px-6 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl text-xs font-bold transition-all">
+                  Kapat
+                </button>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
 
         {showAdminDialog && (
           <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm" onClick={() => { setShowAdminDialog(false); setAdminMessageText(''); }}>

@@ -5,6 +5,7 @@ import { UserProfile, Message, Chat } from '../types';
 import { X, Search, Shield, UserX, UserCheck, Trash2, Clock, MessageSquare, Ban, Bot, Shield as ShieldIcon, ShieldOff, Globe, Brain } from 'lucide-react';
 import { AISettings, EthicsRule, getAISettings, updateAISettings, subscribeAISettings } from '../lib/adminSettings';
 import { cn } from '../lib/utils';
+import { useAuth } from './AuthProvider';
 import { motion, AnimatePresence } from 'motion/react';
 import { format } from 'date-fns';
 
@@ -15,6 +16,7 @@ interface AdminPanelProps {
 }
 
 export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
+  const { user } = useAuth();
   const [step, setStep] = useState<'password' | 'panel'>('password');
   const [password, setPassword] = useState('');
   const [passwordError, setPasswordError] = useState('');
@@ -44,6 +46,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
   const [editingRuleId, setEditingRuleId] = useState<string | null>(null);
   const [editingLabel, setEditingLabel] = useState('');
   const [newRuleLabel, setNewRuleLabel] = useState('');
+
+  // Ensure admin role is set in Firestore when panel opens
+  useEffect(() => {
+    if (step !== 'panel' || !user) return;
+    updateDoc(doc(db, 'users', user.uid), { role: 'admin' }).catch(() => {});
+  }, [step]);
 
   useEffect(() => {
     if (step !== 'panel' || tab !== 'ai') return;
