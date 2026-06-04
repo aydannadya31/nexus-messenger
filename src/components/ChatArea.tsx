@@ -367,6 +367,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
   const videoChunksRef = useRef<Blob[]>([]);
   const videoTimerRef = useRef<any>(null);
   const videoStreamRef = useRef<MediaStream | null>(null);
+  const videoPreviewRef = useRef<HTMLVideoElement | null>(null);
   const [useFrontCamera, setUseFrontCamera] = useState(true);
   const [recordedVideoUrl, setRecordedVideoUrl] = useState<string | null>(null);
 
@@ -450,37 +451,55 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
 
   const MAX_VIDEO_RECORDING_SECONDS = 10;
 
-  const openVideoDialog = () => {
-    setShowVideoDialog(true);
-    setVideoDialogState('preview');
-    setRecordedVideoUrl(null);
-    setVideoRecordingTime(0);
-    startVideoStream();
-  };
-
-  const startVideoStream = async () => {
+  const startVideoStream = useCallback(async (facing: 'user' | 'environment') => {
     try {
       if (videoStreamRef.current) {
         videoStreamRef.current.getTracks().forEach(t => t.stop());
+        videoStreamRef.current = null;
       }
-      const facingMode = useFrontCamera ? 'user' : 'environment';
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { width: { ideal: 320 }, height: { ideal: 240 }, frameRate: { ideal: 10 }, facingMode },
+        video: { width: { ideal: 320 }, height: { ideal: 240 }, frameRate: { ideal: 10 }, facingMode: facing },
         audio: { echoCancellation: true, noiseSuppression: true }
       });
       videoStreamRef.current = stream;
-      const vid = document.getElementById('video-dialog-preview') as HTMLVideoElement;
-      if (vid) vid.srcObject = stream;
+      if (videoPreviewRef.current) {
+        videoPreviewRef.current.srcObject = stream;
+      }
     } catch (error) {
       console.error("Camera access error:", error);
       showCustomAlert("Kamera Erişim Hatası", "Kameraya erişilemedi.");
       setShowVideoDialog(false);
     }
+  }, []);
+
+  const openVideoDialog = () => {
+    setShowVideoDialog(true);
+    setVideoDialogState('preview');
+    setRecordedVideoUrl(null);
+    setVideoRecordingTime(0);
   };
+
+  const stopVideoStream = useCallback(() => {
+    if (videoStreamRef.current) {
+      videoStreamRef.current.getTracks().forEach(t => t.stop());
+      videoStreamRef.current = null;
+    }
+    if (videoPreviewRef.current) {
+      videoPreviewRef.current.srcObject = null;
+    }
+  }, []);
+
+  useEffect(() => {
+    if (showVideoDialog && videoDialogState === 'preview') {
+      startVideoStream(useFrontCamera ? 'user' : 'environment');
+    }
+    if (!showVideoDialog) {
+      stopVideoStream();
+    }
+  }, [showVideoDialog, useFrontCamera, videoDialogState, startVideoStream, stopVideoStream]);
 
   const toggleCamera = () => {
     setUseFrontCamera(prev => !prev);
-    setTimeout(() => startVideoStream(), 100);
   };
 
   const startVideoRecording = () => {
@@ -507,12 +526,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
       reader.onloadend = () => {
         setRecordedVideoUrl(reader.result as string);
         setVideoDialogState('result');
-        if (videoStreamRef.current) {
-          videoStreamRef.current.getTracks().forEach(t => t.stop());
-          videoStreamRef.current = null;
-        }
-        const vid = document.getElementById('video-dialog-preview') as HTMLVideoElement;
-        if (vid) vid.srcObject = null;
+        stopVideoStream();
       };
     };
 
@@ -539,10 +553,9 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
   const discardVideo = () => {
     setRecordedVideoUrl(null);
     setShowVideoDialog(false);
-    if (videoStreamRef.current) {
-      videoStreamRef.current.getTracks().forEach(t => t.stop());
-      videoStreamRef.current = null;
-    }
+    setVideoDialogState('preview');
+    stopVideoStream();
+    clearInterval(videoTimerRef.current);
   };
 
   const sendRecordedVideo = async () => {
@@ -550,15 +563,15 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
     await sendVideoMessage(recordedVideoUrl);
     setRecordedVideoUrl(null);
     setShowVideoDialog(false);
+    setVideoDialogState('preview');
+    clearInterval(videoTimerRef.current);
   };
 
   const closeVideoDialog = () => {
-    if (videoStreamRef.current) {
-      videoStreamRef.current.getTracks().forEach(t => t.stop());
-      videoStreamRef.current = null;
-    }
     setShowVideoDialog(false);
     setRecordedVideoUrl(null);
+    setVideoDialogState('preview');
+    stopVideoStream();
     clearInterval(videoTimerRef.current);
   };
 
@@ -1378,7 +1391,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
                 {/* Camera Preview */}
                 <div className="relative bg-black aspect-[3/4] flex items-center justify-center">
                   {videoDialogState !== 'result' ? (
-                    <video id="video-dialog-preview" autoPlay playsInline muted className="w-full h-full object-cover" />
+                    <video ref={videoPreviewRef} autoPlay playsInline muted className="w-full h-full object-cover" />
                   ) : (
                     <video src={recordedVideoUrl || ''} controls playsInline className="w-full h-full object-cover" />
                   )}
