@@ -12,6 +12,7 @@ interface ProfileModalProps {
 
 const ProfileModal: React.FC<ProfileModalProps> = ({ user, onClose }) => {
   const [displayName, setDisplayName] = useState(user.displayName);
+  const [nickname, setNickname] = useState(user.nickname || '');
   const [about, setAbout] = useState(user.about || '');
   const [onlineStatus, setOnlineStatus] = useState(user.onlineStatus || 'online');
   const [photoURL, setPhotoURL] = useState(user.photoURL);
@@ -28,6 +29,7 @@ const ProfileModal: React.FC<ProfileModalProps> = ({ user, onClose }) => {
       const userRef = doc(db, 'users', user.uid);
       await updateDoc(userRef, {
         displayName,
+        nickname,
         about,
         onlineStatus,
         photoURL
@@ -196,6 +198,20 @@ const ProfileModal: React.FC<ProfileModalProps> = ({ user, onClose }) => {
               onChange={(e) => setDisplayName(e.target.value)}
               className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl px-4 py-3 text-sm font-bold text-slate-900 focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 outline-none transition-all placeholder:text-slate-300"
               placeholder="İsminiz..."
+            />
+          </div>
+
+          {/* Nickname */}
+          <div className="space-y-2">
+            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
+              <User size={12} className="text-purple-500" /> Takma Ad
+            </label>
+            <input 
+              type="text" 
+              value={nickname}
+              onChange={(e) => setNickname(e.target.value)}
+              className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl px-4 py-3 text-sm font-bold text-slate-900 focus:border-purple-500 focus:ring-4 focus:ring-purple-500/10 outline-none transition-all placeholder:text-slate-300"
+              placeholder="Takma adınız (opsiyonel)..."
             />
           </div>
 

@@ -1,11 +1,15 @@
 import React, { useState } from 'react';
 import { signInWithGoogle } from '../lib/firebase';
-import { LogIn, Shield, Zap, Globe } from 'lucide-react';
+import { LogIn, Shield, Zap, Globe, Lock } from 'lucide-react';
 import { motion } from 'motion/react';
+import { AdminPanel } from './AdminPanel';
 
 export const Login: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [showAdminPassword, setShowAdminPassword] = useState(false);
+  const [adminPassword, setAdminPassword] = useState('');
+  const [showAdminPanel, setShowAdminPanel] = useState(false);
 
   const handleLogin = async () => {
     setError(null);
@@ -189,11 +193,74 @@ export const Login: React.FC = () => {
             )}
           </button>
           
-          <p className="mt-10 text-[11px] text-slate-400 uppercase tracking-[0.2em] font-black">
-            NEXUS PROTOCOL v2.0
-          </p>
+          <div className="mt-6 flex items-center gap-4">
+            <p className="text-[11px] text-slate-400 uppercase tracking-[0.2em] font-black">
+              NEXUS PROTOCOL v2.0
+            </p>
+            <button
+              onClick={() => setShowAdminPassword(true)}
+              className="text-[9px] text-blue-500 hover:text-blue-700 uppercase tracking-[0.15em] font-black transition-colors"
+            >
+              Yönetim
+            </button>
+          </div>
         </div>
       </motion.div>
+
+      {showAdminPassword && (
+        <div className="fixed inset-0 z-[300] flex items-center justify-center bg-slate-900/70 backdrop-blur-md" onClick={() => { setShowAdminPassword(false); setAdminPassword(''); }}>
+          <motion.div
+            initial={{ opacity: 0, scale: 0.9 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="bg-white rounded-3xl p-8 shadow-2xl max-w-sm w-full mx-4"
+            onClick={e => e.stopPropagation()}
+          >
+            <h3 className="text-base font-black text-slate-900 mb-2">Admin Girişi</h3>
+            <p className="text-[10px] text-slate-400 font-bold mb-6">Yetkili yönetici girişi için şifrenizi girin.</p>
+            <input
+              type="password"
+              value={adminPassword}
+              onChange={e => setAdminPassword(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === 'Enter' && adminPassword === 'Ag1453ag!') {
+                  setShowAdminPanel(true);
+                  setShowAdminPassword(false);
+                  setAdminPassword('');
+                }
+              }}
+              placeholder="••••••••"
+              className="w-full bg-slate-100 border-none rounded-xl py-3 px-4 text-sm outline-none mb-4"
+              autoFocus
+            />
+            <div className="flex gap-2">
+              <button
+                onClick={() => { setShowAdminPassword(false); setAdminPassword(''); }}
+                className="flex-1 py-2.5 bg-slate-100 text-slate-600 rounded-xl text-[10px] font-black uppercase tracking-wider"
+              >
+                İptal
+              </button>
+              <button
+                onClick={() => {
+                  if (adminPassword === 'Ag1453ag!') {
+                    setShowAdminPanel(true);
+                    setShowAdminPassword(false);
+                    setAdminPassword('');
+                  } else {
+                    alert('Hatalı şifre!');
+                  }
+                }}
+                className="flex-1 py-2.5 bg-blue-600 text-white rounded-xl text-[10px] font-black uppercase tracking-wider"
+              >
+                Giriş
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
+
+      {showAdminPanel && (
+        <AdminPanel onClose={() => setShowAdminPanel(false)} />
+      )}
     </div>
   );
 };

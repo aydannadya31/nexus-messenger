@@ -8,6 +8,9 @@ export interface UserProfile {
   about?: string;
   uin?: string;
   onlineStatus?: 'online' | 'away' | 'busy';
+  nickname?: string;
+  bannedUntil?: any;
+  role?: 'user' | 'admin';
 }
 
 export interface Chat {
@@ -40,6 +43,7 @@ export interface Message {
   status?: 'sending' | 'sent' | 'delivered' | 'read';
   reactions?: Record<string, string>;
   deletedBy?: string[];
+  toAdmin?: boolean;
 }
 
 export interface Call {
