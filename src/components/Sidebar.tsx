@@ -32,7 +32,7 @@ interface SidebarProps {
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, onStartNewChat, onOpenBroadcast, onOpenAI }) => {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const [chats, setChats] = useState<Chat[]>([]);
   const [chatDetails, setChatDetails] = useState<Record<string, UserProfile>>({});
   const prevLastMessagesRef = useRef<Record<string, any>>({});
@@ -125,7 +125,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
 
   const [showStatusMenu, setShowStatusMenu] = useState(false);
   const [showProfileModal, setShowProfileModal] = useState(false);
-  const myStatus = (user as unknown as UserProfile)?.onlineStatus || 'online';
+  const myStatus = profile?.onlineStatus || 'online';
 
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -302,33 +302,33 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
         )}
 
         <div className="flex items-center justify-between">
-          <div className="flex items-center space-x-3 group cursor-pointer" onClick={() => setShowProfileModal(true)}>
-            <div className="relative">
-              <img 
-                src={user?.photoURL || ''} 
-                alt="Profile" 
-                className="w-10 h-10 rounded-xl bg-slate-900 object-cover shadow-sm group-hover:ring-2 group-hover:ring-blue-500/20 transition-all"
-              />
-              <StatusBullet 
-                status={myStatus} 
-                className="absolute -bottom-1 -right-1 w-3.5 h-3.5" 
-              />
-              <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 rounded-xl flex items-center justify-center transition-colors">
-                <Settings size={14} className="text-white opacity-0 group-hover:opacity-100 transition-opacity" />
+            <div className="flex items-center space-x-3 group cursor-pointer" onClick={() => setShowProfileModal(true)}>
+              <div className="relative">
+                <img 
+                  src={profile?.photoURL || user?.photoURL || ''} 
+                  alt="Profile" 
+                  className="w-10 h-10 rounded-xl bg-slate-900 object-cover shadow-sm group-hover:ring-2 group-hover:ring-blue-500/20 transition-all"
+                />
+                <StatusBullet 
+                  status={myStatus} 
+                  className="absolute -bottom-1 -right-1 w-3.5 h-3.5" 
+                />
+                <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 rounded-xl flex items-center justify-center transition-colors">
+                  <Settings size={14} className="text-white opacity-0 group-hover:opacity-100 transition-opacity" />
+                </div>
+              </div>
+              <div className="flex flex-col min-w-0">
+                <span className="text-xs font-bold text-slate-900 truncate max-w-[100px]">
+                  {profile?.displayName || user?.displayName}
+                </span>
+                <span className="text-[9px] font-black text-blue-500 tracking-tighter uppercase">
+                  { profile?.uin || '...' }
+                </span>
+                <span className="text-[10px] text-slate-400 truncate max-w-[100px]">
+                  {profile?.about || 'Durum yok'}
+                </span>
               </div>
             </div>
-            <div className="flex flex-col min-w-0">
-              <span className="text-xs font-bold text-slate-900 truncate max-w-[100px]">
-                {user?.displayName}
-              </span>
-              <span className="text-[9px] font-black text-blue-500 tracking-tighter uppercase">
-                { (user as any)?.uin || '...' }
-              </span>
-              <span className="text-[10px] text-slate-400 truncate max-w-[100px]">
-                {(user as any)?.about || 'Durum yok'}
-              </span>
-            </div>
-          </div>
           <button 
             onClick={() => setShowStatusMenu(!showStatusMenu)}
             className="flex items-center space-x-1.5 px-3 py-1.5 bg-slate-50 hover:bg-slate-100 rounded-xl transition-all border border-slate-100 active:scale-95"
@@ -344,9 +344,9 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
         </div>
       </footer>
 
-      {showProfileModal && user && (
+      {showProfileModal && profile && (
         <ProfileModal 
-          user={user as any} 
+          user={profile} 
           onClose={() => setShowProfileModal(false)} 
         />
       )}
