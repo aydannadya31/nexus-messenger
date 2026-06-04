@@ -253,15 +253,17 @@ export const CallOverlay = () => {
                    participantsCount <= 6 ? 'grid-rows-2' : 'grid-rows-3';
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 pointer-events-none">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6">
       <AnimatePresence>
         {incomingCall && (
-          <motion.div 
-            initial={{ opacity: 0, y: 50, scale: 0.9 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.9 }}
-            className="bg-white rounded-[2.5rem] p-8 shadow-2xl flex flex-col items-center gap-6 border border-slate-100 pointer-events-auto"
-          >
+          <>
+            <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" />
+            <motion.div 
+              initial={{ opacity: 0, y: 50, scale: 0.9 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.9 }}
+              className="bg-white rounded-[2.5rem] p-8 shadow-2xl flex flex-col items-center gap-6 border border-slate-100 pointer-events-auto z-10"
+            >
             <div className="relative">
               <div className="w-24 h-24 rounded-full bg-blue-100 overflow-hidden border-4 border-white shadow-lg">
                 <img src={callerInfo?.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${incomingCall.callerId}`} className="w-full h-full object-cover" />
@@ -290,7 +292,8 @@ export const CallOverlay = () => {
                 {incomingCall.mediaType === 'video' ? <Video size={24} /> : <Phone size={24} />}
               </button>
             </div>
-          </motion.div>
+            </motion.div>
+          </>
         )}
 
         {activeCall && (

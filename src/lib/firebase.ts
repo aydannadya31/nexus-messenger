@@ -1,5 +1,5 @@
 import { initializeApp } from 'firebase/app';
-import { getAuth, GoogleAuthProvider, signInWithPopup, signOut } from 'firebase/auth';
+import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, browserLocalPersistence, setPersistence } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
 import firebaseConfig from '../../firebase-applet-config.json';
 
@@ -8,6 +8,9 @@ export const auth = getAuth(app);
 export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 
 const googleProvider = new GoogleAuthProvider();
+
+// Oturumu localStorage'da kalıcı yap (sayfa yenilemede oturum açık kalır)
+setPersistence(auth, browserLocalPersistence);
 
 export const signInWithGoogle = () => signInWithPopup(auth, googleProvider);
 export const logout = () => signOut(auth);

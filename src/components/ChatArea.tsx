@@ -360,15 +360,15 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
   const audioChunksRef = useRef<Blob[]>([]);
   const timerRef = useRef<any>(null);
 
-  const [isVideoRecording, setIsVideoRecording] = useState(false);
+  const [showVideoDialog, setShowVideoDialog] = useState(false);
+  const [videoDialogState, setVideoDialogState] = useState<'preview' | 'recording' | 'result'>('preview');
   const [videoRecordingTime, setVideoRecordingTime] = useState(0);
   const videoRecorderRef = useRef<MediaRecorder | null>(null);
   const videoChunksRef = useRef<Blob[]>([]);
   const videoTimerRef = useRef<any>(null);
-  const videoPreviewRef = useRef<HTMLVideoElement | null>(null);
   const videoStreamRef = useRef<MediaStream | null>(null);
   const [useFrontCamera, setUseFrontCamera] = useState(true);
-  const videoRecordingContainerRef = useRef<HTMLDivElement | null>(null);
+  const [recordedVideoUrl, setRecordedVideoUrl] = useState<string | null>(null);
 
   const MAX_RECORDING_SECONDS = 30;
 
@@ -450,83 +450,121 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
 
   const MAX_VIDEO_RECORDING_SECONDS = 10;
 
-  const startVideoRecording = async () => {
+  const openVideoDialog = () => {
+    setShowVideoDialog(true);
+    setVideoDialogState('preview');
+    setRecordedVideoUrl(null);
+    setVideoRecordingTime(0);
+    startVideoStream();
+  };
+
+  const startVideoStream = async () => {
     try {
+      if (videoStreamRef.current) {
+        videoStreamRef.current.getTracks().forEach(t => t.stop());
+      }
       const facingMode = useFrontCamera ? 'user' : 'environment';
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { width: { ideal: 320 }, height: { ideal: 240 }, frameRate: { ideal: 10 }, facingMode },
         audio: { echoCancellation: true, noiseSuppression: true }
       });
       videoStreamRef.current = stream;
-
-      const mimeType = MediaRecorder.isTypeSupported('video/webm;codecs=vp9,opus')
-        ? 'video/webm;codecs=vp9,opus'
-        : MediaRecorder.isTypeSupported('video/webm;codecs=vp8,opus')
-        ? 'video/webm;codecs=vp8,opus'
-        : 'video/webm';
-      const mediaRecorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: 250000 });
-      videoRecorderRef.current = mediaRecorder;
-      videoChunksRef.current = [];
-
-      if (videoPreviewRef.current) {
-        videoPreviewRef.current.srcObject = stream;
-      }
-
-      mediaRecorder.ondataavailable = (e) => {
-        if (e.data.size > 0) videoChunksRef.current.push(e.data);
-      };
-
-      mediaRecorder.onstop = async () => {
-        const videoBlob = new Blob(videoChunksRef.current, { type: 'video/webm' });
-        const reader = new FileReader();
-        reader.readAsDataURL(videoBlob);
-        reader.onloadend = async () => {
-          const base64Video = reader.result as string;
-          await sendVideoMessage(base64Video);
-        };
-        if (videoStreamRef.current) {
-          videoStreamRef.current.getTracks().forEach(track => track.stop());
-          videoStreamRef.current = null;
-        }
-        if (videoPreviewRef.current) {
-          videoPreviewRef.current.srcObject = null;
-        }
-      };
-
-      mediaRecorder.start(100);
-      setIsVideoRecording(true);
-      setVideoRecordingTime(0);
-      videoTimerRef.current = setInterval(() => {
-        setVideoRecordingTime(prev => {
-          if (prev >= MAX_VIDEO_RECORDING_SECONDS - 1) {
-            stopVideoRecording();
-            return prev;
-          }
-          return prev + 1;
-        });
-      }, 1000);
+      const vid = document.getElementById('video-dialog-preview') as HTMLVideoElement;
+      if (vid) vid.srcObject = stream;
     } catch (error) {
       console.error("Camera access error:", error);
-      showCustomAlert("Kamera Erişim Hatası", "Kameraya erişilemedi. İzinleri kontrol edin.");
+      showCustomAlert("Kamera Erişim Hatası", "Kameraya erişilemedi.");
+      setShowVideoDialog(false);
     }
   };
 
+  const toggleCamera = () => {
+    setUseFrontCamera(prev => !prev);
+    setTimeout(() => startVideoStream(), 100);
+  };
+
+  const startVideoRecording = () => {
+    if (!videoStreamRef.current) return;
+    videoChunksRef.current = [];
+    setVideoRecordingTime(0);
+
+    const mimeType = MediaRecorder.isTypeSupported('video/webm;codecs=vp9,opus')
+      ? 'video/webm;codecs=vp9,opus'
+      : MediaRecorder.isTypeSupported('video/webm;codecs=vp8,opus')
+      ? 'video/webm;codecs=vp8,opus'
+      : 'video/webm';
+    const mediaRecorder = new MediaRecorder(videoStreamRef.current, { mimeType, videoBitsPerSecond: 250000 });
+    videoRecorderRef.current = mediaRecorder;
+
+    mediaRecorder.ondataavailable = (e) => {
+      if (e.data.size > 0) videoChunksRef.current.push(e.data);
+    };
+
+    mediaRecorder.onstop = () => {
+      const videoBlob = new Blob(videoChunksRef.current, { type: 'video/webm' });
+      const reader = new FileReader();
+      reader.readAsDataURL(videoBlob);
+      reader.onloadend = () => {
+        setRecordedVideoUrl(reader.result as string);
+        setVideoDialogState('result');
+        if (videoStreamRef.current) {
+          videoStreamRef.current.getTracks().forEach(t => t.stop());
+          videoStreamRef.current = null;
+        }
+        const vid = document.getElementById('video-dialog-preview') as HTMLVideoElement;
+        if (vid) vid.srcObject = null;
+      };
+    };
+
+    mediaRecorder.start(100);
+    setVideoDialogState('recording');
+    videoTimerRef.current = setInterval(() => {
+      setVideoRecordingTime(prev => {
+        if (prev >= MAX_VIDEO_RECORDING_SECONDS - 1) {
+          stopVideoRecording();
+          return prev;
+        }
+        return prev + 1;
+      });
+    }, 1000);
+  };
+
   const stopVideoRecording = () => {
-    if (videoRecorderRef.current && isVideoRecording) {
+    if (videoRecorderRef.current && videoRecorderRef.current.state === 'recording') {
       videoRecorderRef.current.stop();
-      setIsVideoRecording(false);
       clearInterval(videoTimerRef.current);
     }
   };
 
-  const toggleCamera = async () => {
-    if (isVideoRecording) return;
-    setUseFrontCamera(prev => !prev);
+  const discardVideo = () => {
+    setRecordedVideoUrl(null);
+    setShowVideoDialog(false);
+    if (videoStreamRef.current) {
+      videoStreamRef.current.getTracks().forEach(t => t.stop());
+      videoStreamRef.current = null;
+    }
+  };
+
+  const sendRecordedVideo = async () => {
+    if (!recordedVideoUrl) return;
+    await sendVideoMessage(recordedVideoUrl);
+    setRecordedVideoUrl(null);
+    setShowVideoDialog(false);
+  };
+
+  const closeVideoDialog = () => {
+    if (videoStreamRef.current) {
+      videoStreamRef.current.getTracks().forEach(t => t.stop());
+      videoStreamRef.current = null;
+    }
+    setShowVideoDialog(false);
+    setRecordedVideoUrl(null);
+    clearInterval(videoTimerRef.current);
   };
 
   const sendVideoMessage = async (videoUrl: string) => {
     if (!user || !chatId) return;
-    if (videoUrl.length > 1200000) {
+    if (videoUrl.length > 2000000) {
       showCustomAlert("Video Çok Büyük", "Video dosyası çok büyük. Lütfen daha kısa bir kayıt yapın.");
       return;
     }
@@ -1108,26 +1146,14 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
           >
             <Image size={18} className="sm:size-[20px]" />
           </button>
-          {isVideoRecording ? (
-            <div ref={videoRecordingContainerRef} className="flex items-center gap-1.5 sm:gap-3 px-2 sm:px-4 py-1 bg-red-50 text-red-600 rounded-lg sm:rounded-xl animate-in fade-in zoom-in-95 duration-200 shrink-0">
-              <video ref={videoPreviewRef} className="w-12 h-9 rounded object-cover bg-black border border-red-300" muted playsInline />
-              <button onClick={toggleCamera} className="p-1 bg-slate-200 hover:bg-slate-300 rounded-lg text-slate-600 transition-all" title="Kamera Değiştir">
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
-              </button>
-              <div className="w-2 h-2 bg-red-600 rounded-full animate-ping shrink-0" />
-              <span className="text-[10px] sm:text-xs font-black tabular-nums">{Math.floor(videoRecordingTime / 60)}:{String(videoRecordingTime % 60).padStart(2, '0')}</span>
-              <button onClick={stopVideoRecording} className="p-1 px-1.5 sm:px-2 bg-red-600 text-white rounded-lg text-[9px] sm:text-[10px] font-bold uppercase tracking-wider whitespace-nowrap">Gönder</button>
-            </div>
-          ) : (
-            <button 
-              type="button" 
-              onClick={startVideoRecording}
-              className="p-1.5 sm:p-2 text-slate-400 hover:text-slate-600 transition-colors shrink-0"
-              title="Video Kaydı (10sn)"
-            >
-              <Video size={18} className="sm:size-[20px]" />
-            </button>
-          )}
+          <button 
+            type="button" 
+            onClick={openVideoDialog}
+            className="p-1.5 sm:p-2 text-slate-400 hover:text-slate-600 transition-colors shrink-0"
+            title="Video Kaydı (10sn)"
+          >
+            <Video size={18} className="sm:size-[20px]" />
+          </button>
 
           {isRecording ? (
             <div className="flex items-center gap-1.5 sm:gap-3 px-2 sm:px-4 py-1 bg-red-50 text-red-600 rounded-lg sm:rounded-xl animate-in fade-in zoom-in-95 duration-200 shrink-0">
@@ -1337,6 +1363,76 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
             </motion.div>
           </div>
         )}
+
+        {/* Video Recording Dialog */}
+        <AnimatePresence>
+          {showVideoDialog && (
+            <div className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-900/80 backdrop-blur-sm" onClick={() => {}}>
+              <motion.div
+                initial={{ opacity: 0, scale: 0.9 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.9 }}
+                className="bg-slate-950 rounded-3xl overflow-hidden shadow-2xl w-full max-w-md mx-4"
+                onClick={e => e.stopPropagation()}
+              >
+                {/* Camera Preview */}
+                <div className="relative bg-black aspect-[3/4] flex items-center justify-center">
+                  {videoDialogState !== 'result' ? (
+                    <video id="video-dialog-preview" autoPlay playsInline muted className="w-full h-full object-cover" />
+                  ) : (
+                    <video src={recordedVideoUrl || ''} controls playsInline className="w-full h-full object-cover" />
+                  )}
+
+                  {/* Close button */}
+                  <button onClick={closeVideoDialog} className="absolute top-4 right-4 p-2 bg-slate-900/60 hover:bg-slate-900/80 rounded-full text-white transition-all z-10">
+                    <X size={20} />
+                  </button>
+
+                  {/* Timer */}
+                  {videoDialogState === 'recording' && (
+                    <div className="absolute top-4 left-4 flex items-center gap-2 bg-black/60 px-3 py-1.5 rounded-full">
+                      <div className="w-2.5 h-2.5 bg-red-500 rounded-full animate-ping" />
+                      <span className="text-white text-sm font-black tabular-nums">{Math.floor(videoRecordingTime / 60)}:{String(videoRecordingTime % 60).padStart(2, '0')}</span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Controls */}
+                <div className="p-6 flex items-center justify-center gap-6 bg-slate-900">
+                  {videoDialogState === 'preview' && (
+                    <>
+                      <button onClick={toggleCamera} className="p-3 bg-slate-800 hover:bg-slate-700 rounded-full text-white transition-all" title="Kamera Değiştir">
+                        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+                      </button>
+                      <button onClick={startVideoRecording} className="w-16 h-16 bg-red-600 hover:bg-red-700 rounded-full flex items-center justify-center text-white shadow-lg shadow-red-600/30 active:scale-95 transition-all">
+                        <div className="w-7 h-7 rounded-full bg-white" />
+                      </button>
+                      <div className="w-[58px]" />
+                    </>
+                  )}
+                  {videoDialogState === 'recording' && (
+                    <>
+                      <button onClick={stopVideoRecording} className="w-16 h-16 bg-red-600 hover:bg-red-700 rounded-full flex items-center justify-center text-white shadow-lg shadow-red-600/30 active:scale-95 transition-all">
+                        <div className="w-6 h-6 rounded-sm bg-white" />
+                      </button>
+                      <span className="text-xs text-slate-400 font-bold">Kaydediliyor...</span>
+                    </>
+                  )}
+                  {videoDialogState === 'result' && (
+                    <>
+                      <button onClick={discardVideo} className="p-3 bg-slate-800 hover:bg-slate-700 rounded-full text-red-400 transition-all">
+                        <Trash2 size={22} />
+                      </button>
+                      <button onClick={sendRecordedVideo} className="px-8 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl font-black text-sm shadow-lg transition-all active:scale-95">
+                        Gönder
+                      </button>
+                    </>
+                  )}
+                </div>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
 
     </div>
   );
