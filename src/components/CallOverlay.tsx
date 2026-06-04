@@ -125,8 +125,9 @@ export const CallOverlay = () => {
     if (activeCall && !localStream) {
       const startMedia = async () => {
         try {
+          const isVideoCall = activeCall.mediaType === 'video';
           const stream = await navigator.mediaDevices.getUserMedia({ 
-            video: { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } }, 
+            video: isVideoCall ? { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } } : false, 
             audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } 
           });
           setLocalStream(stream);
@@ -265,14 +266,14 @@ export const CallOverlay = () => {
               <div className="w-24 h-24 rounded-full bg-blue-100 overflow-hidden border-4 border-white shadow-lg">
                 <img src={callerInfo?.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${incomingCall.callerId}`} className="w-full h-full object-cover" />
               </div>
-              <div className="absolute -bottom-2 -right-2 bg-green-500 p-2 rounded-full border-4 border-white">
-                <Video size={16} className="text-white" />
+              <div className={cn("absolute -bottom-2 -right-2 p-2 rounded-full border-4 border-white", incomingCall.mediaType === 'video' ? "bg-green-500" : "bg-blue-500")}>
+                {incomingCall.mediaType === 'video' ? <Video size={16} className="text-white" /> : <Phone size={16} className="text-white" />}
               </div>
             </div>
             
             <div className="text-center">
               <h3 className="text-xl font-black text-slate-900 tracking-tight">{callerInfo?.displayName || 'Bilinmeyen'}</h3>
-              <p className="text-[10px] font-black text-blue-500 uppercase tracking-[0.2em] mt-1">Gelen Görüntülü Arama</p>
+              <p className="text-[10px] font-black text-blue-500 uppercase tracking-[0.2em] mt-1">{incomingCall.mediaType === 'video' ? 'Gelen Görüntülü Arama' : 'Gelen Sesli Arama'}</p>
             </div>
 
             <div className="flex gap-4">
@@ -286,7 +287,7 @@ export const CallOverlay = () => {
                 onClick={acceptCall}
                 className="w-14 h-14 bg-green-600 text-white rounded-full flex items-center justify-center hover:bg-green-700 transition-colors animate-bounce active:scale-95 shadow-xl shadow-green-600/20"
               >
-                <Video size={24} />
+                {incomingCall.mediaType === 'video' ? <Video size={24} /> : <Phone size={24} />}
               </button>
             </div>
           </motion.div>
@@ -364,7 +365,7 @@ export const CallOverlay = () => {
             {/* Controls */}
             <div className="h-28 bg-slate-900 border-t border-white/5 px-6 sm:px-10 flex items-center justify-between shrink-0">
                <div className="hidden sm:flex flex-col">
-                  <h4 className="text-sm font-black text-white tracking-tight">Nexus Video Call</h4>
+                   <h4 className="text-sm font-black text-white tracking-tight">Nexus {activeCall.mediaType === 'video' ? 'Video' : 'Sesli'} Arama</h4>
                   <p className="text-[10px] font-bold text-blue-500 uppercase tracking-widest">
                     {activeCall.type === 'private' ? 'BİREBİR GÖRÜŞME' : `GRUP SOHBETİ (${activeCall.activeParticipants.length}/${activeCall.participants.length})`}
                   </p>
@@ -381,15 +382,17 @@ export const CallOverlay = () => {
                     {isMuted ? <MicOff size={24} /> : <Mic size={24} />}
                   </button>
 
-                  <button 
-                    onClick={toggleVideo}
-                    className={cn(
-                      "w-12 h-12 sm:w-14 sm:h-14 rounded-3xl flex items-center justify-center transition-all shadow-lg active:scale-95",
-                      isVideoOff ? "bg-red-500 text-white" : "bg-slate-800 text-slate-300 hover:bg-slate-700"
-                    )}
-                  >
-                    {isVideoOff ? <VideoOff size={24} /> : <Video size={24} />}
-                  </button>
+                  {activeCall.mediaType === 'video' && (
+                    <button 
+                      onClick={toggleVideo}
+                      className={cn(
+                        "w-12 h-12 sm:w-14 sm:h-14 rounded-3xl flex items-center justify-center transition-all shadow-lg active:scale-95",
+                        isVideoOff ? "bg-red-500 text-white" : "bg-slate-800 text-slate-300 hover:bg-slate-700"
+                      )}
+                    >
+                      {isVideoOff ? <VideoOff size={24} /> : <Video size={24} />}
+                    </button>
+                  )}
 
                   {activeCall.type === 'group' && (
                     <button 

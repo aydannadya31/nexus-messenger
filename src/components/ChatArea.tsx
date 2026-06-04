@@ -208,7 +208,12 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
           const otherId = chatData.participants.find(p => p !== user.uid);
           if (otherId) {
             const userDoc = await getDoc(doc(db, 'users', otherId));
-            if (userDoc.exists()) setOtherUser(userDoc.data() as UserProfile);
+            if (userDoc.exists()) {
+              const otherProfile = userDoc.data() as UserProfile;
+              setOtherUser(otherProfile);
+              participantInfoRef.current = { ...participantInfoRef.current, [otherId]: otherProfile };
+              setParticipantInfo(participantInfoRef.current);
+            }
           }
         } else {
           const newParticipantInfo = { ...participantInfoRef.current };
@@ -347,6 +352,13 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
   const audioChunksRef = useRef<Blob[]>([]);
   const timerRef = useRef<any>(null);
 
+  const [isVideoRecording, setIsVideoRecording] = useState(false);
+  const [videoRecordingTime, setVideoRecordingTime] = useState(0);
+  const videoRecorderRef = useRef<MediaRecorder | null>(null);
+  const videoChunksRef = useRef<Blob[]>([]);
+  const videoTimerRef = useRef<any>(null);
+  const videoPreviewRef = useRef<HTMLVideoElement | null>(null);
+
   const MAX_RECORDING_SECONDS = 30;
 
   const startRecording = async () => {
@@ -422,6 +434,87 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
       });
     } catch (error) {
       console.error("Audio send error:", error);
+    }
+  };
+
+  const MAX_VIDEO_RECORDING_SECONDS = 10;
+
+  const startVideoRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+      const mediaRecorder = new MediaRecorder(stream, { mimeType: 'video/webm;codecs=vp9,opus' });
+      videoRecorderRef.current = mediaRecorder;
+      videoChunksRef.current = [];
+
+      if (videoPreviewRef.current) {
+        videoPreviewRef.current.srcObject = stream;
+      }
+
+      mediaRecorder.ondataavailable = (e) => {
+        if (e.data.size > 0) videoChunksRef.current.push(e.data);
+      };
+
+      mediaRecorder.onstop = async () => {
+        const videoBlob = new Blob(videoChunksRef.current, { type: 'video/webm' });
+        const reader = new FileReader();
+        reader.readAsDataURL(videoBlob);
+        reader.onloadend = async () => {
+          const base64Video = reader.result as string;
+          await sendVideoMessage(base64Video);
+        };
+        stream.getTracks().forEach(track => track.stop());
+        if (videoPreviewRef.current) {
+          videoPreviewRef.current.srcObject = null;
+        }
+      };
+
+      mediaRecorder.start();
+      setIsVideoRecording(true);
+      setVideoRecordingTime(0);
+      videoTimerRef.current = setInterval(() => {
+        setVideoRecordingTime(prev => {
+          if (prev >= MAX_VIDEO_RECORDING_SECONDS - 1) {
+            stopVideoRecording();
+            return prev;
+          }
+          return prev + 1;
+        });
+      }, 1000);
+    } catch (error) {
+      console.error("Camera access error:", error);
+      showCustomAlert("Kamera Erişim Hatası", "Kameraya erişilemedi. İzinleri kontrol edin.");
+    }
+  };
+
+  const stopVideoRecording = () => {
+    if (videoRecorderRef.current && isVideoRecording) {
+      videoRecorderRef.current.stop();
+      setIsVideoRecording(false);
+      clearInterval(videoTimerRef.current);
+    }
+  };
+
+  const sendVideoMessage = async (videoUrl: string) => {
+    if (!user || !chatId) return;
+    try {
+      await addDoc(collection(db, 'chats', chatId, 'messages'), {
+        videoUrl,
+        senderId: user.uid,
+        timestamp: serverTimestamp(),
+        type: 'video',
+        status: 'sent'
+      });
+      await updateDoc(doc(db, 'chats', chatId), {
+        lastMessage: {
+          text: '🎥 Video Mesajı',
+          senderId: user.uid,
+          senderName: user.displayName,
+          timestamp: serverTimestamp()
+        },
+        updatedAt: serverTimestamp()
+      });
+    } catch (error) {
+      console.error("Video send error:", error);
     }
   };
 
@@ -648,22 +741,13 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
           )}
           
           {!activeCallForChat && (
-            <>
-              <button 
-                onClick={() => chat && startCall(chat.id, chat.participants, chat.type)}
-                className="hover:text-blue-600 transition-colors"
-                title="Sesli Arama Başlat"
-              >
-                <Phone size={20} />
-              </button>
-              <button 
-                onClick={() => chat && startCall(chat.id, chat.participants, chat.type)}
-                className="hover:text-blue-600 transition-colors"
-                title="Görüntülü Arama Başlat"
-              >
-                <Video size={20} />
-              </button>
-            </>
+            <button 
+              onClick={() => chat && startCall(chat.id, chat.participants, chat.type, 'audio')}
+              className="hover:text-blue-600 transition-colors"
+              title="Sesli Arama Başlat"
+            >
+              <Phone size={20} />
+            </button>
           )}
 
           {activeCallForChat && activeCall?.id === activeCallForChat.id && (
@@ -989,13 +1073,22 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
           >
             <Image size={18} className="sm:size-[20px]" />
           </button>
-          <button 
-            type="button" 
-            onClick={handleVideoSend}
-            className="p-1.5 sm:p-2 text-slate-400 hover:text-slate-600 transition-colors shrink-0"
-          >
-            <Video size={18} className="sm:size-[20px]" />
-          </button>
+          {isVideoRecording ? (
+            <div className="flex items-center gap-1.5 sm:gap-3 px-2 sm:px-4 py-1 bg-red-50 text-red-600 rounded-lg sm:rounded-xl animate-in fade-in zoom-in-95 duration-200 shrink-0">
+              <video ref={videoPreviewRef} className="w-10 h-8 rounded object-cover bg-black" muted playsInline />
+              <div className="w-2 h-2 bg-red-600 rounded-full animate-ping shrink-0" />
+              <span className="text-[10px] sm:text-xs font-black tabular-nums">{Math.floor(videoRecordingTime / 60)}:{String(videoRecordingTime % 60).padStart(2, '0')}</span>
+              <button onClick={stopVideoRecording} className="p-1 px-1.5 sm:px-2 bg-red-600 text-white rounded-lg text-[9px] sm:text-[10px] font-bold uppercase tracking-wider whitespace-nowrap">Gönder</button>
+            </div>
+          ) : (
+            <button 
+              type="button" 
+              onClick={startVideoRecording}
+              className="p-1.5 sm:p-2 text-slate-400 hover:text-slate-600 transition-colors shrink-0"
+            >
+              <Video size={18} className="sm:size-[20px]" />
+            </button>
+          )}
 
           {isRecording ? (
             <div className="flex items-center gap-1.5 sm:gap-3 px-2 sm:px-4 py-1 bg-red-50 text-red-600 rounded-lg sm:rounded-xl animate-in fade-in zoom-in-95 duration-200 shrink-0">

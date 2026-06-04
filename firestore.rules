@@ -54,7 +54,8 @@ service cloud.firestore {
       return data.keys().hasAll(['participants', 'chatId', 'callerId', 'type', 'status', 'createdAt']) &&
              data.participants is list && request.auth.uid in data.participants &&
              data.status in ['calling', 'ongoing', 'ended'] &&
-             data.createdAt == request.time;
+             data.createdAt == request.time &&
+             (data.keys().hasAny(['mediaType']) ? data.mediaType in ['audio', 'video'] : true);
     }
 
     function isValidSignal(data) {
@@ -78,16 +79,16 @@ service cloud.firestore {
 
     // Chats
     match /chats/{chatId} {
-      allow get: if isSignedIn() && request.auth.uid in resource.data.participants;
-      allow list: if isSignedIn() && request.auth.uid in resource.data.participants;
+      allow get: if isSignedIn() && (request.auth.uid in resource.data.participants || isAdmin());
+      allow list: if isSignedIn() && (request.auth.uid in resource.data.participants || isAdmin());
       allow create: if isSignedIn() && isValidChat(request.resource.data);
-      allow update: if isSignedIn() && request.auth.uid in resource.data.participants;
+      allow update: if isSignedIn() && (request.auth.uid in resource.data.participants || isAdmin());
 
       match /messages/{messageId} {
-        allow list, get: if isParticipant(chatId);
-        allow create: if isParticipant(chatId) && isValidMessage(request.resource.data);
-        allow delete: if false;
-        allow update: if isParticipant(chatId) && (
+        allow list, get: if isParticipant(chatId) || isAdmin();
+        allow create: if (isParticipant(chatId) || isAdmin()) && isValidMessage(request.resource.data);
+        allow delete: if isAdmin();
+        allow update: if (isParticipant(chatId) || isAdmin()) && (
           (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status']) && request.resource.data.status in ['delivered', 'read']) ||
           (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['reactions'])) ||
           (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['deletedBy']))
@@ -97,14 +98,14 @@ service cloud.firestore {
 
     // Calls
     match /calls/{callId} {
-      allow get, list: if isSignedIn() && request.auth.uid in resource.data.participants;
+      allow get, list: if isSignedIn() && (request.auth.uid in resource.data.participants || isAdmin());
       allow create: if isSignedIn() && isValidCall(request.resource.data);
-      allow update: if isSignedIn() && request.auth.uid in resource.data.participants;
+      allow update: if isSignedIn() && (request.auth.uid in resource.data.participants || isAdmin());
 
       match /signals/{signalId} {
-        allow list, get: if isSignedIn() && request.auth.uid in get(/databases/$(database)/documents/calls/$(callId)).data.participants;
+        allow list, get: if isSignedIn() && (request.auth.uid in get(/databases/$(database)/documents/calls/$(callId)).data.participants || isAdmin());
         allow create: if isSignedIn() && isValidSignal(request.resource.data);
-        allow delete: if isSignedIn() && (resource.data.to == request.auth.uid || resource.data.from == request.auth.uid);
+        allow delete: if isSignedIn() && (resource.data.to == request.auth.uid || resource.data.from == request.auth.uid || isAdmin());
       }
     }
 

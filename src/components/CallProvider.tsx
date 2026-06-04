@@ -7,7 +7,7 @@ import { Call } from '../types';
 interface CallContextType {
   activeCall: Call | null;
   incomingCall: Call | null;
-  startCall: (chatId: string, participants: string[], type: 'private' | 'group') => Promise<void>;
+  startCall: (chatId: string, participants: string[], type: 'private' | 'group', mediaType?: 'audio' | 'video') => Promise<void>;
   inviteToCall: (userIds: string[]) => Promise<void>;
   acceptCall: () => Promise<void>;
   rejectCall: () => Promise<void>;
@@ -66,7 +66,7 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return () => unsubscribe();
   }, [user, activeCall?.id]);
 
-  const startCall = async (chatId: string, participants: string[], type: 'private' | 'group') => {
+  const startCall = async (chatId: string, participants: string[], type: 'private' | 'group', mediaType: 'audio' | 'video' = 'audio') => {
     if (!user) return;
     
     try {
@@ -76,6 +76,7 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
         chatId,
         callerId: user.uid,
         type,
+        mediaType,
         status: participants.length > 1 ? 'ongoing' : 'calling',
         createdAt: serverTimestamp(),
       };

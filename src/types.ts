@@ -53,6 +53,7 @@ export interface Call {
   chatId: string;
   callerId: string;
   type: 'private' | 'group';
+  mediaType: 'audio' | 'video';
   status: 'calling' | 'ongoing' | 'ended';
   createdAt: any;
 }

@@ -244,6 +244,17 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
     await updateAISettings({ ethicsRules: newRules });
   };
 
+  const moveEthicsRule = async (ruleId: string, direction: 'up' | 'down') => {
+    const idx = aiSettings.ethicsRules.findIndex(r => r.id === ruleId);
+    if (idx === -1) return;
+    const newRules = [...aiSettings.ethicsRules];
+    const swapIdx = direction === 'up' ? idx - 1 : idx + 1;
+    if (swapIdx < 0 || swapIdx >= newRules.length) return;
+    [newRules[idx], newRules[swapIdx]] = [newRules[swapIdx], newRules[idx]];
+    setAiSettings({ ...aiSettings, ethicsRules: newRules });
+    await updateAISettings({ ethicsRules: newRules });
+  };
+
   const filteredUsers = users.filter(u =>
     u.displayName?.toLowerCase().includes(search.toLowerCase()) ||
     u.uin?.toLowerCase().includes(search.toLowerCase()) ||
@@ -551,6 +562,20 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
 
                           {editingRuleId !== rule.id && (
                             <div className="flex items-center gap-1">
+                              <button
+                                onClick={() => moveEthicsRule(rule.id, 'up')}
+                                className="p-1.5 hover:bg-slate-700 rounded-lg text-slate-500 hover:text-white transition-all disabled:opacity-30"
+                                disabled={aiSettings.ethicsRules.indexOf(rule) === 0}
+                              >
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="18 15 12 9 6 15"/></svg>
+                              </button>
+                              <button
+                                onClick={() => moveEthicsRule(rule.id, 'down')}
+                                className="p-1.5 hover:bg-slate-700 rounded-lg text-slate-500 hover:text-white transition-all disabled:opacity-30"
+                                disabled={aiSettings.ethicsRules.indexOf(rule) === aiSettings.ethicsRules.length - 1}
+                              >
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="6 9 12 15 18 9"/></svg>
+                              </button>
                               <button
                                 onClick={() => { setEditingRuleId(rule.id); setEditingLabel(rule.label); }}
                                 className="p-1.5 hover:bg-slate-700 rounded-lg text-slate-400 hover:text-white transition-all"

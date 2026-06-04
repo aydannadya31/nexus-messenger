@@ -28,6 +28,7 @@ const ProfileModal: React.FC<ProfileModalProps> = ({ user, onClose }) => {
     try {
       const userRef = doc(db, 'users', user.uid);
       await updateDoc(userRef, {
+        uid: user.uid,
         displayName,
         nickname,
         about,
@@ -37,6 +38,7 @@ const ProfileModal: React.FC<ProfileModalProps> = ({ user, onClose }) => {
       onClose();
     } catch (error) {
       console.error("Profile update error:", error);
+      alert("Profil kaydedilirken bir hata oluştu. Lütfen tekrar deneyin.");
     } finally {
       setSaving(false);
     }
