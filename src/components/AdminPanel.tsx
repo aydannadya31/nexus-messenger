@@ -3,7 +3,7 @@ import { collection, query, getDocs, doc, getDoc, where, orderBy, deleteDoc, upd
 import { db } from '../lib/firebase';
 import { UserProfile, Message, Chat } from '../types';
 import { X, Search, Shield, UserX, UserCheck, Trash2, Clock, MessageSquare, Ban, Bot, Shield as ShieldIcon, ShieldOff, Globe, Brain } from 'lucide-react';
-import { AISettings, getAISettings, updateAISettings, subscribeAISettings } from '../lib/adminSettings';
+import { AISettings, EthicsRule, getAISettings, updateAISettings, subscribeAISettings } from '../lib/adminSettings';
 import { cn } from '../lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
 import { format } from 'date-fns';
@@ -29,8 +29,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
 
   // Tab: users, admin-msgs, ai
   const [tab, setTab] = useState<'users' | 'admin-msgs' | 'ai'>('users');
-  const [aiSettings, setAiSettings] = useState<AISettings>({ enabled: true, ethicsFilter: true });
+  const [aiSettings, setAiSettings] = useState<AISettings>({ enabled: true, ethicsRules: [] });
   const [aiSettingsLoading, setAiSettingsLoading] = useState(true);
+  const [editingRuleId, setEditingRuleId] = useState<string | null>(null);
+  const [editingLabel, setEditingLabel] = useState('');
+  const [newRuleLabel, setNewRuleLabel] = useState('');
 
   useEffect(() => {
     if (step !== 'panel' || tab !== 'ai') return;
@@ -190,6 +193,42 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
     } catch (err) {
       console.error('Delete user error:', err);
     }
+  };
+
+  const toggleEthicsRule = async (ruleId: string) => {
+    const newRules = aiSettings.ethicsRules.map(r =>
+      r.id === ruleId ? { ...r, enabled: !r.enabled } : r
+    );
+    setAiSettings({ ...aiSettings, ethicsRules: newRules });
+    await updateAISettings({ ethicsRules: newRules });
+  };
+
+  const addEthicsRule = async () => {
+    const label = newRuleLabel.trim();
+    if (!label) return;
+    const id = `rule-${Date.now()}`;
+    const newRules = [...aiSettings.ethicsRules, { id, label, enabled: true }];
+    setAiSettings({ ...aiSettings, ethicsRules: newRules });
+    setNewRuleLabel('');
+    await updateAISettings({ ethicsRules: newRules });
+  };
+
+  const deleteEthicsRule = async (ruleId: string) => {
+    const newRules = aiSettings.ethicsRules.filter(r => r.id !== ruleId);
+    setAiSettings({ ...aiSettings, ethicsRules: newRules });
+    await updateAISettings({ ethicsRules: newRules });
+  };
+
+  const saveEditEthicsRule = async (ruleId: string) => {
+    const label = editingLabel.trim();
+    if (!label) return;
+    const newRules = aiSettings.ethicsRules.map(r =>
+      r.id === ruleId ? { ...r, label } : r
+    );
+    setAiSettings({ ...aiSettings, ethicsRules: newRules });
+    setEditingRuleId(null);
+    setEditingLabel('');
+    await updateAISettings({ ethicsRules: newRules });
   };
 
   const filteredUsers = users.filter(u =>
@@ -437,7 +476,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                         </div>
                       </div>
                       <button
-                        onClick={() => updateAISettings({ enabled: !aiSettings.enabled })}
+                        onClick={() => { updateAISettings({ enabled: !aiSettings.enabled }); setAiSettings({ ...aiSettings, enabled: !aiSettings.enabled }); }}
                         className={cn(
                           "relative w-14 h-7 rounded-full transition-all duration-300",
                           aiSettings.enabled ? "bg-green-500" : "bg-slate-600"
@@ -451,46 +490,89 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                     </div>
                   </div>
 
-                  {/* Ethics Filter Toggle */}
+                  {/* Ethics Rules List */}
                   <div className="bg-slate-800 rounded-2xl p-6 border border-slate-700">
-                    <div className="flex items-center justify-between mb-4">
-                      <div className="flex items-center gap-3">
-                        <div className={cn(
-                          "w-10 h-10 rounded-xl flex items-center justify-center",
-                          aiSettings.ethicsFilter ? "bg-emerald-500/20 text-emerald-400" : "bg-amber-500/20 text-amber-400"
-                        )}>
-                          {aiSettings.ethicsFilter ? <ShieldIcon size={20} /> : <ShieldOff size={20} />}
-                        </div>
-                        <div>
-                          <h3 className="text-sm font-bold text-white">Etik Filtreleme</h3>
-                          <p className="text-[10px] text-slate-400 font-bold">
-                            {aiSettings.ethicsFilter
-                              ? 'Açık - AI etik kurallara uygun yanıt üretir'
-                              : 'Kapalı - AI her konuda yanıt verebilir (admin izni ile)'}
-                          </p>
-                        </div>
+                    <div className="flex items-center gap-3 mb-6">
+                      <div className="w-10 h-10 rounded-xl flex items-center justify-center bg-emerald-500/20 text-emerald-400">
+                        <ShieldIcon size={20} />
                       </div>
+                      <div>
+                        <h3 className="text-sm font-bold text-white">Etik Kurallar</h3>
+                        <p className="text-[10px] text-slate-400 font-bold">Kuralları aç/kapat, düzenle, sil veya yeni ekle</p>
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      {aiSettings.ethicsRules.map(rule => (
+                        <div key={rule.id} className="flex items-center gap-3 bg-slate-900/50 rounded-xl px-4 py-3 border border-slate-700/50">
+                          <button
+                            onClick={() => toggleEthicsRule(rule.id)}
+                            className={cn(
+                              "relative w-12 h-6 rounded-full transition-all duration-300 shrink-0",
+                              rule.enabled ? "bg-emerald-500" : "bg-slate-600"
+                            )}
+                          >
+                            <div className={cn(
+                              "absolute top-0.5 w-5 h-5 bg-white rounded-full shadow-md transition-all duration-300",
+                              rule.enabled ? "left-6" : "left-0.5"
+                            )} />
+                          </button>
+
+                          {editingRuleId === rule.id ? (
+                            <div className="flex-1 flex items-center gap-2">
+                              <input
+                                value={editingLabel}
+                                onChange={e => setEditingLabel(e.target.value)}
+                                onKeyDown={e => { if (e.key === 'Enter') saveEditEthicsRule(rule.id); }}
+                                className="flex-1 bg-slate-800 border border-slate-600 rounded-lg px-3 py-1.5 text-xs text-white outline-none"
+                                autoFocus
+                              />
+                              <button onClick={() => saveEditEthicsRule(rule.id)} className="px-2 py-1 bg-blue-600 text-white rounded-lg text-[10px] font-bold">Kaydet</button>
+                              <button onClick={() => setEditingRuleId(null)} className="px-2 py-1 bg-slate-700 text-slate-300 rounded-lg text-[10px] font-bold">İptal</button>
+                            </div>
+                          ) : (
+                            <span className={cn("flex-1 text-xs font-bold", rule.enabled ? "text-slate-200" : "text-slate-500")}>
+                              {rule.label}
+                            </span>
+                          )}
+
+                          {editingRuleId !== rule.id && (
+                            <div className="flex items-center gap-1">
+                              <button
+                                onClick={() => { setEditingRuleId(rule.id); setEditingLabel(rule.label); }}
+                                className="p-1.5 hover:bg-slate-700 rounded-lg text-slate-400 hover:text-white transition-all"
+                              >
+                                <svg size={14} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                              </button>
+                              <button
+                                onClick={() => deleteEthicsRule(rule.id)}
+                                className="p-1.5 hover:bg-red-600/20 rounded-lg text-red-400 hover:text-red-300 transition-all"
+                              >
+                                <svg size={14} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Add new rule */}
+                    <div className="flex items-center gap-2 mt-4 pt-4 border-t border-slate-700/50">
+                      <input
+                        value={newRuleLabel}
+                        onChange={e => setNewRuleLabel(e.target.value)}
+                        onKeyDown={e => { if (e.key === 'Enter') addEthicsRule(); }}
+                        placeholder="Yeni kural ekle..."
+                        className="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-xs text-white placeholder:text-slate-500 outline-none focus:ring-2 focus:ring-blue-500/30"
+                      />
                       <button
-                        onClick={() => updateAISettings({ ethicsFilter: !aiSettings.ethicsFilter })}
-                        className={cn(
-                          "relative w-14 h-7 rounded-full transition-all duration-300",
-                          aiSettings.ethicsFilter ? "bg-emerald-500" : "bg-amber-500"
-                        )}
+                        onClick={addEthicsRule}
+                        disabled={!newRuleLabel.trim()}
+                        className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-800/50 text-white rounded-xl text-xs font-bold transition-all"
                       >
-                        <div className={cn(
-                          "absolute top-0.5 w-6 h-6 bg-white rounded-full shadow-md transition-all duration-300",
-                          aiSettings.ethicsFilter ? "left-7" : "left-0.5"
-                        )} />
+                        Ekle
                       </button>
                     </div>
-                    {!aiSettings.ethicsFilter && (
-                      <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl px-4 py-3 mt-2">
-                        <p className="text-xs font-bold text-amber-400 flex items-center gap-2">
-                          <ShieldOff size={14} />
-                          DİKKAT: Etik filtreleme kapalı. AI, admin tarafından belirlenen şekilde kısıtlama olmadan yanıt verecek.
-                        </p>
-                      </div>
-                    )}
                   </div>
 
                   {/* Info Card */}
@@ -503,7 +585,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                       <p>• Model: Gemini 2.0 Flash</p>
                       <p>• Token sınırı: Yok (sınırsız konuşma)</p>
                       <p>• Dil: Türkçe</p>
-                      <p>• Etik değerler admin kontrolünde açılıp kapatılabilir</p>
+                      <p>• Etik kurallar admin tarafından yönetilir</p>
                     </div>
                   </div>
                 </div>

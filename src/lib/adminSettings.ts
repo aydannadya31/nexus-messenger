@@ -1,19 +1,35 @@
 import { doc, getDoc, setDoc, onSnapshot } from 'firebase/firestore';
 import { db } from './firebase';
 
+export interface EthicsRule {
+  id: string;
+  label: string;
+  enabled: boolean;
+}
+
 export interface AISettings {
   enabled: boolean;
-  ethicsFilter: boolean;
+  ethicsRules: EthicsRule[];
 }
 
 const AI_SETTINGS_REF = doc(db, 'adminSettings', 'ai');
 
+const DEFAULT_RULES: EthicsRule[] = [
+  { id: 'harmful', label: 'Zararlı içerik üretme', enabled: true },
+  { id: 'illegal', label: 'Yasa dışı konularda yardım etme', enabled: true },
+  { id: 'hate-speech', label: 'Nefret söylemi kullanma', enabled: true },
+  { id: 'safety', label: 'Kullanıcı güvenliğini önceliklendir', enabled: true },
+];
+
 export const getAISettings = async (): Promise<AISettings> => {
   try {
     const snap = await getDoc(AI_SETTINGS_REF);
-    if (snap.exists()) return snap.data() as AISettings;
+    if (snap.exists()) {
+      const data = snap.data() as AISettings;
+      return { ...data, ethicsRules: data.ethicsRules || DEFAULT_RULES };
+    }
   } catch {}
-  return { enabled: true, ethicsFilter: true };
+  return { enabled: true, ethicsRules: DEFAULT_RULES };
 };
 
 export const updateAISettings = async (settings: Partial<AISettings>) => {
@@ -24,12 +40,14 @@ export const subscribeAISettings = (callback: (settings: AISettings) => void, on
   return onSnapshot(
     AI_SETTINGS_REF,
     (snap) => {
-      if (snap.exists()) callback(snap.data() as AISettings);
-      else callback({ enabled: true, ethicsFilter: true });
+      if (snap.exists()) {
+        const data = snap.data() as AISettings;
+        callback({ ...data, ethicsRules: data.ethicsRules || DEFAULT_RULES });
+      } else callback({ enabled: true, ethicsRules: DEFAULT_RULES });
     },
     () => {
       if (onError) onError();
-      else callback({ enabled: true, ethicsFilter: true });
+      else callback({ enabled: true, ethicsRules: DEFAULT_RULES });
     }
   );
 };
