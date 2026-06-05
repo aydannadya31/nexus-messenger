@@ -3,7 +3,7 @@ import { useCall } from './CallProvider';
 import { useAuth } from './AuthProvider';
 import { db } from '../lib/firebase';
 import { doc, onSnapshot, updateDoc, collection, addDoc, serverTimestamp, getDoc, query, where, deleteDoc, getDocs } from 'firebase/firestore';
-import { X, PhoneOff, Mic, MicOff, Video, VideoOff, Users, UserPlus } from 'lucide-react';
+import { X, Phone, PhoneOff, Mic, MicOff, Video, VideoOff, Users, UserPlus } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import { UserProfile, CallSignal } from '../types';
