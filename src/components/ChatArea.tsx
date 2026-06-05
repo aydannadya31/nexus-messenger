@@ -5,7 +5,7 @@ import { useAuth } from './AuthProvider';
 import { useCall } from './CallProvider';
 import { Chat, Message, UserProfile, Call } from '../types';
 import { cn } from '../lib/utils';
-import { Image, MoreVertical, Send, Smile, Phone, Video, MessageSquarePlus, Clock, Play, Mic, Pause, Trash2, ArrowLeft, X } from 'lucide-react';
+import { Image, MoreVertical, Send, Smile, Phone, Video, MessageSquarePlus, Clock, Play, Mic, Pause, Trash2, ArrowLeft, X, ListChecks } from 'lucide-react';
 import { format } from 'date-fns';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -143,25 +143,9 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
   };
 
   const handleDeleteMsg = async (msgId: string) => {
-    if (!chatId || !user || !chat) return;
+    if (!chatId || !user) return;
     try {
-      const msgRef = doc(db, 'chats', chatId, 'messages', msgId);
-      const msgSnap = await getDoc(msgRef);
-      if (!msgSnap.exists()) return;
-      // Mark deleted by ALL participants
-      const allParticipants = chat.participants;
-      await updateDoc(msgRef, {
-        deletedBy: allParticipants
-      });
-      // Send delete request to admin
-      await addDoc(collection(db, 'adminDeleteRequests'), {
-        chatId,
-        msgId,
-        requestedBy: user.uid,
-        participants: allParticipants,
-        timestamp: serverTimestamp(),
-        status: 'pending'
-      });
+      await deleteDoc(doc(db, 'chats', chatId, 'messages', msgId));
     } catch (error) {
       console.error("Delete message error:", error);
     }
@@ -945,6 +929,16 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
           
           <div className="relative">
             <button 
+              onClick={() => { setBatchMode(!batchMode); setSelectedMsgs(new Set()); }}
+              className={`hover:text-slate-900 transition-colors p-1 rounded-full hover:bg-slate-100 ${batchMode ? 'text-blue-600' : ''}`}
+              title="Toplu Mesaj Seç"
+            >
+              <ListChecks size={20} />
+            </button>
+          </div>
+          
+          <div className="relative">
+            <button 
               onClick={() => setIsHeaderMenuOpen(!isHeaderMenuOpen)}
               className="hover:text-slate-900 transition-colors p-1 rounded-full hover:bg-slate-100"
             >
@@ -1295,24 +1289,10 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
             <button disabled={selectedMsgs.size === 0}
               onClick={() => {
                 const count = selectedMsgs.size;
-                showCustomConfirm('Mesajları Sil', `${count} mesajı silmek istediğinize emin misiniz? Admin onayına gönderilecektir.`, async () => {
-                  if (!chat) return;
+                showCustomConfirm('Mesajları Sil', `${count} mesajı tamamen silmek istediğinize emin misiniz?`, async () => {
                   for (const msgId of selectedMsgs) {
                     try {
-                      const msgRef = doc(db, 'chats', chatId, 'messages', msgId);
-                      const msgSnap = await getDoc(msgRef);
-                      if (!msgSnap.exists()) continue;
-                      await updateDoc(msgRef, {
-                        deletedBy: chat.participants
-                      });
-                      await addDoc(collection(db, 'adminDeleteRequests'), {
-                        chatId,
-                        msgId,
-                        requestedBy: user!.uid,
-                        participants: chat.participants,
-                        timestamp: serverTimestamp(),
-                        status: 'pending'
-                      });
+                      await deleteDoc(doc(db, 'chats', chatId, 'messages', msgId));
                     } catch (err) { console.error(err); }
                   }
                   setBatchMode(false);
