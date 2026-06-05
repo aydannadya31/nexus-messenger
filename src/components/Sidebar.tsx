@@ -4,9 +4,10 @@ import { db, logout } from '../lib/firebase';
 import { useAuth } from './AuthProvider';
 import { Chat, UserProfile } from '../types';
 import { cn } from '../lib/utils';
-import { LogOut, MessageSquarePlus, Search, User as UserIcon, ChevronUp, Settings, Radio, X, MoreVertical } from 'lucide-react';
+import { LogOut, MessageSquarePlus, Search, User as UserIcon, ChevronUp, Settings, Radio, X, MoreVertical, UserPlus } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import ProfileModal from './ProfileModal';
+import FriendRequestsModal from './FriendRequestsModal';
 
 const StatusBullet: React.FC<{ status?: string; className?: string }> = ({ status, className }) => {
   const colors = {
@@ -41,6 +42,17 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
   const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({});
   const [viewProfile, setViewProfile] = useState<UserProfile | null>(null);
   const [showGroupInfo, setShowGroupInfo] = useState<Chat | null>(null);
+  const [showFriendRequests, setShowFriendRequests] = useState(false);
+  const [pendingRequestCount, setPendingRequestCount] = useState(0);
+
+  useEffect(() => {
+    if (!user) return;
+    const unsub = onSnapshot(
+      query(collection(db, 'friendRequests'), where('to', '==', user.uid), where('status', '==', 'pending')),
+      (snap) => setPendingRequestCount(snap.docs.length)
+    );
+    return () => unsub();
+  }, [user]);
 
   useEffect(() => {
     if (!user) return;
@@ -204,6 +216,21 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
               <div className="absolute -top-1 -right-1 w-2 h-2 bg-red-500 rounded-full animate-ping" />
             </button>
             <span className="text-[8px] text-slate-400 font-bold text-center">Brodcast</span>
+          </div>
+          <div className="flex flex-col items-center gap-0.5">
+            <button 
+              onClick={() => setShowFriendRequests(true)}
+              className="p-2.5 bg-green-50 hover:bg-green-100 rounded-xl text-green-600 transition-all active:scale-95 group relative"
+              title="Arkadaşlık İstekleri"
+            >
+              <UserPlus size={20} />
+              {pendingRequestCount > 0 && (
+                <div className="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] bg-red-500 text-white rounded-full text-[9px] font-black flex items-center justify-center px-1 shadow-lg">
+                  {pendingRequestCount}
+                </div>
+              )}
+            </button>
+            <span className="text-[8px] text-slate-400 font-bold text-center">İstekler</span>
           </div>
           <div className="flex flex-col items-center gap-0.5">
             <button 
@@ -586,6 +613,9 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
           onClose={() => setShowProfileModal(false)} 
         />
       )}
+
+      {/* Friend Requests Modal */}
+      {showFriendRequests && <FriendRequestsModal onClose={() => setShowFriendRequests(false)} />}
 
       {/* Admin Message Dialog */}
       {showAdminMsg && (

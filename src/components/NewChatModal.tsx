@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { collection, query, getDocs, addDoc, serverTimestamp, where, limit } from 'firebase/firestore';
+import { collection, query, getDocs, addDoc, serverTimestamp, where, limit, orderBy } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { useAuth } from './AuthProvider';
 import { UserProfile } from '../types';
@@ -152,38 +152,74 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({ onClose, onChatCreat
   const startPrivateChat = async (otherUser: UserProfile) => {
     if (!user) return;
 
-    // Check if chat already exists
-    const chatsRef = collection(db, 'chats');
-    const q = query(chatsRef, 
-      where('participants', 'array-contains', user.uid),
-      where('type', '==', 'private')
+    // Check if already friends
+    const friendsRef = collection(db, 'friendRequests');
+    const approvedQ = query(friendsRef, 
+      where('from', '==', user.uid),
+      where('to', '==', otherUser.uid),
+      where('status', '==', 'approved')
     );
-    const snapshot = await getDocs(q);
-    
-    let existingChatId = null;
-    snapshot.forEach(d => {
-      const data = d.data();
-      if (data.participants.includes(otherUser.uid)) {
-        existingChatId = d.id;
-      }
-    });
+    const approvedSnap = await getDocs(approvedQ);
+    if (!approvedSnap.empty) {
+      // Friend approved - check existing chat
+      const chatsRef = collection(db, 'chats');
+      const q = query(chatsRef, 
+        where('participants', 'array-contains', user.uid),
+        where('type', '==', 'private')
+      );
+      const snapshot = await getDocs(q);
+      
+      let existingChatId = null;
+      snapshot.forEach(d => {
+        const data = d.data();
+        if (data.participants.includes(otherUser.uid)) {
+          existingChatId = d.id;
+        }
+      });
 
-    if (existingChatId) {
-      onChatCreated(existingChatId);
+      if (existingChatId) {
+        onChatCreated(existingChatId);
+        onClose();
+        return;
+      }
+
+      const newChatRef = await addDoc(chatsRef, {
+        participants: [user.uid, otherUser.uid],
+        type: 'private',
+        updatedAt: serverTimestamp(),
+        lastMessage: null
+      });
+      
+      onChatCreated(newChatRef.id);
       onClose();
       return;
     }
 
-    // Create new chat
-    const newChatRef = await addDoc(chatsRef, {
-      participants: [user.uid, otherUser.uid],
-      type: 'private',
-      updatedAt: serverTimestamp(),
-      lastMessage: null
+    // Check if request already pending
+    const pendingQ = query(friendsRef, 
+      where('from', '==', user.uid),
+      where('to', '==', otherUser.uid),
+      where('status', '==', 'pending')
+    );
+    const pendingSnap = await getDocs(pendingQ);
+    if (!pendingSnap.empty) {
+      alert('Bu kullanıcıya zaten arkadaşlık isteği gönderdiniz.');
+      return;
+    }
+
+    // Send friend request
+    await addDoc(friendsRef, {
+      from: user.uid,
+      to: otherUser.uid,
+      fromName: user.displayName || user.email,
+      toName: otherUser.displayName || otherUser.email,
+      fromPhoto: user.photoURL || '',
+      toPhoto: otherUser.photoURL || '',
+      status: 'pending',
+      timestamp: serverTimestamp()
     });
-    
-    onChatCreated(newChatRef.id);
-    onClose();
+
+    alert('Arkadaşlık isteği gönderildi! Onay bekleniyor.');
   };
 
   const createGroup = async () => {
