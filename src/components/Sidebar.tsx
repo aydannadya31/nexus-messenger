@@ -188,9 +188,6 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
 
   return (
     <div className="flex flex-col h-full bg-white sm:border-r border-slate-200 w-full sm:max-w-[350px]">
-      <div className="absolute top-1.5 left-1/2 -translate-x-1/2 z-50 bg-white/90 backdrop-blur-sm border border-slate-200 shadow-sm rounded-full px-3 py-0.5 sm:px-4 sm:py-1">
-        <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Kenar Çubuğu</span>
-      </div>
        {/* Sidebar Header */}
       <header className="p-4 sm:p-6 space-y-3 sm:space-y-4 z-10 bg-white border-b border-slate-200">
         <div className="flex items-center justify-between">
@@ -342,48 +339,48 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
                   {chatMenuOpen === chat.id && (
                     <>
                       <div className="fixed inset-0 z-40" onClick={() => setChatMenuOpen(null)} />
-                      <div className="absolute right-0 top-full mt-1 w-44 bg-white border border-slate-200 rounded-xl shadow-xl py-1 z-50">
+                      <div className="absolute right-0 top-full mt-1 flex items-center gap-1 bg-white border border-slate-200 rounded-xl shadow-xl px-2 py-1.5 z-50">
                         {chat.type === 'private' ? (
                           <>
                             <button onClick={() => { setChatMenuOpen(null); if (otherInfo) setViewProfile(otherInfo); }}
-                              className="w-full text-left px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50 transition-colors">
-                              ℹ️ Sohbet Bilgisi
+                              className="p-2 text-slate-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all text-xs font-bold" title="Sohbet Bilgisi">
+                              ℹ️
                             </button>
                             <button onClick={() => { setChatMenuOpen(null); handleRemoveChat(chat.id); }}
-                              className="w-full text-left px-4 py-2.5 text-xs font-bold text-red-600 hover:bg-red-50 transition-colors">
-                              🗑 Listeden Kaldır
+                              className="p-2 text-slate-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all text-xs font-bold" title="Listeden Kaldır">
+                              🗑
                             </button>
                           </>
                         ) : (
                           <>
                             <button onClick={() => { setChatMenuOpen(null); setShowGroupInfo(chat); }}
-                              className="w-full text-left px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50 transition-colors">
-                              ℹ️ Grup Bilgisi
+                              className="p-2 text-slate-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all text-xs font-bold" title="Grup Bilgisi">
+                              ℹ️
                             </button>
                             <button onClick={() => { setChatMenuOpen(null); handleLeaveGroup(chat.id); }}
-                              className="w-full text-left px-4 py-2.5 text-xs font-bold text-red-600 hover:bg-red-50 transition-colors">
-                              🚪 Gruptan Ayrıl
+                              className="p-2 text-slate-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all text-xs font-bold" title="Gruptan Ayrıl">
+                              🚪
                             </button>
                           </>
                         )}
                         <button onClick={async () => {
                           setChatMenuOpen(null);
-                          try {
-                            await updateDoc(doc(db, 'chats', chat.id), { muted: !chat.muted });
-                          } catch(e) { console.error(e); }
+                          try { await updateDoc(doc(db, 'chats', chat.id), { muted: !chat.muted }); }
+                          catch(e) { console.error(e); }
                         }}
-                          className="w-full text-left px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50 transition-colors">
-                          {chat.muted ? '▶ Bildirimi Aç' : '⏸ Bildirimi Kapat'}
+                          className="p-2 text-slate-500 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-all text-xs font-bold"
+                          title={chat.muted ? 'Bildirimi Aç' : 'Bildirimi Kapat'}>
+                          {chat.muted ? '🔔' : '🔕'}
                         </button>
                         {chat.heldBy && (
                           <button onClick={async () => {
                             setChatMenuOpen(null);
-                            try {
-                              await updateDoc(doc(db, 'chats', chat.id), { heldBy: null, holdExpiresAt: null });
-                            } catch(e) { console.error(e); }
+                            try { await updateDoc(doc(db, 'chats', chat.id), { heldBy: null, holdExpiresAt: null }); }
+                            catch(e) { console.error(e); }
                           }}
-                            className="w-full text-left px-4 py-2.5 text-xs font-bold text-green-600 hover:bg-green-50 transition-colors">
-                            ✅ Beklemeyi Kaldır
+                            className="p-2 text-slate-500 hover:text-green-600 hover:bg-green-50 rounded-lg transition-all text-xs font-bold"
+                            title="Beklemeyi Kaldır">
+                            ✅
                           </button>
                         )}
                       </div>
@@ -469,25 +466,23 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
                       {chatMenuOpen === chat.id && (
                         <>
                           <div className="fixed inset-0 z-40" onClick={() => setChatMenuOpen(null)} />
-                          <div className="absolute right-0 top-full mt-1 w-44 bg-white border border-slate-200 rounded-xl shadow-xl py-1 z-50">
-                            <>
-                              <button onClick={() => { setChatMenuOpen(null); setShowGroupInfo(chat); }}
-                                className="w-full text-left px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50 transition-colors">
-                                ℹ️ Grup Bilgisi
-                              </button>
-                              <button onClick={() => { setChatMenuOpen(null); handleLeaveGroup(chat.id); }}
-                                className="w-full text-left px-4 py-2.5 text-xs font-bold text-red-600 hover:bg-red-50 transition-colors">
-                                🚪 Gruptan Ayrıl
-                              </button>
-                            </>
+                          <div className="absolute right-0 top-full mt-1 flex items-center gap-1 bg-white border border-slate-200 rounded-xl shadow-xl px-2 py-1.5 z-50">
+                            <button onClick={() => { setChatMenuOpen(null); setShowGroupInfo(chat); }}
+                              className="p-2 text-slate-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all text-xs font-bold" title="Grup Bilgisi">
+                              ℹ️
+                            </button>
+                            <button onClick={() => { setChatMenuOpen(null); handleLeaveGroup(chat.id); }}
+                              className="p-2 text-slate-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all text-xs font-bold" title="Gruptan Ayrıl">
+                              🚪
+                            </button>
                             <button onClick={async () => {
                               setChatMenuOpen(null);
-                              try {
-                                await updateDoc(doc(db, 'chats', chat.id), { muted: !chat.muted });
-                              } catch(e) { console.error(e); }
+                              try { await updateDoc(doc(db, 'chats', chat.id), { muted: !chat.muted }); }
+                              catch(e) { console.error(e); }
                             }}
-                              className="w-full text-left px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50 transition-colors">
-                              {chat.muted ? '▶ Bildirimi Aç' : '⏸ Bildirimi Kapat'}
+                              className="p-2 text-slate-500 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-all text-xs font-bold"
+                              title={chat.muted ? 'Bildirimi Aç' : 'Bildirimi Kapat'}>
+                              {chat.muted ? '🔔' : '🔕'}
                             </button>
                           </div>
                         </>
