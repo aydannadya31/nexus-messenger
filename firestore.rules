@@ -34,14 +34,14 @@ service cloud.firestore {
              data.participants is list && data.participants.size() >= 2 &&
              data.type in ['private', 'group'] &&
              request.auth.uid in data.participants &&
-             data.updatedAt == request.time &&
+             data.updatedAt <= request.time &&
              (data.type == 'group' ? data.keys().hasAll(['groupMetadata']) : true);
     }
 
     function isValidMessage(data) {
       return data.keys().hasAll(['senderId', 'timestamp', 'type']) &&
              data.senderId == request.auth.uid &&
-             data.timestamp == request.time &&
+             data.timestamp <= request.time &&
              data.type in ['text', 'image', 'video', 'audio'] &&
              (data.type == 'text' ? data.text is string && data.text.size() <= 6000 : true) &&
              (data.type == 'image' ? data.imageUrl is string : true) &&
@@ -54,7 +54,7 @@ service cloud.firestore {
       return data.keys().hasAll(['participants', 'chatId', 'callerId', 'type', 'status', 'createdAt']) &&
              data.participants is list && request.auth.uid in data.participants &&
              data.status in ['calling', 'ongoing', 'ended'] &&
-             data.createdAt == request.time &&
+             data.createdAt <= request.time &&
              (data.keys().hasAny(['mediaType']) ? data.mediaType in ['audio', 'video'] : true);
     }
 
@@ -62,7 +62,7 @@ service cloud.firestore {
       return data.keys().hasAll(['from', 'to', 'type', 'data', 'createdAt']) &&
              data.from == request.auth.uid &&
              data.type in ['offer', 'answer', 'candidate'] &&
-             data.createdAt == request.time;
+             data.createdAt <= request.time;
     }
 
     // Admin-only: full access

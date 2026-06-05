@@ -24,7 +24,7 @@ export const AIChat: React.FC<AIChatProps> = ({ onBack }) => {
     {
       id: 'welcome',
       role: 'ai',
-      text: 'Merhaba! Ben Nexus AI. Size nasıl yardımcı olabilirim? (Groq · Llama 3.3 70B)',
+      text: 'Merhaba! Ben Nexus, yapay zeka asistanınız. Size nasıl yardımcı olabilirim?',
       timestamp: new Date(),
     },
   ]);
@@ -123,13 +123,19 @@ export const AIChat: React.FC<AIChatProps> = ({ onBack }) => {
           <div>
             <div className="flex items-center gap-2">
               <h3 className="text-base font-bold text-slate-900 leading-none">Nexus AI</h3>
-              <span className="flex items-center gap-1 text-[9px] font-black uppercase px-2 py-0.5 rounded-full bg-green-100 text-green-700 shadow-sm">
-                <Shield size={10} /> Groq · Llama 3.3
-              </span>
+              {aiSettings.ethicsRules.some(r => r.enabled) ? (
+                <span className="flex items-center gap-1 text-[9px] font-black uppercase px-2 py-0.5 rounded-full bg-green-100 text-green-700 shadow-sm">
+                  <Shield size={10} /> Etik Filtre Açık
+                </span>
+              ) : (
+                <span className="flex items-center gap-1 text-[9px] font-black uppercase px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 shadow-sm">
+                  <ShieldOff size={10} /> Filtre Kapalı
+                </span>
+              )}
             </div>
             <span className="text-[11px] font-bold text-purple-500 flex items-center gap-1 mt-0.5">
               <Brain size={12} />
-              Sınırsız token · Yönetici denetimli etik · {aiSettings.enabled ? 'Aktif' : 'Devre Dışı'}
+              Token sınırı olmayan AI · {aiSettings.enabled ? 'Aktif' : 'Devre Dışı'}
             </span>
           </div>
         </div>

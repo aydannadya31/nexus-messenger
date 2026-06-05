@@ -28,33 +28,28 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({ onClose, onChatCreat
     const fetchUsers = async () => {
       setLoading(true);
       try {
-        let q;
-        if (search && search.length >= 2) {
-          // If searching by UIN or Prefix (ICQ style)
-          const searchTerm = search.toUpperCase();
-          q = query(
-            collection(db, 'users'), 
-            where('uin', '>=', searchTerm),
-            where('uin', '<=', searchTerm + '\uf8ff'),
-            where('uid', '!=', user?.uid || '')
-          );
-        } else {
-          // Default fetch (limited for performance)
-          q = query(
-            collection(db, 'users'), 
-            where('uid', '!=', user?.uid || ''),
-            limit(20)
-          );
-        }
-        
+        // Fetch all users (limited), then filter client-side
+        const q = query(
+          collection(db, 'users'),
+          ...(search && search.length >= 2
+            ? [
+                where('uin', '>=', search.toUpperCase()),
+                where('uin', '<=', search.toUpperCase() + '\uf8ff'),
+              ]
+            : [limit(30)])
+        );
+
         const snapshot = await getDocs(q);
-        const fetchedUsers = snapshot.docs.map(d => d.data() as UserProfile);
+        const fetchedUsers = snapshot.docs
+          .map(d => d.data() as UserProfile)
+          .filter(u => u.uid !== user?.uid);
         
-        // If not numeric search, we still do local filtering for text
+        // Client-side text filter for non-UIN searches
         if (!/^\d+$/.test(search)) {
           setUsers(fetchedUsers.filter(u => 
             u.displayName.toLowerCase().includes(search.toLowerCase()) || 
-            u.email.toLowerCase().includes(search.toLowerCase())
+            u.email.toLowerCase().includes(search.toLowerCase()) ||
+            (u.uin || '').toLowerCase().includes(search.toLowerCase())
           ));
         } else {
           setUsers(fetchedUsers);

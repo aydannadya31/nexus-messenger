@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { collection, query, getDocs, doc, getDoc, where, orderBy, deleteDoc, updateDoc, Timestamp, serverTimestamp, onSnapshot, addDoc, collectionGroup } from 'firebase/firestore';
+import { collection, query, getDocs, doc, getDoc, where, orderBy, deleteDoc, updateDoc, Timestamp, serverTimestamp, onSnapshot, addDoc, collectionGroup, limit } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { UserProfile, Message, Chat } from '../types';
 import { X, Search, Shield, UserX, UserCheck, Trash2, Clock, MessageSquare, Ban, Bot, Shield as ShieldIcon, ShieldOff, Globe, Brain } from 'lucide-react';
@@ -106,25 +106,29 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
     return () => unsub();
   }, [step, tab]);
 
-  // Fetch deleted messages (messages where deletedBy has 2+ entries = both users deleted)
+  // Fetch deleted messages (messages with deletedBy field)
   useEffect(() => {
     if (step !== 'panel' || tab !== 'deleted') return;
     let cancelled = false;
     const loadDeleted = async () => {
       try {
+        // Query all messages and filter client-side for deleted ones
+        // to avoid complex composite index requirements on array fields
         const q = query(
           collectionGroup(db, 'messages'),
-          where('deletedBy', '!=', null),
-          orderBy('deletedBy'),
-          orderBy('timestamp', 'desc')
+          orderBy('timestamp', 'desc'),
+          limit(200)
         );
         const snap = await getDocs(q);
         if (cancelled) return;
-        setDeletedMessages(snap.docs.map(d => ({
-          id: d.id,
-          chatId: d.ref.parent.parent?.id || '',
-          ...d.data()
-        })));
+        const deleted = snap.docs
+          .map(d => ({
+            id: d.id,
+            chatId: d.ref.parent.parent?.id || '',
+            ...d.data(),
+          } as any))
+          .filter((m: any) => m.deletedBy && m.deletedBy.length > 0);
+        setDeletedMessages(deleted);
       } catch (err) {
         console.error("Deleted messages query error:", err);
         if (!cancelled) setDeletedMessages([]);
@@ -624,13 +628,13 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                                 onClick={() => { setEditingRuleId(rule.id); setEditingLabel(rule.label); }}
                                 className="p-1.5 hover:bg-slate-700 rounded-lg text-slate-400 hover:text-white transition-all"
                               >
-                                <svg size={14} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
                               </button>
                               <button
                                 onClick={() => deleteEthicsRule(rule.id)}
                                 className="p-1.5 hover:bg-red-600/20 rounded-lg text-red-400 hover:text-red-300 transition-all"
                               >
-                                <svg size={14} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
                               </button>
                             </div>
                           )}
