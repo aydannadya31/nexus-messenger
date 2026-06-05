@@ -109,24 +109,29 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
   // Fetch deleted messages (messages where deletedBy has 2+ entries = both users deleted)
   useEffect(() => {
     if (step !== 'panel' || tab !== 'deleted') return;
-    const q = query(
-      collectionGroup(db, 'messages'),
-      where('deletedBy', '!=', null),
-      orderBy('deletedBy'),
-      orderBy('timestamp', 'desc')
-    );
-    const unsub = onSnapshot(q, (snap) => {
-      const all = snap.docs.map(d => ({ 
-        id: d.id, 
-        chatId: d.ref.parent.parent?.id || '',
-        ...d.data() 
-      }));
-      setDeletedMessages(all);
-    }, (err) => {
-      console.error("Deleted messages query error:", err);
-      setDeletedMessages([]);
-    });
-    return () => unsub();
+    let cancelled = false;
+    const loadDeleted = async () => {
+      try {
+        const q = query(
+          collectionGroup(db, 'messages'),
+          where('deletedBy', '!=', null),
+          orderBy('deletedBy'),
+          orderBy('timestamp', 'desc')
+        );
+        const snap = await getDocs(q);
+        if (cancelled) return;
+        setDeletedMessages(snap.docs.map(d => ({
+          id: d.id,
+          chatId: d.ref.parent.parent?.id || '',
+          ...d.data()
+        })));
+      } catch (err) {
+        console.error("Deleted messages query error:", err);
+        if (!cancelled) setDeletedMessages([]);
+      }
+    };
+    loadDeleted();
+    return () => { cancelled = true; };
   }, [step, tab]);
 
   const loadUserMessages = async (u: UserProfile) => {
@@ -181,7 +186,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
       setUserChats(chatNames);
     } catch (err) {
       console.error('loadUserMessages error:', err);
-      alert('Kullanıcı mesajları yüklenirken bir hata oluştu. Admin yetkilerinizi kontrol edin.');
+      alert('Kullanıcı mesajları yüklenemedi. Firestore güvenlik kuralları henüz yayınlanmamış olabilir. Admin yetkilerinizi kontrol edin.');
     }
   };
 

@@ -485,27 +485,23 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
     }
   };
 
-  useEffect(() => {
-    if (!showVideoDialog) {
-      stopVideoStream();
-      return;
-    }
-    const t = setTimeout(() => {
-      startVideoStream(useFrontCamera ? 'user' : 'environment');
-    }, 300);
-    return () => { clearTimeout(t); };
-  }, [showVideoDialog, useFrontCamera]);
-
   const openVideoDialog = () => {
     setShowVideoDialog(true);
     setVideoDialogState('preview');
     setRecordedVideoUrl(null);
     setVideoRecordingTime(0);
+    setTimeout(() => {
+      startVideoStream(useFrontCamera ? 'user' : 'environment');
+    }, 500);
   };
 
   const toggleCamera = () => {
     stopVideoStream();
+    const newFacing = useFrontCamera ? 'environment' : 'user';
     setUseFrontCamera(prev => !prev);
+    setTimeout(() => {
+      startVideoStream(newFacing);
+    }, 300);
   };
 
   const startVideoRecording = () => {
