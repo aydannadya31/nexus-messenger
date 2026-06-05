@@ -1,20 +1,44 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://ai.google.dev/static/site-assets/images/share-ais-513315318.png" />
-</div>
+# Nexus Messenger
 
-# Run and deploy your AI Studio app
+Real-time messaging app with AI assistant, voice/video calls, and admin panel.
 
-This contains everything you need to run your app locally.
+## Canlı Site
 
-View your app in AI Studio: https://ai.studio/apps/6f70c272-6822-4c0b-a15d-b77d18f46fb0
+[https://aydannadya31.github.io/nexus-messenger/](https://aydannadya31.github.io/nexus-messenger/)
 
-## Run Locally
+## Local Development
 
-**Prerequisites:**  Node.js
+```bash
+npm install
+npm run dev
+```
 
+## Deploy
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+### GitHub Pages (otomatik)
+`main` branch'ine push yapıldığında GitHub Actions ile otomatik build alıp deploy eder.
+
+### Firestore Rules & Indexes
+
+Firestore güvenlik kuralları **named database**'e deploy edilmelidir:
+
+```bash
+npm install -g firebase-tools
+firebase login
+firebase deploy --only firestore:rules:ai-studio-6f70c272-6822-4c0b-a15d-b77d18f46fb0
+firebase deploy --only firestore:indexes
+```
+
+### GitHub Secrets
+Repository > Settings > Secrets and variables > Actions:
+- `VITE_GEMINI_API_KEY` = AI Studio'dan alınan Gemini API anahtarı
+
+### Firebase Auth (Google Sign-In)
+Firebase Console > Authentication > Settings > Authorized domains:
+- `aydannadya31.github.io` eklenmeli (yoksa `auth/unauthorized-domain` hatası)
+
+## Firebase Project
+
+- Project ID: `gen-lang-client-0308378658`
+- Database: `ai-studio-6f70c272-6822-4c0b-a15d-b77d18f46fb0` (named)
+- Admin password: `Ag1453ag!`

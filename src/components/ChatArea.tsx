@@ -1107,7 +1107,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
             {isEmojiMenuOpen && (
               <>
                 <div className="fixed inset-0 z-30" onClick={() => setIsEmojiMenuOpen(false)} />
-                <div className="absolute bottom-full mb-2 left-0 sm:bottom-12 sm:left-0 w-56 sm:w-64 bg-white border border-slate-150 rounded-2xl shadow-xl p-2 sm:p-3 z-40 grid grid-cols-5 gap-1 animate-in fade-in slide-in-from-bottom-2 duration-155">
+                <div className="absolute bottom-full mb-2 left-0 sm:bottom-12 sm:left-0 w-56 sm:w-64 bg-white border border-slate-150 rounded-2xl shadow-xl p-2 sm:p-3 z-40 grid grid-cols-5 gap-1 animate-in fade-in slide-in-from-bottom-2 duration-150">
                   {['😀', '😂', '😍', '👍', '🔥', '🎉', '❤️', '🤔', '😎', '👏', '🙏', '😭', '😡', '😮', '🚀'].map(emoji => (
                     <button
                       type="button"
