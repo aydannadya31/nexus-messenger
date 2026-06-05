@@ -37,6 +37,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
   const prevLastMessagesRef = useRef<Record<string, any>>({});
   const chatDetailsRef = useRef<Record<string, UserProfile>>({});
   const [chatMenuOpen, setChatMenuOpen] = useState<string | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
   const [hiddenChats, setHiddenChats] = useState<string[]>([]);
   const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({});
   const [viewProfile, setViewProfile] = useState<UserProfile | null>(null);
@@ -44,14 +45,13 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
 
   useEffect(() => {
     if (!chatMenuOpen) return;
-    const handleClick = () => setChatMenuOpen(null);
-    const timer = setTimeout(() => {
-      document.addEventListener('click', handleClick);
-    }, 0);
-    return () => {
-      clearTimeout(timer);
-      document.removeEventListener('click', handleClick);
+    const handleClickOutside = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setChatMenuOpen(null);
+      }
     };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [chatMenuOpen]);
 
   useEffect(() => {
@@ -77,20 +77,23 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
         const lastMsg = chat.lastMessage;
         const prevMsg = prevMsgs[chat.id];
         newLastMessages[chat.id] = lastMsg;
-        
+
         if (hasPrevState && lastMsg && (!prevMsg || lastMsg.timestamp?.toMillis() > prevMsg.timestamp?.toMillis())) {
           if (lastMsg.senderId !== user.uid) {
-            setUnreadCounts(prev => ({ ...prev, [chat.id]: (prev[chat.id] || 0) + 1 }));
-            const senderProfile = chatDetailsRef.current[lastMsg.senderId];
-            if (senderProfile?.onlineStatus === 'busy') {
-              // No sound for busy users
-            } else {
-              try {
-                const audio = new Audio('https://raw.githubusercontent.com/yemreak/icq-sounds/master/Sounds/Global/Uh-Oh.wav');
-                audio.volume = 0.5;
-                audio.play().catch((e) => console.log('Audio play failed:', e));
-              } catch(e) { console.log('Audio error:', e); }
-            }
+            try {
+              const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+              const oscillator = audioCtx.createOscillator();
+              const gainNode = audioCtx.createGain();
+              oscillator.connect(gainNode);
+              gainNode.connect(audioCtx.destination);
+              oscillator.type = 'sine';
+              oscillator.frequency.setValueAtTime(880, audioCtx.currentTime);
+              oscillator.frequency.setValueAtTime(660, audioCtx.currentTime + 0.1);
+              gainNode.gain.setValueAtTime(0.3, audioCtx.currentTime);
+              gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.3);
+              oscillator.start(audioCtx.currentTime);
+              oscillator.stop(audioCtx.currentTime + 0.3);
+            } catch(e) { console.log('Audio error:', e); }
           }
         }
       }
@@ -324,18 +327,19 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
                   </p>
                 </div>
                 {/* Three-dot menu */}
-                <div className="relative shrink-0" onClick={(e) => e.stopPropagation()}>
+                <div className="relative shrink-0" ref={chatMenuOpen === chat.id ? menuRef : undefined}>
                   <button 
                     onClick={(e) => {
                       e.stopPropagation();
+                      e.preventDefault();
                       setChatMenuOpen(chatMenuOpen === chat.id ? null : chat.id);
                     }}
-                    className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-full transition-all opacity-0 group-hover:opacity-100"
+                    className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-full transition-all sm:opacity-0 sm:group-hover:opacity-100"
                   >
                     <MoreVertical size={16} />
                   </button>
                   {chatMenuOpen === chat.id && (
-                    <div className="absolute right-0 top-full mt-1 w-44 bg-white border border-slate-200 rounded-xl shadow-xl py-1 z-50 animate-in fade-in slide-in-from-top-1 duration-100">
+                    <div className="absolute right-0 top-full mt-1 w-44 bg-white border border-slate-200 rounded-xl shadow-xl py-1 z-50" onClick={(e) => e.stopPropagation()}>
                       {chat.type === 'private' ? (
                         <>
                           <button onClick={(e) => { e.stopPropagation(); e.preventDefault(); setChatMenuOpen(null); if (otherInfo) setViewProfile(otherInfo); }}

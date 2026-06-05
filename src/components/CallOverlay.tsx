@@ -12,6 +12,7 @@ export const CallOverlay = () => {
   const { activeCall, incomingCall, acceptCall, rejectCall, leaveCall, inviteToCall } = useCall();
   const { user } = useAuth();
   
+  const localStreamRef = useRef<MediaStream | null>(null);
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const [remoteStreams, setRemoteStreams] = useState<Record<string, MediaStream>>({});
   const [participantInfo, setParticipantInfo] = useState<Record<string, UserProfile>>({});
@@ -34,18 +35,59 @@ export const CallOverlay = () => {
     sdpSemantics: 'unified-plan',
   };
 
-  // Fetch caller info for incoming call
+  // Play ringtone for incoming call
+  const ringtoneRef = useRef<AudioContext | null>(null);
+  const ringIntervalRef = useRef<number | null>(null);
+
   useEffect(() => {
-    if (incomingCall && !callerInfo) {
-      const fetchCaller = async () => {
-        const d = await getDoc(doc(db, 'users', incomingCall.callerId));
-        if (d.exists()) setCallerInfo(d.data() as UserProfile);
+    if (incomingCall && !ringtoneRef.current) {
+      const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      ringtoneRef.current = ctx;
+
+      const playRing = () => {
+        if (!ringtoneRef.current) return;
+        if (ringtoneRef.current.state === 'suspended') {
+          ringtoneRef.current.resume();
+        }
+        const osc = ringtoneRef.current.createOscillator();
+        const gain = ringtoneRef.current.createGain();
+        osc.connect(gain);
+        gain.connect(ringtoneRef.current.destination);
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(440, ringtoneRef.current.currentTime);
+        osc.frequency.setValueAtTime(660, ringtoneRef.current.currentTime + 0.15);
+        osc.frequency.setValueAtTime(880, ringtoneRef.current.currentTime + 0.3);
+        gain.gain.setValueAtTime(0.2, ringtoneRef.current.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, ringtoneRef.current.currentTime + 0.6);
+        osc.start(ringtoneRef.current.currentTime);
+        osc.stop(ringtoneRef.current.currentTime + 0.6);
       };
-      fetchCaller();
-    } else if (!incomingCall) {
+
+      playRing();
+      ringIntervalRef.current = window.setInterval(playRing, 1500);
+    }
+    if (!incomingCall) {
+      if (ringIntervalRef.current) {
+        clearInterval(ringIntervalRef.current);
+        ringIntervalRef.current = null;
+      }
+      if (ringtoneRef.current) {
+        ringtoneRef.current.close();
+        ringtoneRef.current = null;
+      }
       setCallerInfo(null);
     }
-  }, [incomingCall]);
+    return () => {
+      if (ringIntervalRef.current) {
+        clearInterval(ringIntervalRef.current);
+        ringIntervalRef.current = null;
+      }
+      if (ringtoneRef.current) {
+        ringtoneRef.current.close();
+        ringtoneRef.current = null;
+      }
+    };
+  }, [incomingCall?.callerId]);
 
   // Fetch info for all participants
   useEffect(() => {
@@ -74,14 +116,15 @@ export const CallOverlay = () => {
   }, []);
 
   const addLocalTracksToPC = useCallback((pc: RTCPeerConnection) => {
-    if (!localStream) return;
+    const stream = localStreamRef.current;
+    if (!stream) return;
     const senders = pc.getSenders().map(s => s.track?.kind);
-    localStream.getTracks().forEach(track => {
+    stream.getTracks().forEach(track => {
       if (!senders.includes(track.kind)) {
-        pc.addTrack(track, localStream);
+        pc.addTrack(track, stream);
       }
     });
-  }, [localStream]);
+  }, []);
 
   const createPeerConnection = useCallback(async (pId: string, isInitiator: boolean) => {
     if (pcs.current[pId]) {
@@ -161,7 +204,7 @@ export const CallOverlay = () => {
     }
 
     return pc;
-  }, [activeCall, user?.uid, localStream, cleanupPeer, addLocalTracksToPC]);
+  }, [activeCall, user?.uid, cleanupPeer, addLocalTracksToPC]);
 
   // Initialize Local Media
   useEffect(() => {
@@ -173,6 +216,7 @@ export const CallOverlay = () => {
             video: isVideoCall ? { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } } : false, 
             audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } 
           });
+          localStreamRef.current = stream;
           setLocalStream(stream);
         } catch (err) {
           console.error("Media access error:", err);
@@ -191,19 +235,23 @@ export const CallOverlay = () => {
       where('to', '==', user.uid)
     );
 
-    const unsubscribe = onSnapshot(qSignals, (snapshot) => {
+    const unsubscribe = onSnapshot(qSignals, async (snapshot) => {
       snapshot.docChanges().forEach(async (change) => {
         if (change.type === 'added') {
           const signal = { id: change.doc.id, ...change.doc.data() } as CallSignal;
 
-          let pc = pcs.current[signal.from];
-          if (!pc) {
-            pc = await createPeerConnection(signal.from, false);
-          }
-          if (!pc) return;
-
           try {
             if (signal.type === 'offer') {
+              // Wait for local stream before processing offer
+              for (let i = 0; i < 50 && !localStreamRef.current; i++) {
+                await new Promise(r => setTimeout(r, 200));
+              }
+              if (!localStreamRef.current) return;
+              let pc = pcs.current[signal.from];
+              if (!pc) {
+                pc = await createPeerConnection(signal.from, false);
+              }
+              if (!pc) return;
               addLocalTracksToPC(pc);
               await pc.setRemoteDescription(new RTCSessionDescription(signal.data));
               const answer = await pc.createAnswer();
@@ -216,15 +264,17 @@ export const CallOverlay = () => {
                 createdAt: serverTimestamp()
               });
             } else if (signal.type === 'answer') {
-              if (pc.currentRemoteDescription || pc.signalingState === 'stable') return;
+              let pc = pcs.current[signal.from];
+              if (!pc) return;
+              if (pc.signalingState !== 'have-local-offer') return;
               await pc.setRemoteDescription(new RTCSessionDescription(signal.data));
             } else if (signal.type === 'candidate') {
-              if (pc.remoteDescription || pc.signalingState === 'have-remote-offer') {
+              let pc = pcs.current[signal.from];
+              if (!pc) return;
+              if (pc.remoteDescription) {
                 try {
                   await pc.addIceCandidate(new RTCIceCandidate(signal.data));
-                } catch (e) {
-                  // Ignore ICE candidate errors
-                }
+                } catch (e) {}
               }
             }
           } catch (err) {
@@ -242,11 +292,17 @@ export const CallOverlay = () => {
     if (!localStream || !activeCall || !user) return;
     Object.entries(pcs.current).forEach(([pId, pc]) => {
       const senders = pc.getSenders().map(s => s.track?.kind);
+      let added = false;
       localStream.getTracks().forEach(track => {
         if (!senders.includes(track.kind)) {
           pc.addTrack(track, localStream);
+          added = true;
         }
       });
+      // If tracks were added and connection is stable, renegotiate
+      if (added && pc.signalingState === 'stable' && pc.connectionState === 'connected') {
+        pc.restartIce();
+      }
     });
   }, [localStream, activeCall, user]);
 
@@ -277,6 +333,7 @@ export const CallOverlay = () => {
       Object.keys(pcs.current).forEach(cleanupPeer);
       if (localStream) {
         localStream.getTracks().forEach(track => track.stop());
+        localStreamRef.current = null;
         setLocalStream(null);
       }
     }

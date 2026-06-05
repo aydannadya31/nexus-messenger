@@ -90,28 +90,31 @@ function NexusApp() {
     return () => clearInterval(interval);
   }, [user]);
 
-  // Handle browser back button on mobile
+  // Handle back button on mobile
   useEffect(() => {
+    if (!selectedChatId || showMobileSidebar) return;
+    // Chat is open - push a state so back goes to sidebar
+    window.history.pushState({ chatOpen: true }, '');
     const handlePopState = () => {
-      if (selectedChatId && !showMobileSidebar) {
-        // If a chat is open, go back to sidebar
-        setShowMobileSidebar(true);
+      if (selectedChatId) {
         setSelectedChatId(undefined);
-        window.history.pushState(null, '', window.location.href);
-        return;
-      }
-      // On the sidebar/main screen, ask for exit confirmation
-      const exitConfirmed = window.confirm('Çıkmak istediğinize emin misiniz?');
-      if (!exitConfirmed) {
-        window.history.pushState(null, '', window.location.href);
+        setShowMobileSidebar(true);
+        window.history.pushState(null, '');
       }
     };
-
-    // Push initial state so popstate fires
-    window.history.pushState(null, '', window.location.href);
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
   }, [selectedChatId, showMobileSidebar]);
+
+  // Confirm before leaving the app (mobile back from sidebar)
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, []);
 
   if (loading) {
     return (
