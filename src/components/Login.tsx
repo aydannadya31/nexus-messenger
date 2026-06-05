@@ -22,7 +22,8 @@ export const Login: React.FC = () => {
       await signInWithGoogle();
     } catch (err: any) {
       if (err?.code === 'auth/unauthorized-domain') {
-        setError('Firebase yetkilendirme hatası. Lütfen şu adrese gidip "localhost" domainini ekleyin:\n\nhttps://console.firebase.google.com/project/gen-lang-client-0308378658/authentication/settings\n\nFirebase Console > Authentication > Settings > Authorized domains > "localhost" ekleyin');
+        const domain = window.location.hostname;
+        setError(`Firebase yetkilendirme hatası. "${domain}" domaini Firebase'de tanımlı değil.\n\nŞu adrese gidip aşağıdaki domainleri ekleyin:\nhttps://console.firebase.google.com/project/gen-lang-client-0308378658/authentication/settings\n\nFirebase Console > Authentication > Settings > Authorized domains:\n• localhost\n• aydannadya31.github.io\n• ${domain}`);
       } else if (err?.code === 'auth/popup-blocked') {
         setError('Popup engellendi. Lütfen popup engelleyicinizi kapatın ve tekrar deneyin.');
       } else if (err?.code === 'auth/popup-closed-by-user' || err?.code === 'auth/cancelled-popup-request') {
