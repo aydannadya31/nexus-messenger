@@ -92,10 +92,11 @@ function NexusApp() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-screen bg-[#e8e8e8]">
+      <div className="flex items-center justify-center h-screen bg-slate-50">
         <div className="relative flex flex-col items-center">
-          <div className="w-20 h-20 border-4 border-[#b3d4b3] border-t-[#4a934a] rounded-full animate-spin shadow-xl" />
-          <span className="mt-8 text-[10px] font-black text-[#666] uppercase tracking-[0.3em] font-mono animate-pulse">A+F/C.B Messenger</span>
+          <div className="w-20 h-20 border-4 border-blue-50 border-t-blue-600 rounded-full animate-spin shadow-xl shadow-blue-100" />
+          <MessageSquare className="absolute top-7 left-1/2 -translate-x-1/2 text-blue-600" size={28} />
+          <span className="mt-8 text-[10px] font-black text-slate-400 uppercase tracking-[0.3em] animate-pulse">Syncing Core...</span>
         </div>
       </div>
     );
@@ -111,17 +112,17 @@ function NexusApp() {
     const minutes = Math.floor((remaining % 3600) / 60);
     const seconds = remaining % 60;
     return (
-      <div className="min-h-screen bg-[#e8e8e8] flex items-center justify-center p-4">
-        <div className="bg-white rounded-2xl p-8 shadow-lg max-w-md w-full text-center border border-[#b3b3b3]">
-          <div className="w-20 h-20 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-6">
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
+        <div className="bg-white rounded-3xl p-10 shadow-2xl max-w-md w-full text-center border border-slate-200">
+          <div className="w-20 h-20 bg-red-100 rounded-3xl flex items-center justify-center mx-auto mb-6">
             <Ban size={40} className="text-red-500" />
           </div>
-          <h1 className="text-2xl font-black text-slate-900 mb-3 font-mono">Hesabınız Banlanmış</h1>
+          <h1 className="text-2xl font-black text-slate-900 mb-3">Hesabınız Banlanmış</h1>
           <p className="text-sm text-slate-500 font-bold mb-6 leading-relaxed">
             Hesabınız geçici olarak askıya alınmıştır.
           </p>
-          <div className="bg-[#f5f5f5] rounded-xl p-4 mb-6 border border-[#ccc]">
-            <p className="text-[10px] text-slate-400 font-black uppercase tracking-widest mb-2 icq-text">KALAN SÜRE</p>
+          <div className="bg-slate-50 rounded-2xl p-4 mb-6 border border-slate-100">
+            <p className="text-[10px] text-slate-400 font-black uppercase tracking-widest mb-2">KALAN SÜRE</p>
             <p className="text-3xl font-black text-red-600 tabular-nums tracking-tight font-mono">
               {String(hours).padStart(2, '0')}:{String(minutes).padStart(2, '0')}:{String(seconds).padStart(2, '0')}
             </p>
@@ -137,7 +138,7 @@ function NexusApp() {
   }
 
   return (
-    <div className="flex h-dvh overflow-hidden bg-[#e8e8e8]">
+    <div className="flex h-dvh overflow-hidden bg-neutral-950">
       {/* Sidebar - hidden on mobile when chat is open */}
       <div className={cn(
         "w-full sm:w-[350px] sm:block",

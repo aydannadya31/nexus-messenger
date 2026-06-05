@@ -6,7 +6,7 @@
 
 @layer base {
   body {
-    @apply bg-[#e8e8e8] text-slate-900 antialiased h-screen overflow-hidden font-sans;
+    @apply bg-slate-50 text-slate-900 antialiased h-screen overflow-hidden font-sans;
   }
 }
 
@@ -18,21 +18,9 @@
     @apply bg-transparent;
   }
   .custom-scrollbar::-webkit-scrollbar-thumb {
-    @apply bg-slate-300 rounded-full hover:bg-slate-400 transition-colors;
+    @apply bg-slate-200 rounded-full hover:bg-slate-300 transition-colors;
   }
   .mirror {
     transform: scaleX(-1);
   }
-}
-
-.icq-text {
-  font-family: "Courier New", Courier, monospace;
-  letter-spacing: 0.02em;
-}
-
-.icq-separator {
-  border: none;
-  border-top: 2px solid #b3b3b3;
-  border-bottom: 1px solid #ffffff;
-  margin: 4px 0;
 }

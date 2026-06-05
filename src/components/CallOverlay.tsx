@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { useCall } from './CallProvider';
 import { useAuth } from './AuthProvider';
 import { db } from '../lib/firebase';
-import { doc, onSnapshot, updateDoc, collection, addDoc, serverTimestamp, getDoc, query, where, deleteDoc, getDocs } from 'firebase/firestore';
+import { doc, onSnapshot, updateDoc, collection, addDoc, serverTimestamp, getDoc, query, where } from 'firebase/firestore';
 import { X, Phone, PhoneOff, Mic, MicOff, Video, VideoOff, Users, UserPlus } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
@@ -28,8 +28,10 @@ export const CallOverlay = () => {
       { urls: 'stun:stun.l.google.com:19302' },
       { urls: 'stun:stun1.l.google.com:19302' },
       { urls: 'stun:stun2.l.google.com:19302' },
+      { urls: 'stun:stun3.l.google.com:19302' },
     ],
     iceCandidatePoolSize: 10,
+    sdpSemantics: 'unified-plan',
   };
 
   // Fetch caller info for incoming call
@@ -71,8 +73,21 @@ export const CallOverlay = () => {
     });
   }, []);
 
+  const addLocalTracksToPC = useCallback((pc: RTCPeerConnection) => {
+    if (!localStream) return;
+    const senders = pc.getSenders().map(s => s.track?.kind);
+    localStream.getTracks().forEach(track => {
+      if (!senders.includes(track.kind)) {
+        pc.addTrack(track, localStream);
+      }
+    });
+  }, [localStream]);
+
   const createPeerConnection = useCallback(async (pId: string, isInitiator: boolean) => {
-    if (pcs.current[pId]) return pcs.current[pId];
+    if (pcs.current[pId]) {
+      addLocalTracksToPC(pcs.current[pId]);
+      return pcs.current[pId];
+    }
     if (!activeCall || !user) return null;
 
     const pc = new RTCPeerConnection(configuration);
@@ -86,7 +101,7 @@ export const CallOverlay = () => {
           type: 'candidate',
           data: event.candidate.toJSON(),
           createdAt: serverTimestamp()
-        });
+        }).catch(() => {});
       }
     };
 
@@ -94,31 +109,33 @@ export const CallOverlay = () => {
       setRemoteStreams(prev => ({ ...prev, [pId]: event.streams[0] }));
     };
 
-    pc.onconnectionstatechange = () => {
-      if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed' || pc.connectionState === 'closed') {
+    pc.oniceconnectionstatechange = () => {
+      if (pc.iceConnectionState === 'disconnected' || pc.iceConnectionState === 'failed') {
         cleanupPeer(pId);
       }
     };
 
     // Add local tracks
-    if (localStream) {
-      localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
-    }
+    addLocalTracksToPC(pc);
 
     if (isInitiator) {
-      const offer = await pc.createOffer();
-      await pc.setLocalDescription(offer);
-      await addDoc(collection(db, 'calls', activeCall.id, 'signals'), {
-        from: user.uid,
-        to: pId,
-        type: 'offer',
-        data: { type: offer.type, sdp: offer.sdp },
-        createdAt: serverTimestamp()
-      });
+      try {
+        const offer = await pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: activeCall?.mediaType === 'video' });
+        await pc.setLocalDescription(offer);
+        await addDoc(collection(db, 'calls', activeCall.id, 'signals'), {
+          from: user.uid,
+          to: pId,
+          type: 'offer',
+          data: { type: offer.type, sdp: offer.sdp },
+          createdAt: serverTimestamp()
+        });
+      } catch (err) {
+        console.error("Error creating offer:", err);
+      }
     }
 
     return pc;
-  }, [activeCall?.id, user?.uid, localStream, cleanupPeer]);
+  }, [activeCall, user?.uid, localStream, cleanupPeer, addLocalTracksToPC]);
 
   // Initialize Local Media
   useEffect(() => {
@@ -152,32 +169,41 @@ export const CallOverlay = () => {
       snapshot.docChanges().forEach(async (change) => {
         if (change.type === 'added') {
           const signal = { id: change.doc.id, ...change.doc.data() } as CallSignal;
-          const pc = pcs.current[signal.from] || await createPeerConnection(signal.from, false);
+
+          let pc = pcs.current[signal.from];
+          if (!pc) {
+            pc = await createPeerConnection(signal.from, false);
+          }
           if (!pc) return;
 
-          if (signal.type === 'offer') {
-            await pc.setRemoteDescription(new RTCSessionDescription(signal.data));
-            const answer = await pc.createAnswer();
-            await pc.setLocalDescription(answer);
-            await addDoc(collection(db, 'calls', activeCall.id, 'signals'), {
-              from: user.uid,
-              to: signal.from,
-              type: 'answer',
-              data: { type: answer.type, sdp: answer.sdp },
-              createdAt: serverTimestamp()
-            });
-          } else if (signal.type === 'answer') {
-            await pc.setRemoteDescription(new RTCSessionDescription(signal.data));
-          } else if (signal.type === 'candidate') {
-            try {
-              await pc.addIceCandidate(new RTCIceCandidate(signal.data));
-            } catch (e) {
-              // Ignore
+          try {
+            if (signal.type === 'offer') {
+              addLocalTracksToPC(pc);
+              await pc.setRemoteDescription(new RTCSessionDescription(signal.data));
+              const answer = await pc.createAnswer();
+              await pc.setLocalDescription(answer);
+              await addDoc(collection(db, 'calls', activeCall.id, 'signals'), {
+                from: user.uid,
+                to: signal.from,
+                type: 'answer',
+                data: { type: answer.type, sdp: answer.sdp },
+                createdAt: serverTimestamp()
+              });
+            } else if (signal.type === 'answer') {
+              if (pc.currentRemoteDescription || pc.signalingState === 'stable') return;
+              await pc.setRemoteDescription(new RTCSessionDescription(signal.data));
+            } else if (signal.type === 'candidate') {
+              if (pc.remoteDescription || pc.signalingState === 'have-remote-offer') {
+                try {
+                  await pc.addIceCandidate(new RTCIceCandidate(signal.data));
+                } catch (e) {
+                  // Ignore ICE candidate errors
+                }
+              }
             }
+          } catch (err) {
+            console.error("Signal processing error:", err);
           }
-          
-          // Delete signal after processing to keep collection clean
-          deleteDoc(doc(db, 'calls', activeCall.id, 'signals', signal.id));
         }
       });
     });
@@ -187,7 +213,7 @@ export const CallOverlay = () => {
 
   // Re-add local tracks to all peers when localStream changes
   useEffect(() => {
-    if (!localStream) return;
+    if (!localStream || !activeCall || !user) return;
     Object.entries(pcs.current).forEach(([pId, pc]) => {
       const senders = pc.getSenders().map(s => s.track?.kind);
       localStream.getTracks().forEach(track => {
@@ -196,7 +222,7 @@ export const CallOverlay = () => {
         }
       });
     });
-  }, [localStream]);
+  }, [localStream, activeCall, user]);
 
   // Mesh Management: Connect to active participants
   useEffect(() => {

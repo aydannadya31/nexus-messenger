@@ -763,28 +763,28 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
 
   if (!chatId) {
     return (
-      <div className="flex-1 flex flex-col items-center justify-center bg-[#e8e8e8] text-slate-400">
-        <div className="w-20 h-20 bg-white rounded-full flex items-center justify-center mb-4 shadow border border-[#b3b3b3]">
-          <MessageSquarePlus size={36} className="text-[#4a934a]/40" />
+      <div className="flex-1 flex flex-col items-center justify-center bg-slate-50 text-slate-400">
+        <div className="w-24 h-24 bg-white rounded-full flex items-center justify-center mb-6 shadow-xl shadow-slate-200/50 border border-slate-100">
+          <MessageSquarePlus size={44} className="text-blue-500/40" />
         </div>
-        <h2 className="text-xl font-bold text-slate-900 font-mono">A+F/C.B Messenger</h2>
-        <p className="max-w-xs text-center mt-2 text-xs font-bold text-slate-500">
-          Bir sohbet seçerek başlayın.
+        <h2 className="text-3xl font-black text-slate-900 tracking-tight">Sync Platform</h2>
+        <p className="max-w-xs text-center mt-3 text-sm font-medium text-slate-500">
+          Uçtan uca şifreli, gerçek zamanlı iletişim protokolü. Bir sohbet seçerek başlayın.
         </p>
       </div>
     );
   }
 
   return (
-    <div className="flex-1 flex flex-col bg-[#e8e8e8] relative overflow-hidden">
+    <div className="flex-1 flex flex-col bg-slate-50 relative overflow-hidden">
 
       {/* Chat Header */}
-      <header className="min-h-14 sm:h-18 bg-[#e8e8e8] border-b border-[#b3b3b3] flex items-center justify-between px-3 sm:px-6 shrink-0 relative z-10">
+      <header className="min-h-14 sm:h-20 bg-white border-b border-slate-200 flex items-center justify-between px-3 sm:px-8 shrink-0 relative z-10">
         <div className="flex items-center min-w-0 flex-1">
-          <button onClick={onBack} className="p-1.5 mr-1.5 sm:hidden text-[#666] hover:bg-[#d4d4d4] rounded shrink-0">
+          <button onClick={onBack} className="p-1.5 mr-1.5 sm:hidden text-slate-500 hover:bg-slate-100 rounded-lg shrink-0">
             <ArrowLeft size={20} />
           </button>
-          <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-full mr-2 sm:mr-3 shadow-sm overflow-hidden border-2 border-[#b3b3b3] shrink-0">
+          <div className="w-8 h-8 sm:w-10 sm:h-10 bg-gradient-to-br from-blue-400 to-indigo-500 rounded-full mr-2 sm:mr-4 shadow-sm overflow-hidden border-2 border-white shrink-0">
             <img 
               src={headerInfo.photoURL} 
               alt={headerInfo.name} 
@@ -793,25 +793,25 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
           </div>
           <div className="flex flex-col min-w-0">
             <div className="flex items-center gap-1 sm:gap-2 flex-wrap">
-              <h3 className="text-sm sm:text-base font-bold text-slate-900 leading-none truncate max-w-[120px] sm:max-w-none font-mono">{headerInfo.name}</h3>
+              <h3 className="text-sm sm:text-base font-bold text-slate-900 leading-none truncate max-w-[120px] sm:max-w-none">{headerInfo.name}</h3>
               {headerInfo.status && (
                 <span className={cn(
-                  "text-[8px] font-bold uppercase px-1 py-0.5 font-mono",
-                  headerInfo.status === 'online' ? "bg-[#d4e8d4] text-[#2d6e2d]" : 
-                  headerInfo.status === 'away' ? "bg-[#fff3cd] text-[#856404]" : "bg-[#f5d5d5] text-[#8b0000]"
+                  "text-[8px] sm:text-[9px] font-black uppercase px-1.5 sm:px-2 py-0.5 rounded-full shadow-sm",
+                  headerInfo.status === 'online' ? "bg-green-500 text-white" : 
+                  headerInfo.status === 'away' ? "bg-amber-500 text-white" : "bg-red-500 text-white"
                 )}>
                   {headerInfo.status === 'online' ? 'Çevrimiçi' : headerInfo.status === 'away' ? 'Uzakta' : 'Meşgul'}
                 </span>
               )}
-              {headerInfo.uin && <span className="text-[8px] font-bold text-[#4a934a] bg-[#d4e8d4] px-1 py-0.5 hidden sm:inline font-mono">#{headerInfo.uin}</span>}
+              {headerInfo.uin && <span className="text-[9px] sm:text-[10px] font-black text-blue-500 bg-blue-50 px-1 sm:px-1.5 py-0.5 rounded tracking-tighter hidden sm:inline">#{headerInfo.uin}</span>}
             </div>
             <span className={cn(
-              "text-[9px] font-bold flex items-center gap-1 mt-0.5 font-mono",
-              headerInfo.status === 'online' ? "text-[#2d6e2d]" : headerInfo.status === 'away' ? "text-[#856404]" : "text-[#8b0000]"
+              "text-[10px] sm:text-[11px] font-bold uppercase tracking-wider flex items-center gap-1 mt-0.5",
+              headerInfo.status === 'online' ? "text-green-500" : headerInfo.status === 'away' ? "text-amber-500" : "text-red-500"
             )}>
               <span className={cn(
-                "w-1.5 h-1.5 rounded-full",
-                headerInfo.status === 'online' ? "bg-[#4a934a]" : headerInfo.status === 'away' ? "bg-[#cc8800]" : "bg-[#cc0000]"
+                "w-1.5 h-1.5 rounded-full animate-pulse",
+                headerInfo.status === 'online' ? "bg-green-500" : headerInfo.status === 'away' ? "bg-amber-500" : "bg-red-500"
               )} />
               {headerInfo.statusText}
             </span>
@@ -946,7 +946,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
         className="flex-1 overflow-y-auto p-3 sm:p-10 space-y-4 sm:space-y-6 custom-scrollbar z-10"
       >
         <div className="flex justify-center mb-4 sm:mb-8">
-          <span className="px-2 py-0.5 bg-[#d4d4d4] text-[#666] text-[9px] font-bold uppercase font-mono">BUGÜN</span>
+          <span className="px-3 py-1 bg-slate-200 text-slate-500 rounded-full text-[10px] font-bold uppercase tracking-widest shadow-sm">BUGÜN</span>
         </div>
 
         <AnimatePresence>
@@ -1016,8 +1016,8 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
                         isDeleted
                           ? "bg-slate-100 text-slate-400 border-slate-200/60 opacity-60"
                           : isMe 
-                            ? "bg-[#d4e8d4] text-slate-900 border-[#b3d4b3]" 
-                            : "bg-white text-slate-800 border-[#b3b3b3]",
+                            ? "bg-blue-600 text-white border-blue-500 rounded-br-none shadow-blue-100" 
+                            : "bg-white text-slate-800 border-slate-100 rounded-bl-none",
                         !isDeleted && msg.id && "cursor-pointer"
                       )}
                     >
@@ -1201,14 +1201,14 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
       )}
 
       {/* Input Area */}
-      <footer id="chat-input-footer" className="p-2 sm:p-3 bg-[#e8e8e8] border-t border-[#b3b3b3] shrink-0 z-10 transition-all duration-200 safe-area-bottom">
+      <footer id="chat-input-footer" className="p-2 sm:p-6 bg-white border-t border-slate-200 shrink-0 z-10 transition-all duration-200 safe-area-bottom">
         {isPaused && (
           <div className="px-4 py-2 bg-amber-50 border-b border-amber-200 rounded-t-xl flex items-center gap-2 shrink-0">
             <Pause size={14} className="text-amber-600" />
             <span className="text-[10px] font-bold text-amber-700">Bu sohbet beklemeye alındı. Mesaj gönderemezsiniz.</span>
           </div>
         )}
-        <div className="max-w-4xl mx-auto flex items-center bg-white border border-[#b3b3b3] rounded p-1 focus-within:border-[#4a934a] transition-all relative gap-0.5">
+        <div className="max-w-4xl mx-auto flex items-center bg-slate-100 rounded-xl sm:rounded-2xl p-1 sm:p-2 focus-within:ring-2 focus-within:ring-blue-500 transition-all relative gap-0.5 sm:gap-0">
           
           {/* Hidden inputs for real uploads */}
           <input 
@@ -1307,7 +1307,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
               className={cn(
                 "p-1.5 sm:p-2 rounded-lg sm:rounded-xl transition-all flex items-center justify-center shadow-lg shrink-0",
                 inputText.trim() && !isPaused
-                  ? "bg-[#4a934a] text-white hover:bg-[#3a7a3a]" 
+                  ? "bg-blue-600 text-white shadow-blue-200 hover:bg-blue-700" 
                   : "bg-slate-200 text-slate-400 cursor-not-allowed shadow-none"
               )}
             >
@@ -1499,42 +1499,42 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
             initial={{ opacity: 0, scale: 0.9 }}
             animate={{ opacity: 1, scale: 0.9 }}
             exit={{ opacity: 0, scale: 0.9 }}
-            className="bg-white rounded-2xl p-5 shadow-lg max-w-sm w-full border border-[#b3b3b3]"
+            className="bg-white rounded-3xl p-5 shadow-2xl max-w-sm w-full border border-slate-100"
             onClick={e => e.stopPropagation()}
           >
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-sm font-black text-slate-900 font-mono">Grup Bilgileri</h3>
-              <button onClick={() => setShowGroupInfo(false)} className="p-1 hover:bg-[#e0e0e0] rounded text-slate-400">
+              <h3 className="text-sm font-black text-slate-900">Grup Bilgileri</h3>
+              <button onClick={() => setShowGroupInfo(false)} className="p-1 hover:bg-slate-100 rounded text-slate-400">
                 <X size={16} />
               </button>
             </div>
             <div className="flex flex-col items-center gap-2 mb-4">
-              <div className="w-16 h-16 rounded overflow-hidden bg-slate-100 border-2 border-[#b3b3b3]">
+              <div className="w-16 h-16 rounded overflow-hidden bg-slate-100 border-2 border-slate-100">
                 <img src={chat.groupMetadata?.photoURL || `https://api.dicebear.com/7.x/initials/svg?seed=${chat.id}`} className="w-full h-full object-cover" />
               </div>
-              <h4 className="text-base font-bold text-slate-900 font-mono">{chat.groupMetadata?.name}</h4>
-              <span className="text-[9px] font-bold text-[#4a934a] bg-[#d4e8d4] px-1.5 py-0.5 font-mono">🔒 {chat.groupMetadata?.password ? 'Şifreli' : 'Açık'}</span>
+              <h4 className="text-base font-bold text-slate-900">{chat.groupMetadata?.name}</h4>
+              <span className="text-[9px] font-bold text-amber-600 bg-amber-50 px-1.5 py-0.5">🔒 {chat.groupMetadata?.password ? 'Şifreli' : 'Açık'}</span>
             </div>
 
             {/* Participants */}
-            <div className="space-y-1 max-h-48 overflow-y-auto mb-3 border border-[#d4d4d4] p-2 bg-[#f5f5f5]">
-              <p className="text-[9px] font-bold text-[#666] uppercase font-mono mb-1">Katılımcılar ({chat.participants.length})</p>
+            <div className="space-y-1 max-h-48 overflow-y-auto mb-3 border border-slate-200 p-2 bg-slate-50">
+              <p className="text-[9px] font-bold text-slate-500 uppercase mb-1">Katılımcılar ({chat.participants.length})</p>
               {chat.participants.map(pId => {
                 const p = participantInfo[pId];
                 const isAdmin = pId === chat.groupMetadata?.adminId || pId === chat.groupMetadata?.createdBy;
                 const isMe = pId === user?.uid;
                 return (
-                  <div key={pId} className="flex items-center gap-2 p-2 bg-white border border-[#d4d4d4]">
+                  <div key={pId} className="flex items-center gap-2 p-2 bg-white border border-slate-200">
                     <div className="w-7 h-7 rounded overflow-hidden bg-slate-200">
                       <img src={p?.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${pId}`} className="w-full h-full object-cover" />
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className="text-xs font-bold text-slate-900 truncate font-mono">
+                      <p className="text-xs font-bold text-slate-900 truncate">
                         {p?.displayName || 'Yükleniyor...'} {isMe && '(sen)'}
                       </p>
-                      <p className="text-[8px] text-[#888] font-bold font-mono">#{p?.uin || ''}</p>
+                      <p className="text-[8px] text-slate-400 font-bold">#{p?.uin || ''}</p>
                     </div>
-                    {isAdmin && <span className="text-[7px] font-bold text-[#4a934a] bg-[#d4e8d4] px-1 py-0.5 font-mono">YÖNETİCİ</span>}
+                    {isAdmin && <span className="text-[7px] font-bold text-amber-600 bg-amber-50 px-1 py-0.5">YÖNETİCİ</span>}
                   </div>
                 );
               })}
@@ -1542,13 +1542,13 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
 
             {/* Admin Controls - only visible to group admin */}
             {(user?.uid === chat.groupMetadata?.adminId || user?.uid === chat.groupMetadata?.createdBy) && (
-              <div className="space-y-2 border-t border-[#d4d4d4] pt-3">
-                <p className="text-[9px] font-bold text-[#4a934a] uppercase font-mono">Yönetici Kontrolleri</p>
+              <div className="space-y-2 border-t border-slate-200 pt-3">
+                <p className="text-[9px] font-bold text-blue-600 uppercase">Yönetici Kontrolleri</p>
 
                 {/* Transfer admin */}
                 <div className="flex items-center gap-2">
                   <select id="newAdminSelect"
-                    className="flex-1 bg-white border border-[#b3b3b3] rounded px-2 py-1.5 text-xs font-bold text-slate-700 outline-none font-mono">
+                    className="flex-1 bg-white border border-slate-200 rounded px-2 py-1.5 text-xs font-bold text-slate-700 outline-none">
                     <option value="">Yöneticiliği devret...</option>
                     {chat.participants.filter(p => p !== user?.uid).map(pId => {
                       const p = participantInfo[pId];
@@ -1567,7 +1567,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
                       });
                       showCustomAlert('Başarılı', 'Yöneticilik devredildi.');
                     } catch (err) { console.error(err); }
-                  }} className="px-3 py-1.5 bg-[#4a934a] text-white rounded text-[10px] font-bold font-mono">
+                  }} className="px-3 py-1.5 bg-blue-600 text-white rounded text-[10px] font-bold">
                     Devret
                   </button>
                 </div>
@@ -1576,7 +1576,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
                 <div className="flex items-center gap-2">
                   <input type="text" id="newGroupPassword"
                     placeholder="Yeni şifre (boş = şifre kaldır)"
-                    className="flex-1 bg-white border border-[#b3b3b3] rounded px-2 py-1.5 text-xs outline-none font-mono" />
+                    className="flex-1 bg-white border border-slate-200 rounded px-2 py-1.5 text-xs outline-none" />
                   <button onClick={async () => {
                     const input = document.getElementById('newGroupPassword') as HTMLInputElement;
                     const newPwd = input?.value?.trim() || '';
@@ -1594,7 +1594,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
                       input.value = '';
                       showCustomAlert('Başarılı', newPwd ? 'Şifre güncellendi.' : 'Şifre kaldırıldı.');
                     } catch (err) { console.error(err); }
-                  }} className="px-3 py-1.5 bg-[#4a934a] text-white rounded text-[10px] font-bold font-mono">
+                  }} className="px-3 py-1.5 bg-blue-600 text-white rounded text-[10px] font-bold">
                     Değiştir
                   </button>
                 </div>
@@ -1602,7 +1602,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
                 {/* Kick/Ban user */}
                 <div className="flex items-center gap-2">
                   <select id="kickUserSelect"
-                    className="flex-1 bg-white border border-[#b3b3b3] rounded px-2 py-1.5 text-xs font-bold text-slate-700 outline-none font-mono">
+                    className="flex-1 bg-white border border-slate-200 rounded px-2 py-1.5 text-xs font-bold text-slate-700 outline-none">
                     <option value="">Kullanıcı seç...</option>
                     {chat.participants.filter(p => p !== user?.uid && p !== chat.groupMetadata?.adminId && p !== chat.groupMetadata?.createdBy).map(pId => {
                       const p = participantInfo[pId];
@@ -1622,7 +1622,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
                       });
                       showCustomAlert('Başarılı', 'Kullanıcı gruptan çıkarıldı.');
                     } catch (err) { console.error(err); }
-                  }} className="px-3 py-1.5 bg-red-600 text-white rounded text-[10px] font-bold font-mono">
+                  }} className="px-3 py-1.5 bg-red-600 text-white rounded text-[10px] font-bold">
                     At
                   </button>
                   <button onClick={async () => {
@@ -1641,7 +1641,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
                       });
                       showCustomAlert('Başarılı', `${hours} saat süreyle banlandı.`);
                     } catch (err) { console.error(err); }
-                  }} className="px-3 py-1.5 bg-red-800 text-white rounded text-[10px] font-bold font-mono">
+                  }} className="px-3 py-1.5 bg-red-800 text-white rounded text-[10px] font-bold">
                     Banla
                   </button>
                 </div>
@@ -1649,7 +1649,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
             )}
 
             <button onClick={() => setShowGroupInfo(false)}
-              className="w-full mt-4 py-2 bg-[#4a934a] text-white text-xs font-bold font-mono hover:bg-[#3a7a3a] transition-colors">
+              className="w-full mt-4 py-2 bg-blue-600 text-white text-xs font-bold hover:bg-blue-700 transition-colors">
               Kapat
             </button>
           </motion.div>
