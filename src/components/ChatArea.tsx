@@ -1078,7 +1078,12 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
                       onContextMenu={(e) => msg.id && !isDeleted && onContextMenu(e, msg.id)}
                       onClick={(e) => {
                         e.stopPropagation();
-                        if (msg.id && !isDeleted) {
+                        if (batchMode && msg.id && !isDeleted) {
+                          const next = new Set(selectedMsgs);
+                          if (next.has(msg.id)) next.delete(msg.id);
+                          else next.add(msg.id);
+                          setSelectedMsgs(next);
+                        } else if (msg.id && !isDeleted) {
                           setSelectedActionMsg(prev => prev === msg.id ? null : msg.id);
                         }
                       }}

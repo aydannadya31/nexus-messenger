@@ -1,9 +1,9 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { collection, query, getDocs, addDoc, serverTimestamp, where, limit, orderBy } from 'firebase/firestore';
+import { collection, query, getDocs, addDoc, serverTimestamp, where, limit, orderBy, doc, getDoc, updateDoc, arrayUnion } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { useAuth } from './AuthProvider';
-import { UserProfile } from '../types';
-import { X, Search, UserPlus, Users, ArrowRight, Check, Globe, Filter } from 'lucide-react';
+import { UserProfile, Chat } from '../types';
+import { X, Search, UserPlus, Users, ArrowRight, Check, Globe, Filter, LogIn, KeyRound } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 
@@ -245,6 +245,78 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({ onClose, onChatCreat
     onClose();
   };
 
+  // Group join state
+  const [joinGroupMode, setJoinGroupMode] = useState(false);
+  const [joinSearch, setJoinSearch] = useState('');
+  const [foundGroups, setFoundGroups] = useState<Chat[]>([]);
+  const [groupSearchLoading, setGroupSearchLoading] = useState(false);
+  const [selectedGroup, setSelectedGroup] = useState<Chat | null>(null);
+  const [joinPassword, setJoinPassword] = useState('');
+  const [joinStep, setJoinStep] = useState(1); // 1: search, 2: enter password
+
+  const searchGroups = async (name: string) => {
+    if (!name.trim()) { setFoundGroups([]); return; }
+    setGroupSearchLoading(true);
+    try {
+      const q = query(
+        collection(db, 'chats'),
+        where('type', '==', 'group')
+      );
+      const snap = await getDocs(q);
+      const groups = snap.docs
+        .map(d => ({ id: d.id, ...d.data() } as Chat))
+        .filter(g => 
+          g.groupMetadata?.name?.toLowerCase().includes(name.toLowerCase()) &&
+          !g.participants.includes(user!.uid)
+        );
+      setFoundGroups(groups);
+    } catch (err) {
+      console.error("Group search error:", err);
+    } finally {
+      setGroupSearchLoading(false);
+    }
+  };
+
+  const requestJoinGroup = async (group: Chat) => {
+    if (!user) return;
+    if (group.groupMetadata?.password) {
+      // Has password, show password step
+      setSelectedGroup(group);
+      setJoinStep(2);
+      return;
+    }
+    // No password - send join request to admin
+    const adminId = group.groupMetadata?.adminId || group.groupMetadata?.createdBy;
+    if (!adminId) return;
+    await addDoc(collection(db, 'groupJoinRequests'), {
+      chatId: group.id,
+      chatName: group.groupMetadata?.name || '',
+      from: user.uid,
+      fromName: user.displayName || user.email,
+      status: 'pending',
+      timestamp: serverTimestamp()
+    });
+    alert('Gruba katılma isteği yöneticiye gönderildi!');
+    setJoinGroupMode(false);
+    onClose();
+  };
+
+  const joinWithPassword = async () => {
+    if (!user || !selectedGroup) return;
+    const storedPassword = selectedGroup.groupMetadata?.password;
+    if (joinPassword.trim() === storedPassword) {
+      // Correct password - add user to participants
+      await updateDoc(doc(db, 'chats', selectedGroup.id), {
+        participants: arrayUnion(user.uid)
+      });
+      alert('Gruba başarıyla katıldınız!');
+      onChatCreated(selectedGroup.id);
+      onClose();
+    } else {
+      alert('Hatalı şifre!');
+    }
+  };
+
   // We no longer need filteredUsers since state 'users' is already filtered in useEffect
   const displayUsers = countryFilter 
     ? users.filter(u => u.country === countryFilter)
@@ -275,16 +347,100 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({ onClose, onChatCreat
                 animate={{ opacity: 1, x: 0 }}
                 exit={{ opacity: 0, x: 20 }}
               >
-                {!isGroupMode && (
+                {!isGroupMode && !joinGroupMode && (
+                  <>
                   <button 
                     onClick={() => setIsGroupMode(true)}
-                    className="w-full flex items-center gap-4 p-4 mb-6 bg-blue-50 text-blue-600 rounded-2xl hover:bg-blue-100 transition-colors font-bold shadow-sm"
+                    className="w-full flex items-center gap-4 p-4 mb-3 bg-blue-50 text-blue-600 rounded-2xl hover:bg-blue-100 transition-colors font-bold shadow-sm"
                   >
                     <div className="p-2 bg-blue-600 text-white rounded-xl">
                       <Users size={20} />
                     </div>
                     Yeni Grup Sohbeti
                   </button>
+                  <button 
+                    onClick={() => setJoinGroupMode(true)}
+                    className="w-full flex items-center gap-4 p-4 mb-6 bg-green-50 text-green-600 rounded-2xl hover:bg-green-100 transition-colors font-bold shadow-sm"
+                  >
+                    <div className="p-2 bg-green-600 text-white rounded-xl">
+                      <LogIn size={20} />
+                    </div>
+                    Gruba Katıl
+                  </button>
+                  </>
+                )}
+                {joinGroupMode && joinStep === 1 && (
+                  <div>
+                    <button 
+                      onClick={() => { setJoinGroupMode(false); setFoundGroups([]); setJoinPassword(''); }}
+                      className="text-xs font-bold text-slate-400 hover:text-slate-600 mb-4 flex items-center gap-1"
+                    >
+                      <ArrowRight size={14} className="rotate-180" /> Geri
+                    </button>
+                    <div className="relative mb-4">
+                      <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                      <input 
+                        type="text" 
+                        value={joinSearch}
+                        onChange={(e) => { setJoinSearch(e.target.value); searchGroups(e.target.value); }}
+                        placeholder="Grup adı ile ara..." 
+                        className="w-full bg-slate-100 border-none rounded-2xl py-3.5 pl-12 pr-4 text-sm text-slate-900 placeholder:text-slate-400 focus:ring-2 focus:ring-blue-500/50 transition-all outline-none"
+                      />
+                    </div>
+                    <div className="space-y-1 max-h-80 overflow-y-auto custom-scrollbar pr-2">
+                      {groupSearchLoading ? (
+                        <div className="text-center py-12">
+                          <div className="w-8 h-8 border-3 border-blue-100 border-t-blue-600 rounded-full animate-spin mx-auto mb-3" />
+                          <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Aranıyor</p>
+                        </div>
+                      ) : foundGroups.length > 0 ? (
+                        foundGroups.map(g => (
+                          <div 
+                            key={g.id}
+                            onClick={() => requestJoinGroup(g)}
+                            className="flex items-center gap-4 p-4 rounded-2xl cursor-pointer transition-all border hover:bg-slate-50 border-transparent hover:border-slate-100 group"
+                          >
+                            <div className="p-3 bg-slate-100 rounded-xl">
+                              <Users size={18} className="text-slate-500" />
+                            </div>
+                            <div className="flex-1">
+                              <p className="text-sm font-bold text-slate-900">{g.groupMetadata?.name || 'İsimsiz Grup'}</p>
+                              <p className="text-xs text-slate-500 font-medium">{g.participants?.length || 0} üye • {g.groupMetadata?.password ? '🔒 Şifreli' : '🔓 Açık'}</p>
+                            </div>
+                            <div className="p-2 bg-green-50 rounded-xl text-green-600 group-hover:bg-green-100 transition-all">
+                              <LogIn size={18} />
+                            </div>
+                          </div>
+                        ))
+                      ) : joinSearch.trim() ? (
+                        <div className="text-center py-12">
+                          <p className="text-sm font-bold text-slate-400 uppercase tracking-widest">Grup bulunamadı</p>
+                        </div>
+                      ) : null}
+                    </div>
+                  </div>
+                )}
+                {joinGroupMode && joinStep === 2 && selectedGroup && (
+                  <div>
+                    <p className="text-sm font-bold text-slate-900 mb-2">{selectedGroup.groupMetadata?.name}</p>
+                    <p className="text-xs text-amber-600 font-bold mb-4">Bu grup şifre korumalı. Katılmak için şifreyi girin.</p>
+                    <input 
+                      type="text"
+                      value={joinPassword}
+                      onChange={(e) => setJoinPassword(e.target.value)}
+                      placeholder="Grup şifresi..."
+                      className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl px-4 py-3 text-sm font-bold text-slate-900 outline-none focus:border-green-500 transition-all mb-4"
+                      autoFocus
+                    />
+                    <div className="flex gap-3">
+                      <button onClick={() => { setJoinStep(1); setJoinPassword(''); setSelectedGroup(null); }} className="flex-1 py-3 font-bold text-slate-500 bg-slate-100 hover:bg-slate-200 rounded-2xl transition-colors text-xs">
+                        İptal
+                      </button>
+                      <button onClick={joinWithPassword} disabled={!joinPassword.trim()} className="flex-1 py-3 font-bold text-white bg-green-600 hover:bg-green-700 disabled:bg-slate-300 rounded-2xl transition-all text-xs">
+                        Katıl
+                      </button>
+                    </div>
+                  </div>
                 )}
 
                 <div className="relative mb-4">
