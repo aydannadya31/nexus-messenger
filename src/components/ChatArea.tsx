@@ -98,6 +98,10 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
   const [isHeaderMenuOpen, setIsHeaderMenuOpen] = useState(false);
   const [isEmojiMenuOpen, setIsEmojiMenuOpen] = useState(false);
   const [viewProfile, setViewProfile] = useState<UserProfile | null>(null);
+  const [fullScreenImage, setFullScreenImage] = useState<string | null>(null);
+  const [fullScreenEncrypted, setFullScreenEncrypted] = useState<string | null>(null);
+  const [encryptImagePwd, setEncryptImagePwd] = useState('');
+  const [encryptImageMsgId, setEncryptImageMsgId] = useState<string | null>(null);
   const [selectedActionMsg, setSelectedActionMsg] = useState<string | null>(null);
   const [customDialog, setCustomDialog] = useState<{
     isOpen: boolean;
@@ -811,7 +815,9 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
   if (!chatId) {
     return (
       <div className="hidden sm:flex flex-1 flex-col items-center justify-center bg-slate-50 text-slate-400">
-        <div className="fixed bottom-2 left-2 z-[9999] text-[8px] font-black text-slate-300 uppercase tracking-widest select-none pointer-events-none sm:hidden">Boş Ekran</div>
+        <div className="absolute top-1.5 left-1/2 -translate-x-1/2 z-50 bg-white/90 backdrop-blur-sm border border-slate-200 shadow-sm rounded-full px-3 py-0.5 sm:px-4 sm:py-1">
+          <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Boş Ekran</span>
+        </div>
         <div className="w-24 h-24 bg-white rounded-full flex items-center justify-center mb-6 shadow-xl shadow-slate-200/50 border border-slate-100">
           <MessageSquarePlus size={44} className="text-blue-500/40" />
         </div>
@@ -825,7 +831,9 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
 
   return (
     <div className="flex-1 flex flex-col bg-slate-50 relative overflow-hidden">
-      <div className="fixed bottom-2 left-2 z-[9999] text-[8px] font-black text-slate-300 uppercase tracking-widest select-none pointer-events-none sm:hidden">Sohbet Alanı</div>
+      <div className="absolute top-1.5 left-1/2 -translate-x-1/2 z-50 bg-white/90 backdrop-blur-sm border border-slate-200 shadow-sm rounded-full px-3 py-0.5 sm:px-4 sm:py-1">
+        <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Sohbet Alanı</span>
+      </div>
 
       {/* Chat Header */}
       <header className="min-h-14 sm:h-20 bg-white border-b border-slate-200 flex items-center justify-between px-3 sm:px-8 shrink-0 relative z-10">
@@ -1096,7 +1104,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
                             src={msg.imageUrl} 
                             alt="Paylaşılan görsel" 
                             className="max-w-full h-auto object-cover hover:scale-105 transition-transform duration-500 cursor-pointer"
-                            onClick={() => !isDeleted && window.open(msg.imageUrl, '_blank')}
+                            onClick={() => !isDeleted && setFullScreenImage(msg.imageUrl!)}
                           />
                         </div>
                       )}
@@ -1177,6 +1185,26 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
                           >
                             <Trash2 size={13} />
                           </button>
+                          {(msg.imageUrl || msg.videoUrl) && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setSelectedActionMsg(null);
+                                const url = msg.imageUrl || msg.videoUrl || '';
+                                const a = document.createElement('a');
+                                a.href = url;
+                                a.download = msg.type === 'image' ? 'image.png' : 'video.webm';
+                                document.body.appendChild(a);
+                                a.click();
+                                document.body.removeChild(a);
+                              }}
+                              className="p-1.5 px-2 text-slate-500 hover:text-blue-500 hover:bg-blue-50 active:scale-110 transition-all rounded-full cursor-pointer"
+                              title="İndir"
+                            >
+                              <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                            </button>
+                          )}
                         </div>
                       </div>
                     )}
@@ -1709,6 +1737,38 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
         </div>
       )}
       </AnimatePresence>
+
+      {/* Full Screen Image Viewer */}
+      {fullScreenImage && (
+        <div className="fixed inset-0 z-[9999] bg-black/90 flex items-center justify-center" onClick={() => setFullScreenImage(null)}>
+          <div className="relative max-w-[95vw] max-h-[95vh]" onClick={e => e.stopPropagation()}>
+            <img src={fullScreenImage} alt="Tam ekran" className="max-w-full max-h-[90vh] object-contain rounded-lg shadow-2xl" />
+            <div className="absolute top-4 right-4 flex gap-2">
+              <button
+                onClick={() => {
+                  const a = document.createElement('a');
+                  a.href = fullScreenImage;
+                  a.download = 'image.png';
+                  document.body.appendChild(a);
+                  a.click();
+                  document.body.removeChild(a);
+                }}
+                className="p-2 bg-white/20 hover:bg-white/30 backdrop-blur-sm rounded-full text-white transition-all"
+                title="İndir"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+              </button>
+              <button
+                onClick={() => setFullScreenImage(null)}
+                className="p-2 bg-white/20 hover:bg-white/30 backdrop-blur-sm rounded-full text-white transition-all"
+                title="Kapat"
+              >
+                <X size={20} />
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   );

@@ -165,7 +165,9 @@ function NexusApp() {
 
   return (
     <div className="flex h-dvh overflow-hidden bg-neutral-950">
-      <div className="fixed bottom-2 left-2 z-[9999] text-[8px] font-black text-slate-400/40 uppercase tracking-widest select-none pointer-events-none">Ana Uygulama</div>
+      <div className="absolute top-3 left-1/2 -translate-x-1/2 z-[9999] bg-white/90 backdrop-blur-sm border border-slate-200 shadow-sm rounded-full px-4 py-1">
+        <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Ana Uygulama</span>
+      </div>
       {/* Sidebar - hidden on mobile when chat is open */}
       <div className={cn(
         "w-full sm:w-[350px] sm:block",

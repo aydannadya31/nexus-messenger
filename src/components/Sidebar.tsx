@@ -68,6 +68,9 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
 
         if (hasPrevState && lastMsg && (!prevMsg || lastMsg.timestamp?.toMillis() > prevMsg.timestamp?.toMillis())) {
           if (lastMsg.senderId !== user.uid) {
+            if (chat.id !== selectedChatId) {
+              setUnreadCounts(prev => ({ ...prev, [chat.id]: (prev[chat.id] || 0) + 1 }));
+            }
             try {
               const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
               const oscillator = audioCtx.createOscillator();
@@ -185,7 +188,9 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
 
   return (
     <div className="flex flex-col h-full bg-white sm:border-r border-slate-200 w-full sm:max-w-[350px]">
-      <div className="fixed bottom-2 left-2 z-[9999] text-[8px] font-black text-slate-300 uppercase tracking-widest select-none pointer-events-none sm:hidden">Kenar Çubuğu</div>
+      <div className="absolute top-1.5 left-1/2 -translate-x-1/2 z-50 bg-white/90 backdrop-blur-sm border border-slate-200 shadow-sm rounded-full px-3 py-0.5 sm:px-4 sm:py-1">
+        <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Kenar Çubuğu</span>
+      </div>
        {/* Sidebar Header */}
       <header className="p-4 sm:p-6 space-y-3 sm:space-y-4 z-10 bg-white border-b border-slate-200">
         <div className="flex items-center justify-between">
@@ -249,7 +254,15 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
 
       {/* Chat List */}
       <div className="flex-1 overflow-y-auto custom-scrollbar pb-20">
-        {filteredChats.map(chat => {
+        {/* Users section */}
+        <div className="sticky top-0 z-20 bg-white/95 backdrop-blur-sm border-b border-slate-100 px-4 sm:px-6 py-2">
+          <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-1.5">
+            <div className="w-1.5 h-1.5 rounded-full bg-blue-500" />
+            Kullanıcılar
+            <span className="ml-1 text-slate-300 font-bold">({filteredChats.filter(c => c.type === 'private').length})</span>
+          </span>
+        </div>
+        {filteredChats.filter(c => c.type === 'private').map(chat => {
           const info = getChatInfo(chat);
           const isSelected = selectedChatId === chat.id;
           const unread = unreadCounts[chat.id] || 0;
@@ -381,6 +394,111 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
             </div>
           );
         })}
+        {/* Groups section */}
+        {filteredChats.filter(c => c.type === 'group').length > 0 && (
+          <>
+            <div className="sticky top-0 z-20 bg-white/95 backdrop-blur-sm border-b border-slate-100 px-4 sm:px-6 py-2">
+              <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-1.5">
+                <div className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                Grup Sohbetleri
+                <span className="ml-1 text-slate-300 font-bold">({filteredChats.filter(c => c.type === 'group').length})</span>
+              </span>
+            </div>
+            {filteredChats.filter(c => c.type === 'group').map(chat => {
+              const info = getChatInfo(chat);
+              const isSelected = selectedChatId === chat.id;
+              const unread = unreadCounts[chat.id] || 0;
+              const otherId = chat.type === 'private' ? chat.participants.find(p => p !== user?.uid) : null;
+              const otherInfo = otherId ? chatDetails[otherId] : null;
+              
+              return (
+                <div key={chat.id}>
+                  <div 
+                    onClick={() => handleSelectChat(chat.id)}
+                    className={cn(
+                      "group px-4 sm:px-6 py-3 sm:py-4 flex items-center gap-3 sm:gap-4 cursor-pointer transition-colors",
+                      isSelected ? "bg-blue-50 border-r-4 border-blue-500" : "hover:bg-slate-50"
+                    )}
+                  >
+                    <div className="w-12 h-12 bg-slate-200 rounded-full flex-shrink-0 relative shadow-sm">
+                      <img 
+                        src={info.photoURL} 
+                        alt={info.name} 
+                        className="w-full h-full object-cover rounded-full"
+                      />
+                      {unread > 0 && (
+                        <div className="absolute -top-1 -right-1 min-w-[18px] h-[18px] bg-red-500 border-2 border-white rounded-full flex items-center justify-center shadow-lg z-10">
+                          <span className="text-[9px] font-black text-white leading-none px-1">{unread > 9 ? '9+' : unread}</span>
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex justify-between items-baseline">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <h2 className={cn(
+                            "text-sm font-semibold truncate",
+                            isSelected ? "text-blue-600" : "text-slate-900"
+                          )}>
+                            {info.name}
+                          </h2>
+                        </div>
+                        {chat.lastMessage?.timestamp && (
+                        <span className="text-[10px] font-medium ml-2 text-slate-400">
+                             {formatDistanceToNow(chat.updatedAt.toDate(), { addSuffix: false })}
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-xs text-slate-500 truncate mt-0.5">
+                        {chat.lastMessage?.senderName && chat.type === 'group' && (
+                          <span className="font-bold mr-1">{chat.lastMessage.senderName}:</span>
+                        )}
+                        {chat.lastMessage?.text || 'Henüz mesaj yok'}
+                      </p>
+                    </div>
+                    {/* Three-dot menu */}
+                    <div className="relative shrink-0">
+                      <button 
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setChatMenuOpen(chatMenuOpen === chat.id ? null : chat.id);
+                        }}
+                        className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-full transition-all sm:opacity-0 sm:group-hover:opacity-100"
+                      >
+                        <MoreVertical size={16} />
+                      </button>
+                      {chatMenuOpen === chat.id && (
+                        <>
+                          <div className="fixed inset-0 z-40" onClick={() => setChatMenuOpen(null)} />
+                          <div className="absolute right-0 top-full mt-1 w-44 bg-white border border-slate-200 rounded-xl shadow-xl py-1 z-50">
+                            <>
+                              <button onClick={() => { setChatMenuOpen(null); setShowGroupInfo(chat); }}
+                                className="w-full text-left px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50 transition-colors">
+                                ℹ️ Grup Bilgisi
+                              </button>
+                              <button onClick={() => { setChatMenuOpen(null); handleLeaveGroup(chat.id); }}
+                                className="w-full text-left px-4 py-2.5 text-xs font-bold text-red-600 hover:bg-red-50 transition-colors">
+                                🚪 Gruptan Ayrıl
+                              </button>
+                            </>
+                            <button onClick={async () => {
+                              setChatMenuOpen(null);
+                              try {
+                                await updateDoc(doc(db, 'chats', chat.id), { muted: !chat.muted });
+                              } catch(e) { console.error(e); }
+                            }}
+                              className="w-full text-left px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50 transition-colors">
+                              {chat.muted ? '▶ Bildirimi Aç' : '⏸ Bildirimi Kapat'}
+                            </button>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </>
+        )}
         {filteredChats.length === 0 && (
           <div className="flex flex-col items-center justify-center p-8 text-center mt-10">
             <div className="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center mb-4 text-slate-400">
