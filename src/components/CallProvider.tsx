@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
-import { collection, query, where, onSnapshot, addDoc, serverTimestamp, doc, updateDoc, getDoc, getDocs, deleteDoc } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, addDoc, serverTimestamp, doc, updateDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { useAuth } from './AuthProvider';
 import { Call } from '../types';
@@ -24,9 +24,16 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [incomingCall, setIncomingCall] = useState<Call | null>(null);
   const [callError, setCallError] = useState<string | null>(null);
   const activeCallRef = useRef<Call | null>(null);
+  const callStartTimeRef = useRef<number>(0);
 
   useEffect(() => {
     activeCallRef.current = activeCall;
+    if (activeCall?.status === 'ongoing' && callStartTimeRef.current === 0) {
+      callStartTimeRef.current = Date.now();
+    }
+    if (!activeCall) {
+      callStartTimeRef.current = 0;
+    }
   }, [activeCall]);
 
   useEffect(() => {
@@ -54,7 +61,7 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (currentActive) {
           const updated = calls.find(c => c.id === currentActive.id);
           if (updated) {
-            if (updated.status === 'ended' || (updated.type === 'private' && updated.activeParticipants?.length === 0)) {
+            if (updated.status === 'ended' || (updated.type === 'private' && updated.activeParticipants?.length < 2)) {
               setActiveCall(null);
             } else {
               setActiveCall(updated);
@@ -79,10 +86,41 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return () => unsubscribe();
   }, [user]);
 
+  const postCallMessage = async (chatId: string, duration: number, callStatus: 'missed' | 'completed' | 'cancelled') => {
+    if (!user) return;
+    try {
+      const { collection: col, addDoc, serverTimestamp: ts } = await import('firebase/firestore');
+      await addDoc(col(db, 'chats', chatId, 'messages'), {
+        senderId: user.uid,
+        timestamp: ts(),
+        type: 'call',
+        callDuration: duration,
+        callStatus,
+        text: callStatus === 'completed'
+          ? `📞 Görüşme ${Math.floor(duration / 60)}:${String(duration % 60).padStart(2, '0')}`
+          : callStatus === 'missed' ? '📞 Cevaplanmadı' : '📞 Çağrı iptal edildi',
+        status: 'sent'
+      });
+      await updateDoc(doc(db, 'chats', chatId), {
+        lastMessage: {
+          senderId: user.uid,
+          senderName: user.displayName,
+          text: callStatus === 'completed'
+            ? `📞 Görüşme ${Math.floor(duration / 60)}:${String(duration % 60).padStart(2, '0')}`
+            : callStatus === 'missed' ? '📞 Cevaplanmadı' : '📞 Çağrı iptal edildi',
+          timestamp: ts()
+        },
+        updatedAt: ts()
+      });
+    } catch (err) {
+      console.error("Post call message error:", err);
+    }
+  };
+
   const startCall = async (chatId: string, participants: string[], type: 'private' | 'group', mediaType: 'audio' | 'video' = 'audio') => {
     if (!user) return;
     setCallError(null);
-    
+
     try {
       const callData = {
         participants: [...participants],
@@ -94,12 +132,12 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
         status: type === 'group' ? 'ongoing' : 'calling',
         createdAt: serverTimestamp(),
       };
-      
+
       await addDoc(collection(db, 'calls'), callData);
     } catch (error: any) {
       console.error("Start call error:", error);
       if (error?.code === 'permission-denied') {
-        setCallError('Arama başlatılamadı: Firestore güvenlik kuralları henüz yayınlanmamış. Lütfen kuralları Firebase Console\'dan yayınlayın.');
+        setCallError('Arama başlatılamadı: Firestore güvenlik kuralları henüz yayınlanmamış.');
       } else {
         setCallError('Arama başlatılamadı: ' + (error?.message || 'Bilinmeyen hata'));
       }
@@ -135,11 +173,11 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const rejectCall = async () => {
     if (!incomingCall) return;
     try {
-      // For private calls, if rejected, end the call
       if (incomingCall.type === 'private') {
         await updateDoc(doc(db, 'calls', incomingCall.id), {
           status: 'ended'
         });
+        await postCallMessage(incomingCall.chatId, 0, 'missed');
       }
       setIncomingCall(null);
     } catch (error) {
@@ -150,15 +188,22 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const leaveCall = async () => {
     if (!activeCall || !user) return;
     try {
+      const duration = callStartTimeRef.current > 0
+        ? Math.floor((Date.now() - callStartTimeRef.current) / 1000)
+        : 0;
       const activeParts = (activeCall.activeParticipants || []).filter(id => id !== user.uid);
       const updates: any = { activeParticipants: activeParts };
-      
-      // If no one left, end it
-      if (activeParts.length === 0) {
+
+      if (activeCall.type === 'private' || activeParts.length === 0) {
         updates.status = 'ended';
       }
-      
+
       await updateDoc(doc(db, 'calls', activeCall.id), updates);
+
+      if (updates.status === 'ended') {
+        await postCallMessage(activeCall.chatId, duration, duration > 0 ? 'completed' : 'cancelled');
+      }
+
       setActiveCall(null);
     } catch (error) {
       console.error("Leave call error:", error);
@@ -169,9 +214,19 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const callToEnd = activeCall || incomingCall;
     if (!callToEnd) return;
     try {
+      const duration = callStartTimeRef.current > 0
+        ? Math.floor((Date.now() - callStartTimeRef.current) / 1000)
+        : 0;
+
       await updateDoc(doc(db, 'calls', callToEnd.id), {
         status: 'ended'
       });
+
+      if (callToEnd.status === 'ongoing' || callToEnd.status === 'calling') {
+        const callStatus = callToEnd.status === 'ongoing' ? 'completed' : 'cancelled';
+        await postCallMessage(callToEnd.chatId, duration, callStatus);
+      }
+
       setActiveCall(null);
       setIncomingCall(null);
     } catch (error) {

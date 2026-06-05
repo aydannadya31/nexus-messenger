@@ -11,6 +11,8 @@ export interface UserProfile {
   nickname?: string;
   bannedUntil?: any;
   role?: 'user' | 'admin';
+  country?: string;
+  profileCompleted?: boolean;
 }
 
 export interface Chat {
@@ -21,6 +23,9 @@ export interface Chat {
     name: string;
     photoURL?: string;
     createdBy: string;
+    adminId?: string;
+    password?: string;
+    bannedUsers?: { userId: string; until?: any }[];
   };
   lastMessage?: {
     text: string;
@@ -29,6 +34,8 @@ export interface Chat {
     timestamp: any;
   };
   updatedAt: any;
+  muted?: boolean;
+  unreadCount?: number;
 }
 
 export interface Message {
@@ -36,7 +43,7 @@ export interface Message {
   text?: string;
   senderId: string;
   timestamp: any;
-  type: 'text' | 'image' | 'video' | 'audio';
+  type: 'text' | 'image' | 'video' | 'audio' | 'call';
   imageUrl?: string;
   videoUrl?: string;
   audioUrl?: string;
@@ -44,6 +51,8 @@ export interface Message {
   reactions?: Record<string, string>;
   deletedBy?: string[];
   toAdmin?: boolean;
+  callDuration?: number;
+  callStatus?: 'missed' | 'completed' | 'cancelled';
 }
 
 export interface Call {

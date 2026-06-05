@@ -4,7 +4,7 @@ import { db, logout } from '../lib/firebase';
 import { useAuth } from './AuthProvider';
 import { Chat, UserProfile } from '../types';
 import { cn } from '../lib/utils';
-import { LogOut, MessageSquarePlus, Search, User as UserIcon, ChevronUp, Settings, Radio, X } from 'lucide-react';
+import { LogOut, MessageSquarePlus, Search, User as UserIcon, ChevronUp, Settings, Radio, X, MoreVertical } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import ProfileModal from './ProfileModal';
 
@@ -36,6 +36,21 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
   const [chatDetails, setChatDetails] = useState<Record<string, UserProfile>>({});
   const prevLastMessagesRef = useRef<Record<string, any>>({});
   const chatDetailsRef = useRef<Record<string, UserProfile>>({});
+  const [chatMenuOpen, setChatMenuOpen] = useState<string | null>(null);
+  const [hiddenChats, setHiddenChats] = useState<string[]>([]);
+  const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({});
+
+  useEffect(() => {
+    if (!chatMenuOpen) return;
+    const handleClick = () => setChatMenuOpen(null);
+    const timer = setTimeout(() => {
+      document.addEventListener('click', handleClick);
+    }, 0);
+    return () => {
+      clearTimeout(timer);
+      document.removeEventListener('click', handleClick);
+    };
+  }, [chatMenuOpen]);
 
   useEffect(() => {
     if (!user) return;
@@ -63,8 +78,12 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
         
         if (hasPrevState && lastMsg && (!prevMsg || lastMsg.timestamp?.toMillis() > prevMsg.timestamp?.toMillis())) {
           if (lastMsg.senderId !== user.uid) {
-            const audio = new Audio('https://raw.githubusercontent.com/yemreak/icq-sounds/master/Sounds/Global/Uh-Oh.wav');
-            audio.play().catch(e => console.log("Audio play blocked", e));
+            setUnreadCounts(prev => ({ ...prev, [chat.id]: (prev[chat.id] || 0) + 1 }));
+            const shouldPlaySound = chat.type !== 'private' || chatDetailsRef.current[lastMsg.senderId]?.onlineStatus !== 'busy';
+            if (shouldPlaySound) {
+              const audio = new Audio('https://raw.githubusercontent.com/yemreak/icq-sounds/master/Sounds/Global/Uh-Oh.wav');
+              audio.play().catch(e => console.log("Audio play blocked", e));
+            }
           }
         }
       }
@@ -135,7 +154,13 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
   const [showAdminMsg, setShowAdminMsg] = useState(false);
   const [adminMsgText, setAdminMsgText] = useState('');
 
+  const handleSelectChat = (chatId: string) => {
+    onSelectChat(chatId);
+    setUnreadCounts(prev => ({ ...prev, [chatId]: 0 }));
+  };
+
   const filteredChats = chats.filter(chat => {
+    if (hiddenChats.includes(chat.id)) return false;
     if (!searchQuery) return true;
     const info = getChatInfo(chat);
     return info.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
@@ -147,51 +172,83 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
   });
 
   return (
-    <div className="flex flex-col h-full bg-white sm:border-r border-slate-200 w-full sm:max-w-[350px]">
+    <div className="flex flex-col h-full bg-[#f0f0f0] sm:border-r border-[#b3b3b3] w-full sm:max-w-[350px]">
        {/* Sidebar Header */}
-      <header className="p-4 sm:p-6 space-y-3 sm:space-y-4 shadow-sm z-10">
+      <header className="p-4 sm:p-6 space-y-3 sm:space-y-4 z-10 bg-[#e8e8e8] border-b border-[#b3b3b3]">
         <div className="flex items-center justify-between">
-          <h1 className="text-2xl font-bold tracking-tight text-slate-900">Mesajlar</h1>
+          <h1 className="text-lg font-bold tracking-tight text-[#4a934a] font-mono">A+F/C.B Messenger</h1>
         </div>
         <div className="flex items-center space-x-2">
-          <button 
-            onClick={onOpenBroadcast}
-            className="p-2.5 bg-blue-50 hover:bg-blue-100 rounded-xl text-blue-600 transition-all active:scale-95 group relative"
-            title="Broadcast Message"
-          >
-            <Radio size={20} />
-            <div className="absolute -top-1 -right-1 w-2 h-2 bg-red-500 rounded-full animate-ping" />
-          </button>
-          <button 
-            onClick={onStartNewChat}
-            className="p-2.5 bg-slate-100/50 hover:bg-slate-100 rounded-xl text-slate-600 transition-all active:scale-95"
-          >
-            <MessageSquarePlus size={20} />
-          </button>
-          <button 
-            onClick={() => setShowAdminMsg(true)}
-            className="p-2.5 bg-amber-50 hover:bg-amber-100 rounded-xl text-amber-600 transition-all active:scale-95"
-            title="Yöneticiye Mesaj Gönder"
-          >
-            <MessageSquarePlus size={20} />
-          </button>
-          <button 
-            onClick={() => logout()}
-            className="p-2.5 bg-slate-100/50 hover:bg-slate-100 rounded-xl text-slate-400 hover:text-red-500 transition-all active:scale-95"
-          >
-            <LogOut size={20} />
-          </button>
+          <div className="flex flex-col items-center">
+            <button 
+              onClick={onOpenBroadcast}
+              className="p-2.5 bg-white hover:bg-[#d4e8d4] rounded-lg text-[#4a934a] transition-all active:scale-95 group relative border border-[#ccc]"
+              title="Brodcast"
+            >
+              <Radio size={20} />
+              <div className="absolute -top-1 -right-1 w-2 h-2 bg-red-500 rounded-full animate-ping" />
+            </button>
+            <span className="text-[8px] text-slate-500 mt-1">Brodcast</span>
+          </div>
+          <div className="flex flex-col items-center">
+            <button 
+              onClick={onStartNewChat}
+              className="p-2.5 bg-white hover:bg-[#d4e8d4] rounded-lg text-[#4a934a] transition-all active:scale-95 border border-[#ccc]"
+              title="Kullanıcı Listesi"
+            >
+              <MessageSquarePlus size={20} />
+            </button>
+            <span className="text-[7px] text-[#666] font-bold uppercase tracking-wider mt-0.5 font-mono">Kull. List.</span>
+          </div>
+          <div className="flex flex-col items-center">
+            <button 
+              onClick={() => setShowAdminMsg(true)}
+              className="p-2.5 bg-white hover:bg-[#fff3cd] rounded-lg text-[#856404] transition-all active:scale-95 border border-[#ccc]"
+              title="Yöneticiye Mesaj"
+            >
+              <MessageSquarePlus size={20} />
+            </button>
+            <span className="text-[7px] text-[#666] font-bold uppercase tracking-wider mt-0.5 font-mono">Yön. Msj</span>
+          </div>
+          <div className="flex flex-col items-center">
+            <button 
+              onClick={() => logout()}
+              className="p-2.5 bg-white hover:bg-[#f5d5d5] rounded-lg text-[#666] hover:text-red-600 transition-all active:scale-95 border border-[#ccc]"
+            >
+              <LogOut size={20} />
+            </button>
+            <span className="text-[7px] text-[#666] font-bold uppercase tracking-wider mt-0.5 font-mono">Çıkış</span>
+          </div>
+          <div className="flex flex-col items-center">
+            <button 
+              onClick={() => setShowAdminMsg(true)}
+              className="p-2.5 bg-amber-50 hover:bg-amber-100 rounded-xl text-amber-600 transition-all active:scale-95"
+              title="Yöneticiye Mesaj Gönder"
+            >
+              <MessageSquarePlus size={20} />
+            </button>
+            <span className="text-[8px] text-slate-500 mt-1">Yöneticiye Mesaj</span>
+          </div>
+          <div className="flex flex-col items-center">
+            <button 
+              onClick={() => logout()}
+              className="p-2.5 bg-slate-100/50 hover:bg-slate-100 rounded-xl text-slate-400 hover:text-red-500 transition-all active:scale-95"
+            >
+              <LogOut size={20} />
+            </button>
+            <span className="text-[8px] text-slate-500 mt-1">Çıkış</span>
+          </div>
         </div>
         
         {/* Search */}
         <div className="relative group">
-          <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-blue-500 transition-colors" size={16} />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-[#888] group-focus-within:text-[#4a934a] transition-colors" size={14} />
           <input 
             type="text" 
-            placeholder="Ara veya yeni sohbet başlat" 
+            placeholder="Ara..." 
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full bg-slate-100/50 border border-slate-100 rounded-2xl py-3 pl-10 pr-4 text-sm text-slate-900 focus:ring-2 focus:ring-blue-500/20 focus:bg-white transition-all outline-none"
+            className="w-full bg-white border border-[#b3b3b3] rounded-lg py-2 pl-8 pr-3 text-xs text-slate-900 focus:border-[#4a934a] focus:ring-1 focus:ring-[#4a934a]/30 transition-all outline-none font-mono"
           />
         </div>
       </header>
@@ -201,66 +258,143 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
         {filteredChats.map(chat => {
           const info = getChatInfo(chat);
           const isSelected = selectedChatId === chat.id;
+          const unread = unreadCounts[chat.id] || 0;
           
           return (
-            <div 
-              key={chat.id}
-              onClick={() => onSelectChat(chat.id)}
-              className={cn(
-                "px-4 sm:px-6 py-3 sm:py-4 flex items-center gap-3 sm:gap-4 cursor-pointer transition-colors",
-                isSelected 
-                  ? "bg-blue-50 border-r-4 border-blue-500" 
-                  : "hover:bg-slate-50"
-              )}
-            >
-              <div className="w-12 h-12 bg-slate-200 rounded-full flex-shrink-0 relative shadow-sm">
-                <img 
-                  src={info.photoURL} 
-                  alt={info.name} 
-                  className="w-full h-full object-cover rounded-full"
-                />
-                {chat.type === 'private' && (
-                  <StatusBullet 
-                    status={info.onlineStatus} 
-                    className="absolute bottom-0 right-0 w-3.5 h-3.5" 
+            <div key={chat.id} className="relative">
+              <div 
+                onClick={() => handleSelectChat(chat.id)}
+                      className={cn(
+                        "text-xs font-bold truncate",
+                        isSelected ? "text-[#4a934a]" : "text-slate-900"
+                      )}
+              >
+                <div className="w-12 h-12 bg-slate-200 rounded-full flex-shrink-0 relative shadow-sm">
+                  <img 
+                    src={info.photoURL} 
+                    alt={info.name} 
+                    className="w-full h-full object-cover rounded-full"
                   />
-                )}
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex justify-between items-baseline">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <h2 className={cn(
-                      "text-sm font-semibold truncate",
-                      isSelected ? "text-blue-600" : "text-slate-900"
-                    )}>
-                      {info.name}
-                    </h2>
-                    {chat.type === 'private' && info.onlineStatus && (
-                      <span className={cn(
-                        "text-[9px] px-1.5 py-0.5 rounded-full font-black uppercase tracking-tighter shrink-0",
-                        info.onlineStatus === 'online' ? "bg-green-100 text-green-600" : 
-                        info.onlineStatus === 'away' ? "bg-amber-100 text-amber-600" : "bg-red-100 text-red-600"
-                      )}>
-                        {info.onlineStatus === 'online' ? 'Çevrimiçi' : info.onlineStatus === 'away' ? 'Uzakta' : 'Meşgul'}
-                      </span>
-                    )}
-                  </div>
-                  {chat.lastMessage?.timestamp && (
-                    <span className={cn(
-                      "text-[10px] font-medium ml-2",
-                      isSelected ? "text-blue-600" : "text-slate-400"
-                    )}>
-                       {formatDistanceToNow(chat.updatedAt.toDate(), { addSuffix: false })}
+                  {chat.type === 'private' && (
+                    <StatusBullet 
+                      status={info.onlineStatus} 
+                      className="absolute bottom-0 right-0 w-3.5 h-3.5" 
+                    />
+                  )}
+                  {unread > 0 && (
+                    <span className="absolute -top-1 -left-1 bg-red-500 text-white text-[8px] font-bold rounded-full w-4 h-4 flex items-center justify-center min-w-[16px] px-0.5">
+                      {unread > 9 ? '9+' : unread}
                     </span>
                   )}
                 </div>
-                <p className="text-xs text-slate-500 truncate mt-0.5">
-                  {chat.lastMessage?.senderName && chat.type === 'group' && (
-                    <span className="font-bold mr-1">{chat.lastMessage.senderName}:</span>
-                  )}
-                  {chat.lastMessage?.text || 'Henüz mesaj yok'}
-                </p>
+                <div className="flex-1 min-w-0">
+                  <div className="flex justify-between items-baseline">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <h2 className={cn(
+                        "text-sm font-semibold truncate",
+                        isSelected ? "text-blue-600" : "text-slate-900"
+                      )}>
+                        {info.name}
+                      </h2>
+                      {chat.type === 'private' && info.onlineStatus && (
+                      <span className={cn(
+                        "text-[8px] px-1 py-0.5 font-bold uppercase tracking-tighter shrink-0 font-mono",
+                        info.onlineStatus === 'online' ? "bg-[#d4e8d4] text-[#2d6e2d]" : 
+                        info.onlineStatus === 'away' ? "bg-[#fff3cd] text-[#856404]" : "bg-[#f5d5d5] text-[#8b0000]"
+                      )}>
+                          {info.onlineStatus === 'online' ? 'Çevrimiçi' : info.onlineStatus === 'away' ? 'Uzakta' : 'Meşgul'}
+                        </span>
+                      )}
+                    </div>
+                    {chat.lastMessage?.timestamp && (
+                    <span className={cn(
+                      "text-[9px] ml-2 font-mono",
+                      isSelected ? "text-[#4a934a]" : "text-[#888]"
+                    )}>
+                         {formatDistanceToNow(chat.updatedAt.toDate(), { addSuffix: false })}
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-xs text-slate-500 truncate mt-0.5">
+                    {chat.lastMessage?.senderName && chat.type === 'group' && (
+                      <span className="font-bold mr-1">{chat.lastMessage.senderName}:</span>
+                    )}
+                    {chat.lastMessage?.text || 'Henüz mesaj yok'}
+                  </p>
+                </div>
+                <button 
+                  onClick={(e) => { e.stopPropagation(); setChatMenuOpen(chatMenuOpen === chat.id ? null : chat.id); }}
+                  className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-400 hover:text-slate-600 transition-colors flex-shrink-0"
+                >
+                  <MoreVertical size={16} />
+                </button>
               </div>
+              {chatMenuOpen === chat.id && (
+                <div 
+                  className="absolute right-2 top-full mt-1 bg-white rounded-xl shadow-xl border border-slate-200 z-30 w-44 py-1 overflow-hidden"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  {chat.type === 'private' ? (
+                    <>
+                      <button 
+                        onClick={() => { setChatMenuOpen(null); }}
+                        className="w-full px-4 py-2.5 text-xs font-medium text-slate-700 hover:bg-slate-50 text-left transition-colors"
+                      >
+                        Sohbet Bilgisi
+                      </button>
+                      <button 
+                        onClick={() => { setHiddenChats(prev => [...prev, chat.id]); setChatMenuOpen(null); }}
+                        className="w-full px-4 py-2.5 text-xs font-medium text-red-600 hover:bg-red-50 text-left transition-colors"
+                      >
+                        Listeden Kaldır
+                      </button>
+                      <button 
+                        onClick={async () => {
+                          try {
+                            await updateDoc(doc(db, 'chats', chat.id), { muted: !chat.muted });
+                          } catch (e) { console.error(e); }
+                          setChatMenuOpen(null);
+                        }}
+                        className="w-full px-4 py-2.5 text-xs font-medium text-slate-700 hover:bg-slate-50 text-left transition-colors"
+                      >
+                        Beklemeye Al
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <button 
+                        onClick={() => { setChatMenuOpen(null); }}
+                        className="w-full px-4 py-2.5 text-xs font-medium text-slate-700 hover:bg-slate-50 text-left transition-colors"
+                      >
+                        Grup Bilgisi
+                      </button>
+                      <button 
+                        onClick={async () => {
+                          try {
+                            const otherParticipants = chat.participants.filter(p => p !== user?.uid);
+                            await updateDoc(doc(db, 'chats', chat.id), { participants: otherParticipants });
+                          } catch (e) { console.error(e); }
+                          setChatMenuOpen(null);
+                        }}
+                        className="w-full px-4 py-2.5 text-xs font-medium text-red-600 hover:bg-red-50 text-left transition-colors"
+                      >
+                        Gruptan Ayrıl
+                      </button>
+                      <button 
+                        onClick={async () => {
+                          try {
+                            await updateDoc(doc(db, 'chats', chat.id), { muted: !chat.muted });
+                          } catch (e) { console.error(e); }
+                          setChatMenuOpen(null);
+                        }}
+                        className="w-full px-4 py-2.5 text-xs font-medium text-slate-700 hover:bg-slate-50 text-left transition-colors"
+                      >
+                        Beklemeye Al
+                      </button>
+                    </>
+                  )}
+                </div>
+              )}
             </div>
           );
         })}
@@ -285,7 +419,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
       </div>
 
       {/* Footer Profile */}
-      <footer className="p-4 sm:p-6 border-t border-slate-100 bg-white shrink-0 relative">
+      <footer className="p-3 sm:p-4 border-t border-[#b3b3b3] bg-[#e8e8e8] shrink-0 relative">
         {showStatusMenu && (
           <div className="absolute bottom-full left-6 mb-2 bg-white rounded-2xl shadow-xl border border-slate-100 overflow-hidden z-20 w-40 animate-in fade-in slide-in-from-bottom-2">
             {(['online', 'away', 'busy'] as const).map(s => (

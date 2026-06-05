@@ -185,6 +185,19 @@ export const CallOverlay = () => {
     return () => unsubscribe();
   }, [activeCall?.id, user?.uid, createPeerConnection]);
 
+  // Re-add local tracks to all peers when localStream changes
+  useEffect(() => {
+    if (!localStream) return;
+    Object.entries(pcs.current).forEach(([pId, pc]) => {
+      const senders = pc.getSenders().map(s => s.track?.kind);
+      localStream.getTracks().forEach(track => {
+        if (!senders.includes(track.kind)) {
+          pc.addTrack(track, localStream);
+        }
+      });
+    });
+  }, [localStream]);
+
   // Mesh Management: Connect to active participants
   useEffect(() => {
     if (!activeCall || !user || !localStream) return;

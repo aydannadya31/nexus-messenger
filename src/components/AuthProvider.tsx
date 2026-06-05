@@ -34,22 +34,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             const exists = userDoc.exists();
             const existingData = exists ? (userDoc.data() as any) : null;
 
-            let uin = existingData?.uin || null;
-
-            if (!uin) {
-              const locale = navigator.language || 'en-US';
-              const countryCode = locale.split('-')[1] || locale.split('-')[0].toUpperCase();
-              const prefix = countryCode.padEnd(3, 'X').slice(0, 3).toUpperCase();
-              uin = `${prefix}-${Math.floor(10000000 + Math.random() * 90000000)}`;
-            }
-
             await setDoc(userRef, {
               uid: firebaseUser.uid,
               displayName: existingData?.displayName || firebaseUser.displayName || 'Anonymous',
               email: firebaseUser.email || '',
               photoURL: existingData?.photoURL || firebaseUser.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${firebaseUser.uid}`,
               lastSeen: serverTimestamp(),
-              uin
             }, { merge: true });
 
             // Listen to profile changes in real-time
