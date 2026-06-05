@@ -763,7 +763,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
 
   if (!chatId) {
     return (
-      <div className="flex-1 flex flex-col items-center justify-center bg-slate-50 text-slate-400">
+      <div className="hidden sm:flex flex-1 flex-col items-center justify-center bg-slate-50 text-slate-400">
         <div className="w-24 h-24 bg-white rounded-full flex items-center justify-center mb-6 shadow-xl shadow-slate-200/50 border border-slate-100">
           <MessageSquarePlus size={44} className="text-blue-500/40" />
         </div>

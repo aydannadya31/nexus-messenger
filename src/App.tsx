@@ -90,6 +90,29 @@ function NexusApp() {
     return () => clearInterval(interval);
   }, [user]);
 
+  // Handle browser back button on mobile
+  useEffect(() => {
+    const handlePopState = () => {
+      if (selectedChatId && !showMobileSidebar) {
+        // If a chat is open, go back to sidebar
+        setShowMobileSidebar(true);
+        setSelectedChatId(undefined);
+        window.history.pushState(null, '', window.location.href);
+        return;
+      }
+      // On the sidebar/main screen, ask for exit confirmation
+      const exitConfirmed = window.confirm('Çıkmak istediğinize emin misiniz?');
+      if (!exitConfirmed) {
+        window.history.pushState(null, '', window.location.href);
+      }
+    };
+
+    // Push initial state so popstate fires
+    window.history.pushState(null, '', window.location.href);
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, [selectedChatId, showMobileSidebar]);
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-screen bg-slate-50">

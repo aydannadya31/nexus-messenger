@@ -82,12 +82,15 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
           if (lastMsg.senderId !== user.uid) {
             setUnreadCounts(prev => ({ ...prev, [chat.id]: (prev[chat.id] || 0) + 1 }));
             const senderProfile = chatDetailsRef.current[lastMsg.senderId];
-            if (senderProfile?.onlineStatus === 'busy') continue;
-            try {
-              const audio = new Audio('https://raw.githubusercontent.com/yemreak/icq-sounds/master/Sounds/Global/Uh-Oh.wav');
-              audio.volume = 0.5;
-              audio.play().catch(() => {});
-            } catch(e) { /* silent */ }
+            if (senderProfile?.onlineStatus === 'busy') {
+              // No sound for busy users
+            } else {
+              try {
+                const audio = new Audio('https://raw.githubusercontent.com/yemreak/icq-sounds/master/Sounds/Global/Uh-Oh.wav');
+                audio.volume = 0.5;
+                audio.play().catch((e) => console.log('Audio play failed:', e));
+              } catch(e) { console.log('Audio error:', e); }
+            }
           }
         }
       }
@@ -335,28 +338,30 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
                     <div className="absolute right-0 top-full mt-1 w-44 bg-white border border-slate-200 rounded-xl shadow-xl py-1 z-50 animate-in fade-in slide-in-from-top-1 duration-100">
                       {chat.type === 'private' ? (
                         <>
-                          <button onClick={() => { setChatMenuOpen(null); if (otherInfo) setViewProfile(otherInfo); }}
+                          <button onClick={(e) => { e.stopPropagation(); e.preventDefault(); setChatMenuOpen(null); if (otherInfo) setViewProfile(otherInfo); }}
                             className="w-full text-left px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50 transition-colors">
                             ℹ️ Sohbet Bilgisi
                           </button>
-                          <button onClick={() => { setChatMenuOpen(null); handleRemoveChat(chat.id); }}
+                          <button onClick={(e) => { e.stopPropagation(); e.preventDefault(); setChatMenuOpen(null); handleRemoveChat(chat.id); }}
                             className="w-full text-left px-4 py-2.5 text-xs font-bold text-red-600 hover:bg-red-50 transition-colors">
                             🗑 Listeden Kaldır
                           </button>
                         </>
                       ) : (
                         <>
-                          <button onClick={() => { setChatMenuOpen(null); setShowGroupInfo(chat); }}
+                          <button onClick={(e) => { e.stopPropagation(); e.preventDefault(); setChatMenuOpen(null); setShowGroupInfo(chat); }}
                             className="w-full text-left px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50 transition-colors">
                             ℹ️ Grup Bilgisi
                           </button>
-                          <button onClick={() => { setChatMenuOpen(null); handleLeaveGroup(chat.id); }}
+                          <button onClick={(e) => { e.stopPropagation(); e.preventDefault(); setChatMenuOpen(null); handleLeaveGroup(chat.id); }}
                             className="w-full text-left px-4 py-2.5 text-xs font-bold text-red-600 hover:bg-red-50 transition-colors">
                             🚪 Gruptan Ayrıl
                           </button>
                         </>
                       )}
-                      <button onClick={async () => {
+                      <button onClick={async (e) => {
+                        e.stopPropagation();
+                        e.preventDefault();
                         setChatMenuOpen(null);
                         try {
                           await updateDoc(doc(db, 'chats', chat.id), { muted: !chat.muted });

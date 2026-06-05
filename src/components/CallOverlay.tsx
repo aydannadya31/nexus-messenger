@@ -106,13 +106,39 @@ export const CallOverlay = () => {
     };
 
     pc.ontrack = (event) => {
-      setRemoteStreams(prev => ({ ...prev, [pId]: event.streams[0] }));
+      const stream = event.streams[0] || new MediaStream(event.track ? [event.track] : []);
+      setRemoteStreams(prev => ({ ...prev, [pId]: stream }));
     };
 
     pc.oniceconnectionstatechange = () => {
+      console.log("ICE connection state:", pc.iceConnectionState);
       if (pc.iceConnectionState === 'disconnected' || pc.iceConnectionState === 'failed') {
         cleanupPeer(pId);
       }
+    };
+
+    pc.onnegotiationneeded = async () => {
+      try {
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        await addDoc(collection(db, 'calls', activeCall.id, 'signals'), {
+          from: user.uid,
+          to: pId,
+          type: 'offer',
+          data: { type: offer.type, sdp: offer.sdp },
+          createdAt: serverTimestamp()
+        });
+      } catch (err) {
+        console.error("Negotiation error:", err);
+      }
+    };
+
+    pc.onsignalingstatechange = () => {
+      console.log("Signaling state:", pc.signalingState);
+    };
+
+    pc.onicegatheringstatechange = () => {
+      console.log("ICE gathering state:", pc.iceGatheringState);
     };
 
     // Add local tracks
