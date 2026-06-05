@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
-import { collection, query, onSnapshot, orderBy, addDoc, serverTimestamp, doc, updateDoc, getDoc, where, deleteDoc, getDocs } from 'firebase/firestore';
+import { collection, query, onSnapshot, orderBy, addDoc, serverTimestamp, doc, updateDoc, getDoc, where, deleteDoc, getDocs, Timestamp } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { useAuth } from './AuthProvider';
 import { useCall } from './CallProvider';
@@ -112,7 +112,6 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
   const [chatSearchQuery, setChatSearchQuery] = useState('');
   const [showChatSearch, setShowChatSearch] = useState(false);
   const [mutedUsers, setMutedUsers] = useState<Record<string, boolean>>({});
-  const [isPaused, setIsPaused] = useState(false);
   const [showGroupInfo, setShowGroupInfo] = useState(false);
 
   const showCustomAlert = (title: string, message: string) => {
@@ -685,7 +684,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
 
   const handleSend = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!inputText.trim() || !user || !chatId || isPaused) return;
+    if (!inputText.trim() || !user || !chatId || isBeingHeld) return;
 
     const text = inputText;
     setInputText('');
@@ -761,9 +760,58 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
     }
   };
 
+  const isBeingHeld = !!(chat?.heldBy && chat.heldBy !== user?.uid);
+  const amIHolding = chat?.heldBy === user?.uid;
+
+  const handleHoldToggle = async () => {
+    if (!chatId || !user || !chat) return;
+    if (chat.type === 'group' && chat.groupMetadata?.adminId !== user.uid) return;
+    if (chat.type === 'private') {
+      const today = new Date().toISOString().slice(0, 10);
+      const count = chat.holdDate === today ? (chat.holdDailyCount || 0) : 0;
+      if (amIHolding) {
+        await updateDoc(doc(db, 'chats', chatId), { heldBy: null, holdExpiresAt: null });
+      } else if (count >= 10) {
+        showCustomAlert('Limit', 'Bugün bu kişi için beklemeye alma limitine ulaştınız (10/10).');
+        return;
+      } else {
+        const expires = new Date(Date.now() + 15 * 60 * 1000);
+        await updateDoc(doc(db, 'chats', chatId), {
+          heldBy: user.uid,
+          holdExpiresAt: Timestamp.fromDate(expires),
+          holdDailyCount: count + 1,
+          holdDate: today
+        });
+      }
+    } else {
+      if (amIHolding) {
+        await updateDoc(doc(db, 'chats', chatId), { heldBy: null, holdExpiresAt: null });
+      } else {
+        const expires = new Date(Date.now() + 15 * 60 * 1000);
+        await updateDoc(doc(db, 'chats', chatId), { heldBy: user.uid, holdExpiresAt: Timestamp.fromDate(expires) });
+      }
+    }
+  };
+
+  // Auto-release hold when expired
+  useEffect(() => {
+    if (!chat?.holdExpiresAt || !chatId) return;
+    const expires = chat.holdExpiresAt.toDate();
+    const now = new Date();
+    if (expires <= now) {
+      updateDoc(doc(db, 'chats', chatId), { heldBy: null, holdExpiresAt: null }).catch(() => {});
+      return;
+    }
+    const timeout = setTimeout(() => {
+      updateDoc(doc(db, 'chats', chatId), { heldBy: null, holdExpiresAt: null }).catch(() => {});
+    }, expires.getTime() - now.getTime());
+    return () => clearTimeout(timeout);
+  }, [chat?.holdExpiresAt, chatId]);
+
   if (!chatId) {
     return (
       <div className="hidden sm:flex flex-1 flex-col items-center justify-center bg-slate-50 text-slate-400">
+        <div className="fixed bottom-2 left-2 z-[9999] text-[8px] font-black text-slate-300 uppercase tracking-widest select-none pointer-events-none sm:hidden">Boş Ekran</div>
         <div className="w-24 h-24 bg-white rounded-full flex items-center justify-center mb-6 shadow-xl shadow-slate-200/50 border border-slate-100">
           <MessageSquarePlus size={44} className="text-blue-500/40" />
         </div>
@@ -777,6 +825,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
 
   return (
     <div className="flex-1 flex flex-col bg-slate-50 relative overflow-hidden">
+      <div className="fixed bottom-2 left-2 z-[9999] text-[8px] font-black text-slate-300 uppercase tracking-widest select-none pointer-events-none sm:hidden">Sohbet Alanı</div>
 
       {/* Chat Header */}
       <header className="min-h-14 sm:h-20 bg-white border-b border-slate-200 flex items-center justify-between px-3 sm:px-8 shrink-0 relative z-10">
@@ -848,13 +897,20 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
             </div>
           )}
 
-          <button 
-            onClick={() => setIsPaused(!isPaused)}
-            className={cn("transition-colors", isPaused ? "text-amber-500" : "hover:text-amber-500")}
-            title={isPaused ? 'Beklemeden Çıkar' : 'Beklemeye Al'}
-          >
-            {isPaused ? <Play size={20} /> : <Pause size={20} />}
-          </button>
+          {(chat?.type === 'private' || chat?.groupMetadata?.adminId === user?.uid) && (
+            <button 
+              onClick={handleHoldToggle}
+              className={cn("transition-colors relative", amIHolding ? "text-amber-500" : "hover:text-amber-500")}
+              title={amIHolding ? 'Beklemeden Çıkar' : 'Beklemeye Al'}
+            >
+              {amIHolding ? <Play size={20} /> : <Pause size={20} />}
+              {chat?.type === 'private' && !amIHolding && chat.holdDate === new Date().toISOString().slice(0, 10) && (chat.holdDailyCount || 0) > 0 && (
+                <div className="absolute -top-2 -right-2 min-w-[16px] h-4 bg-red-500 border-2 border-white rounded-full flex items-center justify-center">
+                  <span className="text-[7px] font-black text-white leading-none px-1">{10 - (chat.holdDailyCount || 0)}</span>
+                </div>
+              )}
+            </button>
+          )}
           <button 
             onClick={() => setShowChatSearch(!showChatSearch)}
             className="hover:text-blue-600 transition-colors"
@@ -928,15 +984,12 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
         </div>
       )}
 
-      {isPaused && (
+      {isBeingHeld && (
         <div className="bg-amber-50 border-b border-amber-200 px-4 py-2 flex items-center justify-between shrink-0 z-10">
           <div className="flex items-center gap-2">
             <Pause size={14} className="text-amber-600" />
             <span className="text-[10px] font-black text-amber-700 uppercase tracking-wider">Sohbet Beklemeye Alındı</span>
           </div>
-          <button onClick={() => setIsPaused(false)} className="text-amber-500 hover:text-amber-700">
-            <X size={14} />
-          </button>
         </div>
       )}
 
@@ -1202,7 +1255,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
 
       {/* Input Area */}
       <footer id="chat-input-footer" className="p-2 sm:p-6 bg-white border-t border-slate-200 shrink-0 z-10 transition-all duration-200 safe-area-bottom">
-        {isPaused && (
+        {isBeingHeld && (
           <div className="px-4 py-2 bg-amber-50 border-b border-amber-200 rounded-t-xl flex items-center gap-2 shrink-0">
             <Pause size={14} className="text-amber-600" />
             <span className="text-[10px] font-bold text-amber-700">Bu sohbet beklemeye alındı. Mesaj gönderemezsiniz.</span>
@@ -1297,16 +1350,16 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
               type="text" 
               value={inputText}
               onChange={(e) => setInputText(e.target.value)}
-              placeholder={isPaused ? "Sohbet beklemeye alındı..." : "Mesaj yaz..."}
-              disabled={isPaused}
+              placeholder={isBeingHeld ? "Sohbet beklemeye alındı..." : "Mesaj yaz..."}
+              disabled={isBeingHeld}
               className="flex-1 bg-transparent border-none focus:ring-0 text-sm py-1.5 sm:py-2 px-2 sm:px-4 text-slate-900 placeholder:text-slate-400 min-w-0 w-0"
             />
             <button 
               type="submit"
-              disabled={!inputText.trim() || isPaused}
+              disabled={!inputText.trim() || isBeingHeld}
               className={cn(
                 "p-1.5 sm:p-2 rounded-lg sm:rounded-xl transition-all flex items-center justify-center shadow-lg shrink-0",
-                inputText.trim() && !isPaused
+                inputText.trim() && !isBeingHeld
                   ? "bg-blue-600 text-white shadow-blue-200 hover:bg-blue-700" 
                   : "bg-slate-200 text-slate-400 cursor-not-allowed shadow-none"
               )}

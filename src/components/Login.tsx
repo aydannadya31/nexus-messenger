@@ -135,6 +135,7 @@ export const Login: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4 relative overflow-hidden">
+      <div className="fixed bottom-2 left-2 z-50 text-[8px] font-black text-slate-300 uppercase tracking-widest select-none">Giriş Ekranı</div>
       <style>{`
         @keyframes spin3D {
           0% { transform: rotateY(0deg) rotateX(10deg); }

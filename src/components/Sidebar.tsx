@@ -37,22 +37,10 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
   const prevLastMessagesRef = useRef<Record<string, any>>({});
   const chatDetailsRef = useRef<Record<string, UserProfile>>({});
   const [chatMenuOpen, setChatMenuOpen] = useState<string | null>(null);
-  const menuRef = useRef<HTMLDivElement | null>(null);
   const [hiddenChats, setHiddenChats] = useState<string[]>([]);
   const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({});
   const [viewProfile, setViewProfile] = useState<UserProfile | null>(null);
   const [showGroupInfo, setShowGroupInfo] = useState<Chat | null>(null);
-
-  useEffect(() => {
-    if (!chatMenuOpen) return;
-    const handleClickOutside = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        setChatMenuOpen(null);
-      }
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [chatMenuOpen]);
 
   useEffect(() => {
     if (!user) return;
@@ -197,6 +185,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
 
   return (
     <div className="flex flex-col h-full bg-white sm:border-r border-slate-200 w-full sm:max-w-[350px]">
+      <div className="fixed bottom-2 left-2 z-[9999] text-[8px] font-black text-slate-300 uppercase tracking-widest select-none pointer-events-none sm:hidden">Kenar Çubuğu</div>
        {/* Sidebar Header */}
       <header className="p-4 sm:p-6 space-y-3 sm:space-y-4 z-10 bg-white border-b border-slate-200">
         <div className="flex items-center justify-between">
@@ -289,7 +278,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
                     />
                   )}
                   {unread > 0 && (
-                    <div className="absolute -top-1 -left-1 min-w-[18px] h-[18px] bg-red-500 border-2 border-white rounded-full flex items-center justify-center">
+                    <div className="absolute -top-1 -right-1 min-w-[18px] h-[18px] bg-red-500 border-2 border-white rounded-full flex items-center justify-center shadow-lg z-10">
                       <span className="text-[9px] font-black text-white leading-none px-1">{unread > 9 ? '9+' : unread}</span>
                     </div>
                   )}
@@ -327,11 +316,10 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
                   </p>
                 </div>
                 {/* Three-dot menu */}
-                <div className="relative shrink-0" ref={chatMenuOpen === chat.id ? menuRef : undefined}>
+                <div className="relative shrink-0">
                   <button 
                     onClick={(e) => {
                       e.stopPropagation();
-                      e.preventDefault();
                       setChatMenuOpen(chatMenuOpen === chat.id ? null : chat.id);
                     }}
                     className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-full transition-all sm:opacity-0 sm:group-hover:opacity-100"
@@ -339,42 +327,54 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
                     <MoreVertical size={16} />
                   </button>
                   {chatMenuOpen === chat.id && (
-                    <div className="absolute right-0 top-full mt-1 w-44 bg-white border border-slate-200 rounded-xl shadow-xl py-1 z-50" onClick={(e) => e.stopPropagation()}>
-                      {chat.type === 'private' ? (
-                        <>
-                          <button onClick={(e) => { e.stopPropagation(); e.preventDefault(); setChatMenuOpen(null); if (otherInfo) setViewProfile(otherInfo); }}
-                            className="w-full text-left px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50 transition-colors">
-                            ℹ️ Sohbet Bilgisi
+                    <>
+                      <div className="fixed inset-0 z-40" onClick={() => setChatMenuOpen(null)} />
+                      <div className="absolute right-0 top-full mt-1 w-44 bg-white border border-slate-200 rounded-xl shadow-xl py-1 z-50">
+                        {chat.type === 'private' ? (
+                          <>
+                            <button onClick={() => { setChatMenuOpen(null); if (otherInfo) setViewProfile(otherInfo); }}
+                              className="w-full text-left px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50 transition-colors">
+                              ℹ️ Sohbet Bilgisi
+                            </button>
+                            <button onClick={() => { setChatMenuOpen(null); handleRemoveChat(chat.id); }}
+                              className="w-full text-left px-4 py-2.5 text-xs font-bold text-red-600 hover:bg-red-50 transition-colors">
+                              🗑 Listeden Kaldır
+                            </button>
+                          </>
+                        ) : (
+                          <>
+                            <button onClick={() => { setChatMenuOpen(null); setShowGroupInfo(chat); }}
+                              className="w-full text-left px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50 transition-colors">
+                              ℹ️ Grup Bilgisi
+                            </button>
+                            <button onClick={() => { setChatMenuOpen(null); handleLeaveGroup(chat.id); }}
+                              className="w-full text-left px-4 py-2.5 text-xs font-bold text-red-600 hover:bg-red-50 transition-colors">
+                              🚪 Gruptan Ayrıl
+                            </button>
+                          </>
+                        )}
+                        <button onClick={async () => {
+                          setChatMenuOpen(null);
+                          try {
+                            await updateDoc(doc(db, 'chats', chat.id), { muted: !chat.muted });
+                          } catch(e) { console.error(e); }
+                        }}
+                          className="w-full text-left px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50 transition-colors">
+                          {chat.muted ? '▶ Bildirimi Aç' : '⏸ Bildirimi Kapat'}
+                        </button>
+                        {chat.heldBy && (
+                          <button onClick={async () => {
+                            setChatMenuOpen(null);
+                            try {
+                              await updateDoc(doc(db, 'chats', chat.id), { heldBy: null, holdExpiresAt: null });
+                            } catch(e) { console.error(e); }
+                          }}
+                            className="w-full text-left px-4 py-2.5 text-xs font-bold text-green-600 hover:bg-green-50 transition-colors">
+                            ✅ Beklemeyi Kaldır
                           </button>
-                          <button onClick={(e) => { e.stopPropagation(); e.preventDefault(); setChatMenuOpen(null); handleRemoveChat(chat.id); }}
-                            className="w-full text-left px-4 py-2.5 text-xs font-bold text-red-600 hover:bg-red-50 transition-colors">
-                            🗑 Listeden Kaldır
-                          </button>
-                        </>
-                      ) : (
-                        <>
-                          <button onClick={(e) => { e.stopPropagation(); e.preventDefault(); setChatMenuOpen(null); setShowGroupInfo(chat); }}
-                            className="w-full text-left px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50 transition-colors">
-                            ℹ️ Grup Bilgisi
-                          </button>
-                          <button onClick={(e) => { e.stopPropagation(); e.preventDefault(); setChatMenuOpen(null); handleLeaveGroup(chat.id); }}
-                            className="w-full text-left px-4 py-2.5 text-xs font-bold text-red-600 hover:bg-red-50 transition-colors">
-                            🚪 Gruptan Ayrıl
-                          </button>
-                        </>
-                      )}
-                      <button onClick={async (e) => {
-                        e.stopPropagation();
-                        e.preventDefault();
-                        setChatMenuOpen(null);
-                        try {
-                          await updateDoc(doc(db, 'chats', chat.id), { muted: !chat.muted });
-                        } catch(e) { console.error(e); }
-                      }}
-                        className="w-full text-left px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50 transition-colors">
-                        {chat.muted ? '▶ Beklemeden Çıkar' : '⏸ Beklemeye Al'}
-                      </button>
-                    </div>
+                        )}
+                      </div>
+                    </>
                   )}
                 </div>
               </div>

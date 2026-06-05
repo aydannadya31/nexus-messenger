@@ -36,6 +36,11 @@ export interface Chat {
   updatedAt: any;
   muted?: boolean;
   unreadCount?: number;
+  heldBy?: string;
+  holdExpiresAt?: any;
+  holdDailyCount?: number;
+  holdDate?: string;
+  heldMembers?: Record<string, { heldBy: string; expiresAt?: any }>;
 }
 
 export interface Message {
