@@ -9,7 +9,6 @@ import { db } from './lib/firebase';
 import { AuthProvider, useAuth } from './components/AuthProvider';
 import { Sidebar } from './components/Sidebar';
 import { ChatArea } from './components/ChatArea';
-import { AIChat } from './components/AIChat';
 import { Login } from './components/Login';
 import { NewChatModal } from './components/NewChatModal';
 import { BroadcastModal } from './components/BroadcastModal';
@@ -23,7 +22,6 @@ function NexusApp() {
   const [selectedChatId, setSelectedChatId] = useState<string | undefined>();
   const [isNewChatModalOpen, setIsNewChatModalOpen] = useState(false);
   const [isBroadcastModalOpen, setIsBroadcastModalOpen] = useState(false);
-  const [isAIChatOpen, setIsAIChatOpen] = useState(false);
   const [showMobileSidebar, setShowMobileSidebar] = useState(true);
   const [banned, setBanned] = useState<{ until: Date; reason?: string } | null>(null);
 
@@ -99,36 +97,26 @@ function NexusApp() {
         "w-full sm:w-[350px] sm:block",
         showMobileSidebar || !selectedChatId ? "block" : "hidden sm:block"
       )}>
-        <Sidebar 
-          selectedChatId={selectedChatId} 
+        <Sidebar
+          selectedChatId={selectedChatId}
           onSelectChat={(id) => {
             setSelectedChatId(id);
-            setIsAIChatOpen(false);
             setShowMobileSidebar(false);
           }}
           onStartNewChat={() => setIsNewChatModalOpen(true)}
           onOpenBroadcast={() => setIsBroadcastModalOpen(true)}
-          onOpenAI={() => {
-            setIsAIChatOpen(true);
-            setSelectedChatId(undefined);
-            setShowMobileSidebar(false);
-          }}
         />
       </div>
 
-      {/* Chat/AI Area - hidden on mobile when showing sidebar */}
+      {/* Chat Area - hidden on mobile when showing sidebar */}
       <div className={cn(
         "flex-1 flex flex-col min-w-0",
         !showMobileSidebar || !selectedChatId ? "flex" : "hidden sm:flex"
       )}>
-        {isAIChatOpen ? (
-          <AIChat onBack={() => setShowMobileSidebar(true)} />
-        ) : (
-          <ChatArea 
-            chatId={selectedChatId || ''} 
-            onBack={() => setShowMobileSidebar(true)}
-          />
-        )}
+        <ChatArea
+          chatId={selectedChatId || ''}
+          onBack={() => setShowMobileSidebar(true)}
+        />
       </div>
 
       {isNewChatModalOpen && (

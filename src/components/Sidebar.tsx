@@ -4,7 +4,7 @@ import { db, logout } from '../lib/firebase';
 import { useAuth } from './AuthProvider';
 import { Chat, UserProfile } from '../types';
 import { cn } from '../lib/utils';
-import { LogOut, MessageSquarePlus, Search, User as UserIcon, ChevronUp, Settings, Radio, Bot, X } from 'lucide-react';
+import { LogOut, MessageSquarePlus, Search, User as UserIcon, ChevronUp, Settings, Radio, X } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import ProfileModal from './ProfileModal';
 
@@ -28,10 +28,9 @@ interface SidebarProps {
   selectedChatId?: string;
   onStartNewChat: () => void;
   onOpenBroadcast: () => void;
-  onOpenAI?: () => void;
 }
 
-export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, onStartNewChat, onOpenBroadcast, onOpenAI }) => {
+export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, onStartNewChat, onOpenBroadcast }) => {
   const { user, profile } = useAuth();
   const [chats, setChats] = useState<Chat[]>([]);
   const [chatDetails, setChatDetails] = useState<Record<string, UserProfile>>({});
@@ -168,13 +167,6 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
             className="p-2.5 bg-slate-100/50 hover:bg-slate-100 rounded-xl text-slate-600 transition-all active:scale-95"
           >
             <MessageSquarePlus size={20} />
-          </button>
-          <button 
-            onClick={onOpenAI}
-            className="p-2.5 bg-purple-50 hover:bg-purple-100 rounded-xl text-purple-600 transition-all active:scale-95"
-            title="Nexus AI Asistan"
-          >
-            <Bot size={20} />
           </button>
           <button 
             onClick={() => setShowAdminMsg(true)}

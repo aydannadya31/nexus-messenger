@@ -1,6 +1,6 @@
 # Nexus Messenger
 
-Real-time messaging app with AI assistant, voice/video calls, and admin panel.
+Real-time messaging app with voice/video calls and admin panel.
 
 ## Canlı Site
 
@@ -28,10 +28,6 @@ firebase login
 firebase deploy --only firestore:rules:ai-studio-6f70c272-6822-4c0b-a15d-b77d18f46fb0
 firebase deploy --only firestore:indexes
 ```
-
-### GitHub Secrets
-Repository > Settings > Secrets and variables > Actions:
-- `VITE_GEMINI_API_KEY` = AI Studio'dan alınan Gemini API anahtarı
 
 ### Firebase Auth (Google Sign-In)
 Firebase Console > Authentication > Settings > Authorized domains:

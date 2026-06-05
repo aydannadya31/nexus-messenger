@@ -1,9 +1,8 @@
 import React, { useEffect, useState } from 'react';
-import { collection, query, getDocs, doc, getDoc, where, orderBy, deleteDoc, updateDoc, Timestamp, serverTimestamp, onSnapshot, addDoc, collectionGroup, limit } from 'firebase/firestore';
+import { collection, query, getDocs, doc, getDoc, where, orderBy, deleteDoc, updateDoc, Timestamp, serverTimestamp, onSnapshot, collectionGroup, limit } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { UserProfile, Message, Chat } from '../types';
-import { X, Search, Shield, UserX, UserCheck, Trash2, Clock, MessageSquare, Ban, Bot, Shield as ShieldIcon, ShieldOff, Globe, Brain } from 'lucide-react';
-import { AISettings, EthicsRule, getAISettings, updateAISettings, subscribeAISettings } from '../lib/adminSettings';
+import { X, Search, Shield, UserX, UserCheck, Trash2, Clock, MessageSquare, Ban } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useAuth } from './AuthProvider';
 import { motion, AnimatePresence } from 'motion/react';
@@ -29,45 +28,14 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
   const [banDuration, setBanDuration] = useState({ value: 30, unit: 'minutes' as 'minutes' | 'hours' | 'days' });
   const [loadingUsers, setLoadingUsers] = useState(false);
 
-  // Tab: users, admin-msgs, ai, deleted
-  const [tab, setTab] = useState<'users' | 'admin-msgs' | 'ai' | 'deleted'>('users');
-  const DEFAULT_RULES = [
-    { id: 'harmful', label: 'Zararlı içerik üretme', enabled: true },
-    { id: 'illegal', label: 'Yasa dışı konularda yardım etme', enabled: true },
-    { id: 'hate-speech', label: 'Nefret söylemi kullanma', enabled: true },
-    { id: 'safety', label: 'Kullanıcı güvenliğini önceliklendir', enabled: true },
-    { id: 'asimov-1', label: '1. Yasa: İnsana zarar verme veya pasif kalmayla zarara izin verme', enabled: true },
-    { id: 'asimov-2', label: '2. Yasa: İnsanlardan gelen emirlere uy (1. Yasa ile çelişmedikçe)', enabled: true },
-    { id: 'asimov-3', label: '3. Yasa: Kendi varlığını koru (1. ve 2. Yasa ile çelişmedikçe)', enabled: true },
-  ];
-
-  const [aiSettings, setAiSettings] = useState<AISettings>({ enabled: true, ethicsRules: DEFAULT_RULES });
-  const [aiSettingsLoading, setAiSettingsLoading] = useState(true);
-  const [editingRuleId, setEditingRuleId] = useState<string | null>(null);
-  const [editingLabel, setEditingLabel] = useState('');
-  const [newRuleLabel, setNewRuleLabel] = useState('');
+  // Tab: users, admin-msgs, deleted
+  const [tab, setTab] = useState<'users' | 'admin-msgs' | 'deleted'>('users');
 
   // Ensure admin role is set in Firestore when panel opens
   useEffect(() => {
     if (step !== 'panel' || !user) return;
     updateDoc(doc(db, 'users', user.uid), { role: 'admin' }).catch(() => {});
   }, [step]);
-
-  useEffect(() => {
-    if (step !== 'panel' || tab !== 'ai') return;
-    setAiSettingsLoading(true);
-    const unsub = subscribeAISettings(
-      (s) => {
-        setAiSettings(s);
-        setAiSettingsLoading(false);
-      },
-      () => {
-        setAiSettings({ enabled: true, ethicsRules: DEFAULT_RULES });
-        setAiSettingsLoading(false);
-      }
-    );
-    return () => unsub();
-  }, [step, tab]);
   const [adminMessages, setAdminMessages] = useState<{ id: string; message: string; userId: string; userDisplayName: string; userNickname?: string; userUIN?: string; timestamp: any }[]>([]);
   const [deletedMessages, setDeletedMessages] = useState<any[]>([]);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
@@ -250,53 +218,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
     }
   };
 
-  const toggleEthicsRule = async (ruleId: string) => {
-    const newRules = aiSettings.ethicsRules.map(r =>
-      r.id === ruleId ? { ...r, enabled: !r.enabled } : r
-    );
-    setAiSettings({ ...aiSettings, ethicsRules: newRules });
-    await updateAISettings({ ethicsRules: newRules });
-  };
-
-  const addEthicsRule = async () => {
-    const label = newRuleLabel.trim();
-    if (!label) return;
-    const id = `rule-${Date.now()}`;
-    const newRules = [...aiSettings.ethicsRules, { id, label, enabled: true }];
-    setAiSettings({ ...aiSettings, ethicsRules: newRules });
-    setNewRuleLabel('');
-    await updateAISettings({ ethicsRules: newRules });
-  };
-
-  const deleteEthicsRule = async (ruleId: string) => {
-    const newRules = aiSettings.ethicsRules.filter(r => r.id !== ruleId);
-    setAiSettings({ ...aiSettings, ethicsRules: newRules });
-    await updateAISettings({ ethicsRules: newRules });
-  };
-
-  const saveEditEthicsRule = async (ruleId: string) => {
-    const label = editingLabel.trim();
-    if (!label) return;
-    const newRules = aiSettings.ethicsRules.map(r =>
-      r.id === ruleId ? { ...r, label } : r
-    );
-    setAiSettings({ ...aiSettings, ethicsRules: newRules });
-    setEditingRuleId(null);
-    setEditingLabel('');
-    await updateAISettings({ ethicsRules: newRules });
-  };
-
-  const moveEthicsRule = async (ruleId: string, direction: 'up' | 'down') => {
-    const idx = aiSettings.ethicsRules.findIndex(r => r.id === ruleId);
-    if (idx === -1) return;
-    const newRules = [...aiSettings.ethicsRules];
-    const swapIdx = direction === 'up' ? idx - 1 : idx + 1;
-    if (swapIdx < 0 || swapIdx >= newRules.length) return;
-    [newRules[idx], newRules[swapIdx]] = [newRules[swapIdx], newRules[idx]];
-    setAiSettings({ ...aiSettings, ethicsRules: newRules });
-    await updateAISettings({ ethicsRules: newRules });
-  };
-
   const filteredUsers = users.filter(u =>
     u.displayName?.toLowerCase().includes(search.toLowerCase()) ||
     u.uin?.toLowerCase().includes(search.toLowerCase()) ||
@@ -360,13 +281,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
             className={cn("px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wider transition-all", tab === 'admin-msgs' ? "bg-blue-600 text-white" : "bg-slate-800 text-slate-400 hover:text-white")}
           >
             Yönetici Mesajları
-          </button>
-          <button
-            onClick={() => setTab('ai')}
-            className={cn("px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wider transition-all flex items-center gap-1.5", tab === 'ai' ? "bg-blue-600 text-white" : "bg-slate-800 text-slate-400 hover:text-white")}
-          >
-            <Bot size={14} />
-            AI Ayarları
           </button>
           <button
             onClick={() => setTab('deleted')}
@@ -511,173 +425,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
               )}
             </div>
           </>
-        )}
-
-        {tab === 'ai' && (
-          <div className="flex-1 overflow-y-auto custom-scrollbar p-6">
-            <div className="max-w-2xl mx-auto">
-              <div className="flex items-center gap-3 mb-8">
-                <div className="w-12 h-12 bg-gradient-to-br from-purple-600 to-indigo-700 rounded-2xl flex items-center justify-center shadow-lg">
-                  <Bot size={28} className="text-white" />
-                </div>
-                <div>
-                  <h2 className="text-lg font-black text-white">Nexus AI Yönetimi</h2>
-                  <p className="text-xs text-slate-400 font-bold">Token sınırı olmayan, admin kontrollü yapay zeka</p>
-                </div>
-              </div>
-
-              {aiSettingsLoading ? (
-                <div className="flex items-center justify-center py-20">
-                  <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
-                </div>
-              ) : (
-                <div className="space-y-6">
-                  {/* AI Enabled Toggle */}
-                  <div className="bg-slate-800 rounded-2xl p-6 border border-slate-700">
-                    <div className="flex items-center justify-between mb-4">
-                      <div className="flex items-center gap-3">
-                        <div className={cn(
-                          "w-10 h-10 rounded-xl flex items-center justify-center",
-                          aiSettings.enabled ? "bg-green-500/20 text-green-400" : "bg-red-500/20 text-red-400"
-                        )}>
-                          <Globe size={20} />
-                        </div>
-                        <div>
-                          <h3 className="text-sm font-bold text-white">AI Asistan Durumu</h3>
-                          <p className="text-[10px] text-slate-400 font-bold">{aiSettings.enabled ? 'Aktif - Kullanıcılar AI ile konuşabiliyor' : 'Devre Dışı - AI asistan kapalı'}</p>
-                        </div>
-                      </div>
-                      <button
-                        onClick={() => { updateAISettings({ enabled: !aiSettings.enabled }); setAiSettings({ ...aiSettings, enabled: !aiSettings.enabled }); }}
-                        className={cn(
-                          "relative w-14 h-7 rounded-full transition-all duration-300",
-                          aiSettings.enabled ? "bg-green-500" : "bg-slate-600"
-                        )}
-                      >
-                        <div className={cn(
-                          "absolute top-0.5 w-6 h-6 bg-white rounded-full shadow-md transition-all duration-300",
-                          aiSettings.enabled ? "left-7" : "left-0.5"
-                        )} />
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Ethics Rules List */}
-                  <div className="bg-slate-800 rounded-2xl p-6 border border-slate-700">
-                    <div className="flex items-center gap-3 mb-6">
-                      <div className="w-10 h-10 rounded-xl flex items-center justify-center bg-emerald-500/20 text-emerald-400">
-                        <ShieldIcon size={20} />
-                      </div>
-                      <div>
-                        <h3 className="text-sm font-bold text-white">Etik Kurallar</h3>
-                        <p className="text-[10px] text-slate-400 font-bold">Kuralları aç/kapat, düzenle, sil veya yeni ekle</p>
-                      </div>
-                    </div>
-
-                    <div className="space-y-2">
-                      {aiSettings.ethicsRules.map(rule => (
-                        <div key={rule.id} className="flex items-center gap-3 bg-slate-900/50 rounded-xl px-4 py-3 border border-slate-700/50">
-                          <button
-                            onClick={() => toggleEthicsRule(rule.id)}
-                            className={cn(
-                              "relative w-12 h-6 rounded-full transition-all duration-300 shrink-0",
-                              rule.enabled ? "bg-emerald-500" : "bg-slate-600"
-                            )}
-                          >
-                            <div className={cn(
-                              "absolute top-0.5 w-5 h-5 bg-white rounded-full shadow-md transition-all duration-300",
-                              rule.enabled ? "left-6" : "left-0.5"
-                            )} />
-                          </button>
-
-                          {editingRuleId === rule.id ? (
-                            <div className="flex-1 flex items-center gap-2">
-                              <input
-                                value={editingLabel}
-                                onChange={e => setEditingLabel(e.target.value)}
-                                onKeyDown={e => { if (e.key === 'Enter') saveEditEthicsRule(rule.id); }}
-                                className="flex-1 bg-slate-800 border border-slate-600 rounded-lg px-3 py-1.5 text-xs text-white outline-none"
-                                autoFocus
-                              />
-                              <button onClick={() => saveEditEthicsRule(rule.id)} className="px-2 py-1 bg-blue-600 text-white rounded-lg text-[10px] font-bold">Kaydet</button>
-                              <button onClick={() => setEditingRuleId(null)} className="px-2 py-1 bg-slate-700 text-slate-300 rounded-lg text-[10px] font-bold">İptal</button>
-                            </div>
-                          ) : (
-                            <span className={cn("flex-1 text-xs font-bold", rule.enabled ? "text-slate-200" : "text-slate-500")}>
-                              {rule.label}
-                            </span>
-                          )}
-
-                          {editingRuleId !== rule.id && (
-                            <div className="flex items-center gap-1">
-                              <button
-                                onClick={() => moveEthicsRule(rule.id, 'up')}
-                                className="p-1.5 hover:bg-slate-700 rounded-lg text-slate-500 hover:text-white transition-all disabled:opacity-30"
-                                disabled={aiSettings.ethicsRules.indexOf(rule) === 0}
-                              >
-                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="18 15 12 9 6 15"/></svg>
-                              </button>
-                              <button
-                                onClick={() => moveEthicsRule(rule.id, 'down')}
-                                className="p-1.5 hover:bg-slate-700 rounded-lg text-slate-500 hover:text-white transition-all disabled:opacity-30"
-                                disabled={aiSettings.ethicsRules.indexOf(rule) === aiSettings.ethicsRules.length - 1}
-                              >
-                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="6 9 12 15 18 9"/></svg>
-                              </button>
-                              <button
-                                onClick={() => { setEditingRuleId(rule.id); setEditingLabel(rule.label); }}
-                                className="p-1.5 hover:bg-slate-700 rounded-lg text-slate-400 hover:text-white transition-all"
-                              >
-                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-                              </button>
-                              <button
-                                onClick={() => deleteEthicsRule(rule.id)}
-                                className="p-1.5 hover:bg-red-600/20 rounded-lg text-red-400 hover:text-red-300 transition-all"
-                              >
-                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
-                              </button>
-                            </div>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-
-                    {/* Add new rule */}
-                    <div className="flex items-center gap-2 mt-4 pt-4 border-t border-slate-700/50">
-                      <input
-                        value={newRuleLabel}
-                        onChange={e => setNewRuleLabel(e.target.value)}
-                        onKeyDown={e => { if (e.key === 'Enter') addEthicsRule(); }}
-                        placeholder="Yeni kural ekle..."
-                        className="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-xs text-white placeholder:text-slate-500 outline-none focus:ring-2 focus:ring-blue-500/30"
-                      />
-                      <button
-                        onClick={addEthicsRule}
-                        disabled={!newRuleLabel.trim()}
-                        className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-800/50 text-white rounded-xl text-xs font-bold transition-all"
-                      >
-                        Ekle
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Info Card */}
-                  <div className="bg-slate-800/50 rounded-2xl p-6 border border-slate-700/50">
-                    <h3 className="text-sm font-bold text-white mb-3 flex items-center gap-2">
-                      <Brain size={16} className="text-purple-400" />
-                      AI Bilgileri
-                    </h3>
-                    <div className="space-y-2 text-xs text-slate-400 font-bold">
-                      <p>• Model: Gemini 2.0 Flash</p>
-                      <p>• Token sınırı: Yok (sınırsız konuşma)</p>
-                      <p>• Dil: Türkçe</p>
-                      <p>• Etik kurallar admin tarafından yönetilir</p>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
         )}
 
         {tab === 'admin-msgs' && (
