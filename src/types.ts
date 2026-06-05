@@ -58,6 +58,8 @@ export interface Message {
   toAdmin?: boolean;
   callDuration?: number;
   callStatus?: 'missed' | 'completed' | 'cancelled';
+  encrypted?: boolean;
+  imagePassword?: string;
 }
 
 export interface Call {

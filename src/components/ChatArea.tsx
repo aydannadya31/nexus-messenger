@@ -102,6 +102,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
   const [fullScreenEncrypted, setFullScreenEncrypted] = useState<string | null>(null);
   const [encryptImagePwd, setEncryptImagePwd] = useState('');
   const [encryptImageMsgId, setEncryptImageMsgId] = useState<string | null>(null);
+  const [encryptMode, setEncryptMode] = useState(false);
   const [selectedActionMsg, setSelectedActionMsg] = useState<string | null>(null);
   const [customDialog, setCustomDialog] = useState<{
     isOpen: boolean;
@@ -629,24 +630,35 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
     const reader = new FileReader();
     reader.onloadend = async () => {
       const base64Image = reader.result as string;
+      let pwd = '';
+      if (encryptMode) {
+        pwd = prompt('Şifreli görsel şifresini girin:') || '';
+        if (!pwd) { return; }
+      }
       try {
-        await addDoc(collection(db, 'chats', chatId, 'messages'), {
+        const msgData: any = {
           imageUrl: base64Image,
           senderId: user.uid,
           timestamp: serverTimestamp(),
           type: 'image',
           status: 'sent'
-        });
+        };
+        if (encryptMode && pwd) {
+          msgData.encrypted = true;
+          msgData.imagePassword = btoa(pwd);
+        }
+        await addDoc(collection(db, 'chats', chatId, 'messages'), msgData);
 
         await updateDoc(doc(db, 'chats', chatId), {
           lastMessage: {
-            text: '📷 Fotoğraf',
+            text: encryptMode && pwd ? '🔒 Şifreli Fotoğraf' : '📷 Fotoğraf',
             senderId: user.uid,
             senderName: user.displayName,
             timestamp: serverTimestamp()
           },
           updatedAt: serverTimestamp()
         });
+        setEncryptMode(false);
       } catch (error) {
         console.error("Resim gönderme hatası:", error);
       }
@@ -1097,9 +1109,30 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
                           <img 
                             src={msg.imageUrl} 
                             alt="Paylaşılan görsel" 
-                            className="max-w-full h-auto object-cover hover:scale-105 transition-transform duration-500 cursor-pointer"
-                            onClick={() => !isDeleted && setFullScreenImage(msg.imageUrl!)}
+                            className={cn(
+                              "max-w-full h-auto object-cover cursor-pointer transition-all duration-300",
+                              msg.encrypted && !isDeleted && "blur-[12px] hover:blur-[8px]",
+                              !msg.encrypted && "hover:scale-105"
+                            )}
+                            onClick={() => {
+                              if (isDeleted) return;
+                              if (msg.encrypted) {
+                                const pwd = prompt('Şifreli görsel şifresini girin:');
+                                if (pwd && btoa(pwd) === msg.imagePassword) {
+                                  setFullScreenImage(msg.imageUrl!);
+                                } else if (pwd) {
+                                  showCustomAlert('Hata', 'Yanlış şifre!');
+                                }
+                              } else {
+                                setFullScreenImage(msg.imageUrl!);
+                              }
+                            }}
                           />
+                          {msg.encrypted && !isDeleted && (
+                            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                              <span className="bg-black/50 text-white text-[10px] font-bold px-2 py-1 rounded-full backdrop-blur-sm">🔒 Şifreli</span>
+                            </div>
+                          )}
                         </div>
                       )}
 
@@ -1339,8 +1372,20 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
             type="button" 
             onClick={handleImageSend}
             className="p-1.5 sm:p-2 text-slate-400 hover:text-slate-600 transition-colors shrink-0"
+            title="Görsel Gönder"
           >
             <Image size={18} className="sm:size-[20px]" />
+          </button>
+          <button 
+            type="button"
+            onClick={() => setEncryptMode(!encryptMode)}
+            className={cn(
+              "p-1.5 sm:p-2 transition-colors shrink-0",
+              encryptMode ? "text-amber-500 bg-amber-50 rounded-lg" : "text-slate-400 hover:text-slate-600"
+            )}
+            title={encryptMode ? 'Şifreli Gönder: AÇIK' : 'Şifreli Gönder: KAPALI'}
+          >
+            <span className="text-sm">🔒</span>
           </button>
           <button 
             type="button" 
