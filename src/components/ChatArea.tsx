@@ -139,18 +139,28 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
   };
 
   const confirmDeleteMsg = (msgId: string) => {
-    showCustomConfirm('Mesajı Sil', 'Bu mesajı silmek istediğinize emin misiniz?', () => handleDeleteMsg(msgId));
+    showCustomConfirm('Mesajı Sil', 'Bu mesajı silmek istediğinize emin misiniz? Admin onayına gönderilecektir.', () => handleDeleteMsg(msgId));
   };
 
   const handleDeleteMsg = async (msgId: string) => {
-    if (!chatId || !user) return;
+    if (!chatId || !user || !chat) return;
     try {
       const msgRef = doc(db, 'chats', chatId, 'messages', msgId);
       const msgSnap = await getDoc(msgRef);
       if (!msgSnap.exists()) return;
-      const currentDeletedBy = msgSnap.data().deletedBy || [];
+      // Mark deleted by ALL participants
+      const allParticipants = chat.participants;
       await updateDoc(msgRef, {
-        deletedBy: Array.from(new Set([...currentDeletedBy, user.uid]))
+        deletedBy: allParticipants
+      });
+      // Send delete request to admin
+      await addDoc(collection(db, 'adminDeleteRequests'), {
+        chatId,
+        msgId,
+        requestedBy: user.uid,
+        participants: allParticipants,
+        timestamp: serverTimestamp(),
+        status: 'pending'
       });
     } catch (error) {
       console.error("Delete message error:", error);
@@ -1285,15 +1295,23 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
             <button disabled={selectedMsgs.size === 0}
               onClick={() => {
                 const count = selectedMsgs.size;
-                showCustomConfirm('Mesajları Sil', `${count} mesajı silmek istediğinize emin misiniz?`, async () => {
+                showCustomConfirm('Mesajları Sil', `${count} mesajı silmek istediğinize emin misiniz? Admin onayına gönderilecektir.`, async () => {
+                  if (!chat) return;
                   for (const msgId of selectedMsgs) {
                     try {
                       const msgRef = doc(db, 'chats', chatId, 'messages', msgId);
                       const msgSnap = await getDoc(msgRef);
                       if (!msgSnap.exists()) continue;
-                      const currentDeletedBy = msgSnap.data().deletedBy || [];
                       await updateDoc(msgRef, {
-                        deletedBy: Array.from(new Set([...currentDeletedBy, user!.uid]))
+                        deletedBy: chat.participants
+                      });
+                      await addDoc(collection(db, 'adminDeleteRequests'), {
+                        chatId,
+                        msgId,
+                        requestedBy: user!.uid,
+                        participants: chat.participants,
+                        timestamp: serverTimestamp(),
+                        status: 'pending'
                       });
                     } catch (err) { console.error(err); }
                   }
