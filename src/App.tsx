@@ -9,6 +9,7 @@ import { db } from './lib/firebase';
 import { AuthProvider, useAuth } from './components/AuthProvider';
 import { Sidebar } from './components/Sidebar';
 import { ChatArea } from './components/ChatArea';
+import BroadcastChannel from './components/BroadcastChannel';
 import { Login } from './components/Login';
 import { NewChatModal } from './components/NewChatModal';
 import { BroadcastModal } from './components/BroadcastModal';
@@ -186,10 +187,14 @@ function NexusApp() {
         "flex-1 flex flex-col min-w-0",
         !showMobileSidebar || !selectedChatId ? "flex" : "hidden sm:flex"
       )}>
-        <ChatArea
-          chatId={selectedChatId || ''}
-          onBack={() => setShowMobileSidebar(true)}
-        />
+        {selectedChatId === '__broadcast__' ? (
+          <BroadcastChannel onBack={() => setShowMobileSidebar(true)} />
+        ) : (
+          <ChatArea
+            chatId={selectedChatId || ''}
+            onBack={() => setShowMobileSidebar(true)}
+          />
+        )}
       </div>
 
       {isNewChatModalOpen && (

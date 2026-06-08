@@ -1,8 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { collection, query, where, getDocs, addDoc, serverTimestamp, updateDoc, doc, limit, getDoc } from 'firebase/firestore';
+import { collection, query, where, getDocs, addDoc, serverTimestamp, updateDoc, doc, getDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { useAuth } from './AuthProvider';
-import { UserProfile } from '../types';
 import { X, Radio, Send, Globe } from 'lucide-react';
 import { motion } from 'motion/react';
 
@@ -48,7 +47,7 @@ const COUNTRIES: { code: string; name: string }[] = [
   { code: 'PRT', name: 'Portugal' },
   { code: 'ROU', name: 'Romania' },
   { code: 'BGR', name: 'Bulgaria' },
-  { code: 'SRB', name: 'Serbia' },
+  { code: 'SRC', name: 'Serbia' },
   { code: 'HRV', name: 'Croatia' },
   { code: 'BIH', name: 'Bosnia and Herzegovina' },
   { code: 'ALB', name: 'Albania' },
@@ -89,26 +88,7 @@ export const BroadcastModal: React.FC<BroadcastModalProps> = ({ onClose }) => {
   const [country, setCountry] = useState('');
   const [message, setMessage] = useState('');
   const [sending, setSending] = useState(false);
-  const [targetCount, setTargetCount] = useState(0);
-  const [loadingCount, setLoadingCount] = useState(false);
   const [cooldownInfo, setCooldownInfo] = useState<{ canSend: boolean; remainingTime: string; remainingToday: number }>({ canSend: true, remainingTime: '', remainingToday: 2 });
-
-  useEffect(() => {
-    if (!user || !country) { setTargetCount(0); return; }
-    setLoadingCount(true);
-    const fetchCount = async () => {
-      try {
-        const q = query(collection(db, 'users'), where('country', '==', country));
-        const snap = await getDocs(q);
-        setTargetCount(snap.docs.length);
-      } catch (err) {
-        console.error(err);
-      } finally {
-        setLoadingCount(false);
-      }
-    };
-    fetchCount();
-  }, [user, country]);
 
   useEffect(() => {
     if (!user) return;
@@ -162,53 +142,25 @@ export const BroadcastModal: React.FC<BroadcastModalProps> = ({ onClose }) => {
     if (!user || !message.trim() || !country || !cooldownInfo.canSend) return;
     setSending(true);
     try {
-      const q = query(collection(db, 'users'), where('country', '==', country));
-      const snap = await getDocs(q);
-      const targetUsers = snap.docs.map(d => d.data() as UserProfile).filter(u => u.uid !== user.uid);
-
       const timestamp = serverTimestamp();
 
-      for (const targetUser of targetUsers) {
-        const chatsRef = collection(db, 'chats');
-        const chatQuery = query(chatsRef, where('participants', 'array-contains', user.uid), where('type', '==', 'private'));
-        const chatSnap = await getDocs(chatQuery);
-        let chatId = '';
-        chatSnap.forEach(d => {
-          const data = d.data();
-          if (data.participants.includes(targetUser.uid)) {
-            chatId = d.id;
-          }
-        });
-        if (!chatId) {
-          const newChat = await addDoc(chatsRef, {
-            participants: [user.uid, targetUser.uid],
-            type: 'private',
-            updatedAt: timestamp,
-            lastMessage: null
-          });
-          chatId = newChat.id;
-        }
-        await addDoc(collection(db, 'chats', chatId, 'messages'), {
-          text: message.trim(),
-          senderId: user.uid,
-          timestamp,
-          type: 'text',
-          status: 'sent',
-          isBroadcast: true
-        });
-        await updateDoc(doc(db, 'chats', chatId), {
-          lastMessage: { text: message.trim(), senderId: user.uid, senderName: user.displayName, timestamp },
-          updatedAt: timestamp
-        });
-      }
+      // Write to broadcastMessages collection (dedicated broadcast channel)
+      await addDoc(collection(db, 'broadcastMessages'), {
+        text: message.trim(),
+        senderId: user.uid,
+        senderName: user.displayName,
+        senderPhoto: user.photoURL || '',
+        country,
+        timestamp,
+        createdAt: new Date().toISOString()
+      });
 
       // Update broadcast history
-      const now = serverTimestamp();
       const userRef = doc(db, 'users', user.uid);
       const userDoc = await getDoc(userRef);
       const existingHistory = userDoc.data()?.broadcastHistory || [];
       await updateDoc(userRef, {
-        broadcastHistory: [...existingHistory, now]
+        broadcastHistory: [...existingHistory, timestamp]
       });
 
       onClose();
@@ -224,7 +176,7 @@ export const BroadcastModal: React.FC<BroadcastModalProps> = ({ onClose }) => {
       <motion.div
         initial={{ opacity: 0, scale: 0.95, y: 20 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
-        className="bg-white rounded-3xl w-full max-w-lg overflow-hidden shadow-2xl flex flex-col max-h-[90vh]"
+        className="bg-white rounded-3xl w-full max-w-lg overflow-hidden shadow-2xl"
       >
         <div className="p-6 border-b border-slate-100 flex items-center justify-between bg-blue-600 text-white">
           <div>
@@ -241,7 +193,7 @@ export const BroadcastModal: React.FC<BroadcastModalProps> = ({ onClose }) => {
           </button>
         </div>
 
-        <div className="p-6 space-y-4 overflow-hidden flex flex-col flex-1">
+        <div className="p-6 space-y-4">
           <div className="space-y-2">
             <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
               <Globe size={14} /> HEDEF ÜLKE
@@ -253,11 +205,6 @@ export const BroadcastModal: React.FC<BroadcastModalProps> = ({ onClose }) => {
                 <option key={c.code} value={c.code}>{c.name}</option>
               ))}
             </select>
-            {country && (
-              <p className="text-xs font-bold text-slate-500">
-                {loadingCount ? 'Hedef sayısı hesaplanıyor...' : `${targetCount} kullanıcıya gönderilecek`}
-              </p>
-            )}
           </div>
 
           {!cooldownInfo.canSend && (
@@ -268,14 +215,13 @@ export const BroadcastModal: React.FC<BroadcastModalProps> = ({ onClose }) => {
                   ? ' Günlük limitinize (2) ulaştınız.'
                   : ` Bir sonraki gönderim için ${cooldownInfo.remainingTime} beklemelisiniz.`
                 }
-                {cooldownInfo.remainingTime && ` (Kalan süre: ${cooldownInfo.remainingTime})`}
               </p>
             </div>
           )}
 
           {cooldownInfo.canSend && country && (
             <p className="text-xs font-bold text-blue-600 bg-blue-50 p-3 rounded-2xl border border-blue-100">
-              ✅ Broadcast gönderime hazır. Gönderimler arası en az 6 saat olmalıdır.
+              ✅ Broadcast kanalına gönderilecek. Gönderimler arası en az 6 saat olmalıdır.
             </p>
           )}
         </div>
@@ -293,7 +239,6 @@ export const BroadcastModal: React.FC<BroadcastModalProps> = ({ onClose }) => {
               onClick={handleBroadcast}
               disabled={sending || !message.trim() || !country || !cooldownInfo.canSend}
               className="bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 text-white p-6 rounded-2xl shadow-xl shadow-blue-600/20 transition-all flex items-center justify-center shrink-0 active:scale-95"
-              title={!cooldownInfo.canSend ? 'Broadcast limitine ulaşıldı' : 'Broadcast Gönder'}
             >
               {sending ? (
                 <div className="w-6 h-6 border-3 border-white/30 border-t-white rounded-full animate-spin" />
