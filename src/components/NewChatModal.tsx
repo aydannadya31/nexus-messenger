@@ -152,15 +152,20 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({ onClose, onChatCreat
   const startPrivateChat = async (otherUser: UserProfile) => {
     if (!user) return;
 
-    // Check if already friends
+    // Check if already friends (either direction)
     const friendsRef = collection(db, 'friendRequests');
-    const approvedQ = query(friendsRef, 
+    const approvedQ1 = query(friendsRef, 
       where('from', '==', user.uid),
       where('to', '==', otherUser.uid),
       where('status', '==', 'approved')
     );
-    const approvedSnap = await getDocs(approvedQ);
-    if (!approvedSnap.empty) {
+    const approvedQ2 = query(friendsRef, 
+      where('from', '==', otherUser.uid),
+      where('to', '==', user.uid),
+      where('status', '==', 'approved')
+    );
+    const [approvedSnap1, approvedSnap2] = await Promise.all([getDocs(approvedQ1), getDocs(approvedQ2)]);
+    if (!approvedSnap1.empty || !approvedSnap2.empty) {
       // Friend approved - check existing chat
       const chatsRef = collection(db, 'chats');
       const q = query(chatsRef, 
@@ -195,15 +200,24 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({ onClose, onChatCreat
       return;
     }
 
-    // Check if request already pending
-    const pendingQ = query(friendsRef, 
+    // Check if request already pending (either direction)
+    const pendingQ1 = query(friendsRef, 
       where('from', '==', user.uid),
       where('to', '==', otherUser.uid),
       where('status', '==', 'pending')
     );
-    const pendingSnap = await getDocs(pendingQ);
-    if (!pendingSnap.empty) {
+    const pendingQ2 = query(friendsRef, 
+      where('from', '==', otherUser.uid),
+      where('to', '==', user.uid),
+      where('status', '==', 'pending')
+    );
+    const [pendingSnap1, pendingSnap2] = await Promise.all([getDocs(pendingQ1), getDocs(pendingQ2)]);
+    if (!pendingSnap1.empty) {
       alert('Bu kullanıcıya zaten arkadaşlık isteği gönderdiniz.');
+      return;
+    }
+    if (!pendingSnap2.empty) {
+      alert('Bu kullanıcıdan zaten arkadaşlık isteği var. Lütfen istekleri kontrol edin.');
       return;
     }
 

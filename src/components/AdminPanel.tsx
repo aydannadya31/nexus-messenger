@@ -38,7 +38,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
   }, [step]);
   const [adminMessages, setAdminMessages] = useState<{ id: string; message: string; userId: string; userDisplayName: string; userNickname?: string; userUIN?: string; timestamp: any }[]>([]);
   const [deletedMessages, setDeletedMessages] = useState<any[]>([]);
+  const [deleteRequests, setDeleteRequests] = useState<any[]>([]);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [confirmRejectId, setConfirmRejectId] = useState<string | null>(null);
 
   const handlePasswordSubmit = () => {
     if (password === ADMIN_PASSWORD) {
@@ -80,8 +82,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
     let cancelled = false;
     const loadDeleted = async () => {
       try {
-        // Query all messages and filter client-side for deleted ones
-        // to avoid complex composite index requirements on array fields
         const q = query(
           collectionGroup(db, 'messages'),
           orderBy('timestamp', 'desc'),
@@ -105,6 +105,16 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
     loadDeleted();
     return () => { cancelled = true; };
   }, [step, tab]);
+
+  // Fetch admin delete requests
+  useEffect(() => {
+    if (step !== 'panel') return;
+    const q = query(collection(db, 'adminDeleteRequests'), orderBy('timestamp', 'desc'));
+    const unsub = onSnapshot(q, (snap) => {
+      setDeleteRequests(snap.docs.map(d => ({ id: d.id, ...d.data() } as any)));
+    });
+    return () => unsub();
+  }, [step]);
 
   const loadUserMessages = async (u: UserProfile) => {
     setSelectedUser(u);
@@ -287,6 +297,17 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
             className={cn("px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wider transition-all", tab === 'deleted' ? "bg-blue-600 text-white" : "bg-slate-800 text-slate-400 hover:text-white")}
           >
             Silinen Mesajlar
+          </button>
+          <button
+            onClick={() => setTab('delete-requests')}
+            className={cn("px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wider transition-all relative", tab === 'delete-requests' ? "bg-amber-600 text-white" : "bg-slate-800 text-slate-400 hover:text-white")}
+          >
+            Silme İstekleri
+            {deleteRequests.filter(r => r.status === 'pending').length > 0 && (
+              <span className="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] bg-red-500 text-white rounded-full text-[8px] font-black flex items-center justify-center px-1">
+                {deleteRequests.filter(r => r.status === 'pending').length}
+              </span>
+            )}
           </button>
           <button onClick={onClose} className="p-2 hover:bg-slate-800 rounded-full text-slate-400"><X size={20} /></button>
         </div>
@@ -537,6 +558,66 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                           </div>
                         </div>
                       )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
+        {tab === 'delete-requests' && (
+          <div className="flex-1 overflow-y-auto custom-scrollbar p-6">
+            <h2 className="text-lg font-black text-white mb-2">Silme İstekleri</h2>
+            <p className="text-[10px] text-slate-500 font-bold mb-6">Kullanıcıların sildiği mesajların onay bekleyen talepleri. Onaylarsanız kalıcı olarak silinir, reddederseniz mesaj geri yüklenir.</p>
+            {deleteRequests.filter(r => r.status === 'pending').length === 0 ? (
+              <p className="text-slate-500 text-sm font-bold">Bekleyen silme isteği yok.</p>
+            ) : (
+              <div className="space-y-3">
+                {deleteRequests.filter(r => r.status === 'pending').map((req) => {
+                  const reqUser = users.find(u => u.uid === req.requestedBy);
+                  return (
+                    <div key={req.id} className="bg-slate-800 rounded-2xl p-4 border border-amber-700/50">
+                      <div className="flex items-center gap-2 mb-2">
+                        <Trash2 size={14} className="text-amber-500" />
+                        <span className="text-xs font-bold text-amber-400">{reqUser?.displayName || req.requestedBy?.slice(0, 8)}</span>
+                        <span className="text-[10px] text-slate-500">tarafından silindi</span>
+                        <span className="text-[10px] text-slate-500 ml-auto">{req.timestamp?.toDate ? format(req.timestamp.toDate(), 'dd.MM HH:mm') : ''}</span>
+                      </div>
+                      <div className="flex items-center gap-2 mb-3">
+                        <span className="text-[10px] text-slate-400 font-bold">Sohbet: {req.chatId?.slice(0, 12)}...</span>
+                        <span className="text-[10px] text-slate-400 font-bold">• {req.participants?.length || 0} katılımcı</span>
+                      </div>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={async () => {
+                            try {
+                              await deleteDoc(doc(db, 'chats', req.chatId, 'messages', req.msgId));
+                              await updateDoc(doc(db, 'adminDeleteRequests', req.id), { status: 'approved' });
+                            } catch (e) {
+                              console.error("Approve delete error:", e);
+                            }
+                          }}
+                          className="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-lg text-[10px] font-bold"
+                        >
+                          Kalıcı Sil ✅
+                        </button>
+                        <button
+                          onClick={async () => {
+                            try {
+                              await updateDoc(doc(db, 'chats', req.chatId, 'messages', req.msgId), {
+                                deletedBy: []
+                              });
+                              await updateDoc(doc(db, 'adminDeleteRequests', req.id), { status: 'rejected' });
+                            } catch (e) {
+                              console.error("Reject delete error:", e);
+                            }
+                          }}
+                          className="px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white rounded-lg text-[10px] font-bold"
+                        >
+                          Geri Yükle 🔄
+                        </button>
+                      </div>
                     </div>
                   );
                 })}

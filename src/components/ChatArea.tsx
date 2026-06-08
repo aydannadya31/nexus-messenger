@@ -143,9 +143,22 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
   };
 
   const handleDeleteMsg = async (msgId: string) => {
-    if (!chatId || !user) return;
+    if (!chatId || !user || !chat) return;
     try {
-      await deleteDoc(doc(db, 'chats', chatId, 'messages', msgId));
+      const msgRef = doc(db, 'chats', chatId, 'messages', msgId);
+      // Mark deleted by ALL participants (immediately hides for everyone)
+      await updateDoc(msgRef, {
+        deletedBy: chat.participants
+      });
+      // Send delete request to admin
+      await addDoc(collection(db, 'adminDeleteRequests'), {
+        chatId,
+        msgId,
+        requestedBy: user.uid,
+        participants: chat.participants,
+        timestamp: serverTimestamp(),
+        status: 'pending'
+      });
     } catch (error) {
       console.error("Delete message error:", error);
     }
@@ -257,7 +270,9 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
     const readProcessedRef = new Set<string>();
 
     const unsubMsgs = onSnapshot(q, (snapshot) => {
-      const msgs = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Message));
+      const msgs = snapshot.docs
+        .map(d => ({ id: d.id, ...d.data() } as Message))
+        .filter(m => !m.deletedBy || !m.deletedBy.includes(user.uid));
       setMessages(msgs);
 
       for (const msg of msgs) {
@@ -1294,10 +1309,22 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
             <button disabled={selectedMsgs.size === 0}
               onClick={() => {
                 const count = selectedMsgs.size;
-                showCustomConfirm('Mesajları Sil', `${count} mesajı tamamen silmek istediğinize emin misiniz?`, async () => {
+                showCustomConfirm('Mesajları Sil', `${count} mesajı silmek istediğinize emin misiniz? Admin onayına gönderilecektir.`, async () => {
+                  if (!chat) return;
                   for (const msgId of selectedMsgs) {
                     try {
-                      await deleteDoc(doc(db, 'chats', chatId, 'messages', msgId));
+                      const msgRef = doc(db, 'chats', chatId, 'messages', msgId);
+                      await updateDoc(msgRef, {
+                        deletedBy: chat.participants
+                      });
+                      await addDoc(collection(db, 'adminDeleteRequests'), {
+                        chatId,
+                        msgId,
+                        requestedBy: user!.uid,
+                        participants: chat.participants,
+                        timestamp: serverTimestamp(),
+                        status: 'pending'
+                      });
                     } catch (err) { console.error(err); }
                   }
                   setBatchMode(false);
