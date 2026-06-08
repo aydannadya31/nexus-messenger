@@ -103,6 +103,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
   const [encryptImagePwd, setEncryptImagePwd] = useState('');
   const [encryptImageMsgId, setEncryptImageMsgId] = useState<string | null>(null);
   const [encryptMode, setEncryptMode] = useState(false);
+  const encryptPwdRef = useRef('');
   const [selectedActionMsg, setSelectedActionMsg] = useState<string | null>(null);
   const [customDialog, setCustomDialog] = useState<{
     isOpen: boolean;
@@ -349,18 +350,29 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
     const reader = new FileReader();
     reader.onloadend = async () => {
       const base64Video = reader.result as string;
+      let pwd = encryptPwdRef.current;
+      if (encryptMode && !pwd) {
+        pwd = prompt('Şifreli video şifresini girin:') || '';
+        if (!pwd) { setEncryptMode(false); return; }
+        encryptPwdRef.current = pwd;
+      }
       try {
-        await addDoc(collection(db, 'chats', chatId, 'messages'), {
+        const msgData: any = {
           videoUrl: base64Video,
           senderId: user.uid,
           timestamp: serverTimestamp(),
           type: 'video',
           status: 'sent'
-        });
+        };
+        if (encryptMode && pwd) {
+          msgData.encrypted = true;
+          msgData.imagePassword = btoa(pwd);
+        }
+        await addDoc(collection(db, 'chats', chatId, 'messages'), msgData);
 
         await updateDoc(doc(db, 'chats', chatId), {
           lastMessage: {
-            text: '🎥 Video Mesajı',
+            text: encryptMode && pwd ? '🔒 Şifreli Video' : '🎥 Video Mesajı',
             senderId: user.uid,
             senderName: user.displayName,
             timestamp: serverTimestamp()
@@ -447,18 +459,29 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
 
   const sendAudioMessage = async (audioUrl: string) => {
     if (!user || !chatId) return;
+    let pwd = encryptPwdRef.current;
+    if (encryptMode && !pwd) {
+      pwd = prompt('Şifreli ses mesajı şifresini girin:') || '';
+      if (!pwd) { setEncryptMode(false); return; }
+      encryptPwdRef.current = pwd;
+    }
     try {
-      await addDoc(collection(db, 'chats', chatId, 'messages'), {
+      const msgData: any = {
         audioUrl,
         senderId: user.uid,
         timestamp: serverTimestamp(),
         type: 'audio',
         status: 'sent'
-      });
+      };
+      if (encryptMode && pwd) {
+        msgData.encrypted = true;
+        msgData.imagePassword = btoa(pwd);
+      }
+      await addDoc(collection(db, 'chats', chatId, 'messages'), msgData);
 
       await updateDoc(doc(db, 'chats', chatId), {
         lastMessage: {
-          text: '🎤 Ses Mesajı',
+          text: encryptMode && pwd ? '🔒 Şifreli Ses' : '🎤 Ses Mesajı',
           senderId: user.uid,
           senderName: user.displayName,
           timestamp: serverTimestamp()
@@ -600,17 +623,28 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
       showCustomAlert("Video Çok Büyük", "Video dosyası çok büyük. Lütfen daha kısa bir kayıt yapın.");
       return;
     }
+    let pwd = encryptPwdRef.current;
+    if (encryptMode && !pwd) {
+      pwd = prompt('Şifreli video şifresini girin:') || '';
+      if (!pwd) { setEncryptMode(false); return; }
+      encryptPwdRef.current = pwd;
+    }
     try {
-      await addDoc(collection(db, 'chats', chatId, 'messages'), {
+      const msgData: any = {
         videoUrl,
         senderId: user.uid,
         timestamp: serverTimestamp(),
         type: 'video',
         status: 'sent'
-      });
+      };
+      if (encryptMode && pwd) {
+        msgData.encrypted = true;
+        msgData.imagePassword = btoa(pwd);
+      }
+      await addDoc(collection(db, 'chats', chatId, 'messages'), msgData);
       await updateDoc(doc(db, 'chats', chatId), {
         lastMessage: {
-          text: '🎥 Video Mesajı',
+          text: encryptMode && pwd ? '🔒 Şifreli Video' : '🎥 Video Mesajı',
           senderId: user.uid,
           senderName: user.displayName,
           timestamp: serverTimestamp()
@@ -639,10 +673,11 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
     const reader = new FileReader();
     reader.onloadend = async () => {
       const base64Image = reader.result as string;
-      let pwd = '';
-      if (encryptMode) {
+      let pwd = encryptPwdRef.current;
+      if (encryptMode && !pwd) {
         pwd = prompt('Şifreli görsel şifresini girin:') || '';
-        if (!pwd) { return; }
+        if (!pwd) { setEncryptMode(false); return; }
+        encryptPwdRef.current = pwd;
       }
       try {
         const msgData: any = {
@@ -714,21 +749,34 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
     const text = inputText;
     setInputText('');
 
-    const messageData = {
+    let pwd = '';
+    if (encryptMode) {
+      pwd = encryptPwdRef.current;
+      if (!pwd) {
+        pwd = prompt('Şifreli mesaj şifresini girin:') || '';
+        if (!pwd) { setEncryptMode(false); return; }
+        encryptPwdRef.current = pwd;
+      }
+    }
+
+    const messageData: any = {
       text,
       senderId: user.uid,
       timestamp: serverTimestamp(),
       type: 'text',
       status: 'sent'
     };
+    if (encryptMode && pwd) {
+      messageData.encrypted = true;
+      messageData.imagePassword = btoa(pwd);
+    }
 
     try {
       await addDoc(collection(db, 'chats', chatId, 'messages'), messageData);
       
-      // Update chat last message
       await updateDoc(doc(db, 'chats', chatId), {
         lastMessage: {
-          text,
+          text: encryptMode && pwd ? '🔒 Şifreli Mesaj' : text,
           senderId: user.uid,
           senderName: user.displayName,
           timestamp: serverTimestamp()
@@ -1119,10 +1167,31 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
                       )}
 
                       {msg.type === 'text' && (
-                        <p className={cn(
-                          "text-sm font-medium leading-relaxed",
-                          isDeleted && "line-through text-slate-400 font-normal italic"
-                        )}>{msg.text}</p>
+                        msg.encrypted && !isDeleted ? (
+                          <div>
+                            {encryptImageMsgId === msg.id ? (
+                              <p className="text-sm font-medium leading-relaxed">{msg.text}</p>
+                            ) : (
+                              <button onClick={(e) => {
+                                e.stopPropagation();
+                                const pwd = prompt('Şifreli mesaj şifresini girin:');
+                                if (pwd && btoa(pwd) === msg.imagePassword) {
+                                  setEncryptImageMsgId(msg.id!);
+                                } else {
+                                  alert('Hatalı şifre!');
+                                }
+                              }}
+                              className="text-sm font-medium leading-relaxed opacity-70 hover:opacity-100 text-left w-full">
+                                🔒 Şifreli Mesaj (dokunun)
+                              </button>
+                            )}
+                          </div>
+                        ) : (
+                          <p className={cn(
+                            "text-sm font-medium leading-relaxed",
+                            isDeleted && "line-through text-slate-400 font-normal italic"
+                          )}>{msg.text}</p>
+                        )
                       )}
                       
                       {msg.type === 'image' && msg.imageUrl && (
@@ -1165,12 +1234,40 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
                           "relative rounded-lg overflow-hidden mb-1 min-w-[240px] bg-black/5",
                           isDeleted && "grayscale blur-[2px] opacity-40"
                         )}>
-                          <video 
-                            src={msg.videoUrl} 
-                            className="max-w-full h-auto" 
-                            controls={!isDeleted}
-                            playsInline
-                          />
+                          {msg.encrypted && !isDeleted ? (
+                            <div className="relative">
+                              <video 
+                                src={msg.videoUrl} 
+                                className="max-w-full h-auto blur-[12px]" 
+                                playsInline
+                              />
+                              <div className="absolute inset-0 flex items-center justify-center">
+                                <button onClick={(e) => {
+                                  e.stopPropagation();
+                                  if (encryptImageMsgId === msg.id) {
+                                    setEncryptImageMsgId(null);
+                                  } else {
+                                    const pwd = prompt('Şifreli video şifresini girin:');
+                                    if (pwd && btoa(pwd) === msg.imagePassword) {
+                                      setEncryptImageMsgId(msg.id!);
+                                    } else if (pwd) {
+                                      showCustomAlert('Hata', 'Yanlış şifre!');
+                                    }
+                                  }
+                                }}
+                                className="bg-black/50 text-white text-[10px] font-bold px-3 py-1.5 rounded-full backdrop-blur-sm hover:bg-black/70">
+                                  {encryptImageMsgId === msg.id ? '🔓 İzle' : '🔒 Şifreli'}
+                                </button>
+                              </div>
+                            </div>
+                          ) : (
+                            <video 
+                              src={msg.videoUrl} 
+                              className="max-w-full h-auto" 
+                              controls={!isDeleted}
+                              playsInline
+                            />
+                          )}
                         </div>
                       )}
 
@@ -1191,7 +1288,29 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
 
                       {msg.type === 'audio' && msg.audioUrl && (
                         <div className={cn(isDeleted && "grayscale opacity-40 pointer-events-none")}>
-                          <AudioPlayer url={msg.audioUrl} isMe={isMe} />
+                          {msg.encrypted && !isDeleted ? (
+                            <div className="flex items-center gap-2 p-2">
+                              <span className="text-sm">🔒</span>
+                              {encryptImageMsgId === msg.id ? (
+                                <AudioPlayer url={msg.audioUrl} isMe={isMe} />
+                              ) : (
+                                <button onClick={(e) => {
+                                  e.stopPropagation();
+                                  const pwd = prompt('Şifreli ses mesajı şifresini girin:');
+                                  if (pwd && btoa(pwd) === msg.imagePassword) {
+                                    setEncryptImageMsgId(msg.id!);
+                                  } else if (pwd) {
+                                    showCustomAlert('Hata', 'Yanlış şifre!');
+                                  }
+                                }}
+                                className="text-[10px] font-bold text-slate-500 hover:text-slate-700">
+                                  Şifreli Ses Mesajı (dokunun)
+                                </button>
+                              )}
+                            </div>
+                          ) : (
+                            <AudioPlayer url={msg.audioUrl} isMe={isMe} />
+                          )}
                         </div>
                       )}
 

@@ -29,9 +29,9 @@ const FriendRequestsModal: React.FC<FriendRequestsModalProps> = ({ onClose }) =>
   useEffect(() => {
     if (!user) return;
     const unsubIncoming = onSnapshot(
-      query(collection(db, 'friendRequests'), where('to', '==', user.uid), where('status', '==', 'pending')),
+      query(collection(db, 'friendRequests'), where('to', '==', user.uid)),
       (snap) => {
-        setIncoming(snap.docs.map(d => ({ id: d.id, ...d.data() } as FriendRequest)));
+        setIncoming(snap.docs.map(d => ({ id: d.id, ...d.data() } as FriendRequest)).filter(r => r.status === 'pending'));
       }
     );
     const unsubOutgoing = onSnapshot(

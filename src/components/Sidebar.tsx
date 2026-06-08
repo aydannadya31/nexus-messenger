@@ -48,8 +48,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
   useEffect(() => {
     if (!user) return;
     const unsub = onSnapshot(
-      query(collection(db, 'friendRequests'), where('to', '==', user.uid), where('status', '==', 'pending')),
-      (snap) => setPendingRequestCount(snap.docs.length)
+      query(collection(db, 'friendRequests'), where('to', '==', user.uid)),
+      (snap) => setPendingRequestCount(snap.docs.filter(d => d.data().status === 'pending').length)
     );
     return () => unsub();
   }, [user]);

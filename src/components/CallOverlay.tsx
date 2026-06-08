@@ -23,23 +23,14 @@ export const CallOverlay = () => {
 
   const pcs = useRef<Record<string, RTCPeerConnection>>({});
   const localVideoRef = useRef<HTMLVideoElement>(null);
+  const pendingCandidates = useRef<Record<string, RTCIceCandidateInit[]>>({});
 
   const configuration: RTCConfiguration = {
     iceServers: [
       { urls: 'stun:stun.l.google.com:19302' },
       { urls: 'stun:stun1.l.google.com:19302' },
-      {
-        urls: 'turn:openrelay.metered.ca:80',
-        username: 'openrelayproject',
-        credential: 'openrelayproject',
-      },
-      {
-        urls: 'turn:openrelay.metered.ca:443',
-        username: 'openrelayproject',
-        credential: 'openrelayproject',
-      },
     ],
-    iceCandidatePoolSize: 10,
+    iceCandidatePoolSize: 5,
   };
 
   // Play ringtone for incoming call
@@ -257,12 +248,18 @@ export const CallOverlay = () => {
               if (!stream) return;
               let pc = pcs.current[signal.from];
               if (!pc) {
-                pc = await getOrCreatePC(signal.from, false);
-              }
-              if (!pc) return;
-              addLocalTracksToPC(pc);
-              await pc.setRemoteDescription(new RTCSessionDescription(signal.data));
-              const answer = await pc.createAnswer();
+              pc = await getOrCreatePC(signal.from, false);
+            }
+            if (!pc) return;
+            addLocalTracksToPC(pc);
+            await pc.setRemoteDescription(new RTCSessionDescription(signal.data));
+            // Process buffered candidates
+            const buffered = pendingCandidates.current[signal.from] || [];
+            delete pendingCandidates.current[signal.from];
+            for (const c of buffered) {
+              try { await pc.addIceCandidate(new RTCIceCandidate(c)); } catch (e) {}
+            }
+            const answer = await pc.createAnswer();
               await pc.setLocalDescription(answer);
               await addDoc(collection(db, 'calls', activeCall.id, 'signals'), {
                 from: user.uid,
@@ -276,14 +273,25 @@ export const CallOverlay = () => {
               if (!pc) return;
               if (pc.signalingState !== 'have-local-offer') return;
               await pc.setRemoteDescription(new RTCSessionDescription(signal.data));
+              // Process buffered candidates
+              const buffered = pendingCandidates.current[signal.from] || [];
+              delete pendingCandidates.current[signal.from];
+              for (const c of buffered) {
+                try { await pc.addIceCandidate(new RTCIceCandidate(c)); } catch (e) {}
+              }
             } else if (signal.type === 'candidate') {
               let pc = pcs.current[signal.from];
-              if (!pc) return;
-              if (pc.remoteDescription) {
-                try {
-                  await pc.addIceCandidate(new RTCIceCandidate(signal.data));
-                } catch (e) {}
+              if (!pc || !pc.remoteDescription) {
+                // Buffer candidates until remote description is set
+                if (!pendingCandidates.current[signal.from]) {
+                  pendingCandidates.current[signal.from] = [];
+                }
+                pendingCandidates.current[signal.from].push(signal.data);
+                return;
               }
+              try {
+                await pc.addIceCandidate(new RTCIceCandidate(signal.data));
+              } catch (e) {}
             }
           } catch (err) {
             console.error("Signal processing error:", err);

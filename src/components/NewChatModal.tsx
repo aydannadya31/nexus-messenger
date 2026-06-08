@@ -152,72 +152,62 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({ onClose, onChatCreat
   const startPrivateChat = async (otherUser: UserProfile) => {
     if (!user) return;
 
-    // Check if already friends (either direction)
-    const friendsRef = collection(db, 'friendRequests');
-    const approvedQ1 = query(friendsRef, 
-      where('from', '==', user.uid),
-      where('to', '==', otherUser.uid),
-      where('status', '==', 'approved')
+    // First: check if chat already exists
+    const chatsRef = collection(db, 'chats');
+    const chatQuery = query(chatsRef, 
+      where('participants', 'array-contains', user.uid),
+      where('type', '==', 'private')
     );
-    const approvedQ2 = query(friendsRef, 
-      where('from', '==', otherUser.uid),
-      where('to', '==', user.uid),
-      where('status', '==', 'approved')
-    );
-    const [approvedSnap1, approvedSnap2] = await Promise.all([getDocs(approvedQ1), getDocs(approvedQ2)]);
-    if (!approvedSnap1.empty || !approvedSnap2.empty) {
-      // Friend approved - check existing chat
-      const chatsRef = collection(db, 'chats');
-      const q = query(chatsRef, 
-        where('participants', 'array-contains', user.uid),
-        where('type', '==', 'private')
-      );
-      const snapshot = await getDocs(q);
-      
-      let existingChatId = null;
-      snapshot.forEach(d => {
-        const data = d.data();
-        if (data.participants.includes(otherUser.uid)) {
-          existingChatId = d.id;
-        }
-      });
-
-      if (existingChatId) {
-        onChatCreated(existingChatId);
-        onClose();
-        return;
+    const chatSnap = await getDocs(chatQuery);
+    let existingChatId = null;
+    chatSnap.forEach(d => {
+      const data = d.data();
+      if (data.participants.includes(otherUser.uid)) {
+        existingChatId = d.id;
       }
+    });
+    if (existingChatId) {
+      onChatCreated(existingChatId);
+      onClose();
+      return;
+    }
 
+    // Second: check friend request status
+    const friendsRef = collection(db, 'friendRequests');
+    // Fetch all requests involving both users, filter client-side to avoid composite index issues
+    const [q1, q2] = await Promise.all([
+      getDocs(query(friendsRef, where('from', 'in', [user.uid, otherUser.uid]))),
+      getDocs(query(friendsRef, where('to', 'in', [user.uid, otherUser.uid])))
+    ]);
+    const allRequests = [...q1.docs, ...q2.docs].map(d => ({ id: d.id, ...d.data() } as any));
+    const unique = allRequests.filter((r, i, arr) => arr.findIndex(x => x.id === r.id) === i);
+
+    const approved = unique.find(r =>
+      r.status === 'approved' &&
+      ((r.from === user.uid && r.to === otherUser.uid) || (r.from === otherUser.uid && r.to === user.uid))
+    );
+    if (approved) {
       const newChatRef = await addDoc(chatsRef, {
         participants: [user.uid, otherUser.uid],
         type: 'private',
         updatedAt: serverTimestamp(),
         lastMessage: null
       });
-      
       onChatCreated(newChatRef.id);
       onClose();
       return;
     }
 
-    // Check if request already pending (either direction)
-    const pendingQ1 = query(friendsRef, 
-      where('from', '==', user.uid),
-      where('to', '==', otherUser.uid),
-      where('status', '==', 'pending')
+    const pending = unique.find(r =>
+      r.status === 'pending' &&
+      ((r.from === user.uid && r.to === otherUser.uid) || (r.from === otherUser.uid && r.to === user.uid))
     );
-    const pendingQ2 = query(friendsRef, 
-      where('from', '==', otherUser.uid),
-      where('to', '==', user.uid),
-      where('status', '==', 'pending')
-    );
-    const [pendingSnap1, pendingSnap2] = await Promise.all([getDocs(pendingQ1), getDocs(pendingQ2)]);
-    if (!pendingSnap1.empty) {
-      alert('Bu kullanıcıya zaten arkadaşlık isteği gönderdiniz.');
-      return;
-    }
-    if (!pendingSnap2.empty) {
-      alert('Bu kullanıcıdan zaten arkadaşlık isteği var. Lütfen istekleri kontrol edin.');
+    if (pending) {
+      if (pending.from === user.uid) {
+        alert('Bu kullanıcıya zaten arkadaşlık isteği gönderdiniz.');
+      } else {
+        alert('Bu kullanıcıdan zaten arkadaşlık isteği var. Lütfen istekleri kontrol edin.');
+      }
       return;
     }
 
@@ -272,20 +262,19 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({ onClose, onChatCreat
     if (!name.trim()) { setFoundGroups([]); return; }
     setGroupSearchLoading(true);
     try {
-      const q = query(
-        collection(db, 'chats'),
-        where('type', '==', 'group')
-      );
-      const snap = await getDocs(q);
+      // Fetch all chats and filter client-side to avoid composite index issues
+      const snap = await getDocs(collection(db, 'chats'));
       const groups = snap.docs
         .map(d => ({ id: d.id, ...d.data() } as Chat))
         .filter(g => 
+          g.type === 'group' &&
           g.groupMetadata?.name?.toLowerCase().includes(name.toLowerCase()) &&
           !g.participants.includes(user!.uid)
         );
       setFoundGroups(groups);
     } catch (err) {
       console.error("Group search error:", err);
+      setFoundGroups([]);
     } finally {
       setGroupSearchLoading(false);
     }
