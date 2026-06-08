@@ -28,6 +28,16 @@ export const CallOverlay = () => {
     iceServers: [
       { urls: 'stun:stun.l.google.com:19302' },
       { urls: 'stun:stun1.l.google.com:19302' },
+      {
+        urls: 'turn:openrelay.metered.ca:80',
+        username: 'openrelayproject',
+        credential: 'openrelayproject',
+      },
+      {
+        urls: 'turn:openrelay.metered.ca:443',
+        username: 'openrelayproject',
+        credential: 'openrelayproject',
+      },
     ],
     iceCandidatePoolSize: 10,
   };
@@ -123,7 +133,7 @@ export const CallOverlay = () => {
     });
   }, []);
 
-  const createPeerConnection = useCallback(async (pId: string, isInitiator: boolean) => {
+  const getOrCreatePC = useCallback(async (pId: string, isInitiator: boolean) => {
     if (pcs.current[pId]) {
       addLocalTracksToPC(pcs.current[pId]);
       return pcs.current[pId];
@@ -203,25 +213,28 @@ export const CallOverlay = () => {
     return pc;
   }, [activeCall, user?.uid, cleanupPeer, addLocalTracksToPC]);
 
+  const initLocalMedia = useCallback(async (isVideoCall: boolean) => {
+    if (localStreamRef.current) return localStreamRef.current;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ 
+        video: isVideoCall ? { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } } : false, 
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } 
+      });
+      localStreamRef.current = stream;
+      setLocalStream(stream);
+      return stream;
+    } catch (err) {
+      console.error("Media access error:", err);
+      return null;
+    }
+  }, []);
+
   // Initialize Local Media
   useEffect(() => {
-    if (activeCall && !localStream) {
-      const startMedia = async () => {
-        try {
-          const isVideoCall = activeCall.mediaType === 'video';
-          const stream = await navigator.mediaDevices.getUserMedia({ 
-            video: isVideoCall ? { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } } : false, 
-            audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } 
-          });
-          localStreamRef.current = stream;
-          setLocalStream(stream);
-        } catch (err) {
-          console.error("Media access error:", err);
-        }
-      };
-      startMedia();
+    if (activeCall && !localStreamRef.current) {
+      initLocalMedia(activeCall.mediaType === 'video');
     }
-  }, [activeCall?.id]);
+  }, [activeCall?.id, initLocalMedia]);
 
   // Global Signaling Listener
   useEffect(() => {
@@ -240,13 +253,11 @@ export const CallOverlay = () => {
           try {
             if (signal.type === 'offer') {
               // Wait for local stream before processing offer
-              for (let i = 0; i < 50 && !localStreamRef.current; i++) {
-                await new Promise(r => setTimeout(r, 200));
-              }
-              if (!localStreamRef.current) return;
+              const stream = localStreamRef.current || await initLocalMedia(activeCall?.mediaType === 'video');
+              if (!stream) return;
               let pc = pcs.current[signal.from];
               if (!pc) {
-                pc = await createPeerConnection(signal.from, false);
+                pc = await getOrCreatePC(signal.from, false);
               }
               if (!pc) return;
               addLocalTracksToPC(pc);
@@ -282,7 +293,7 @@ export const CallOverlay = () => {
     });
 
     return () => unsubscribe();
-  }, [activeCall?.id, user?.uid, createPeerConnection]);
+  }, [activeCall?.id, user?.uid, getOrCreatePC, initLocalMedia]);
 
   // Re-add local tracks to all peers when localStream changes
   useEffect(() => {
@@ -311,7 +322,7 @@ export const CallOverlay = () => {
       if (pId !== user.uid && !pcs.current[pId]) {
         // Smaller UID initiates to larger UID to avoid double offers
         if (user.uid < pId) {
-          await createPeerConnection(pId, true);
+          await getOrCreatePC(pId, true);
         }
       }
     });
@@ -322,7 +333,7 @@ export const CallOverlay = () => {
         cleanupPeer(pId);
       }
     });
-  }, [activeCall?.activeParticipants, user?.uid, localStream, createPeerConnection, cleanupPeer]);
+  }, [activeCall?.activeParticipants, user?.uid, localStream, getOrCreatePC, cleanupPeer]);
 
   // Cleanup on call end
   useEffect(() => {
