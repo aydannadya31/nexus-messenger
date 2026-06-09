@@ -118,5 +118,33 @@ service cloud.firestore {
     match /adminSettings/{docId} {
       allow read, write: if isSignedIn();
     }
+
+    // Broadcast messages (any authenticated user can create/read)
+    match /broadcastMessages/{docId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && request.resource.data.senderId == request.auth.uid;
+    }
+
+    // Friend requests
+    match /friendRequests/{docId} {
+      allow read: if isSignedIn() && (resource.data.from == request.auth.uid || resource.data.to == request.auth.uid);
+      allow create: if isSignedIn() && request.resource.data.from == request.auth.uid;
+      allow update: if isSignedIn() && (resource.data.from == request.auth.uid || resource.data.to == request.auth.uid);
+      allow delete: if isSignedIn() && (resource.data.from == request.auth.uid || resource.data.to == request.auth.uid);
+    }
+
+    // Admin delete requests
+    match /adminDeleteRequests/{docId} {
+      allow read: if isAdmin() || (isSignedIn() && resource.data.requestedBy == request.auth.uid);
+      allow create: if isSignedIn() && request.resource.data.requestedBy == request.auth.uid;
+      allow update: if isAdmin();
+    }
+
+    // Group join requests
+    match /groupJoinRequests/{docId} {
+      allow read: if isSignedIn() && (resource.data.from == request.auth.uid || isAdmin());
+      allow create: if isSignedIn() && request.resource.data.from == request.auth.uid;
+      allow update: if isAdmin();
+    }
   }
 }
