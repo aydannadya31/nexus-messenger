@@ -5,7 +5,7 @@ import { useAuth } from './AuthProvider';
 import { useCall } from './CallProvider';
 import { Chat, Message, UserProfile, Call } from '../types';
 import { cn } from '../lib/utils';
-import { Image, MoreVertical, Send, Smile, Phone, Video, MessageSquarePlus, Clock, Play, Mic, Pause, Trash2, ArrowLeft, X, ListChecks } from 'lucide-react';
+import { Image, Send, Smile, Phone, Video, MessageSquarePlus, Clock, Play, Mic, Pause, Trash2, ArrowLeft, X, ListChecks, ZoomIn } from 'lucide-react';
 import { format } from 'date-fns';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -109,6 +109,20 @@ const DecryptContent: React.FC<{ msg: Message; onClose: () => void }> = ({ msg, 
         )}
         {msg.type === 'audio' && msg.audioUrl && (
           <audio src={msg.audioUrl} className="w-full" controls />
+        )}
+        {(msg.type === 'image' || msg.type === 'video') && (
+          <button onClick={() => {
+            const url = msg.type === 'image' ? msg.imageUrl : msg.videoUrl;
+            if (!url) return;
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = msg.type === 'image' ? 'image.png' : 'video.webm';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+          }} className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all mb-2">
+            📥 İndir
+          </button>
         )}
         <button onClick={onClose} className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition-all">
           Kapat
@@ -1041,47 +1055,19 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
             </button>
           </div>
           
-          <div className="relative">
-            <button 
-              onClick={() => setIsHeaderMenuOpen(!isHeaderMenuOpen)}
-              className="hover:text-slate-900 transition-colors p-1 rounded-full hover:bg-slate-100"
-            >
-              <MoreVertical size={20} />
-            </button>
-
-            {isHeaderMenuOpen && (
-              <>
-                <div 
-                  className="fixed inset-0 z-40" 
-                  onClick={() => setIsHeaderMenuOpen(false)} 
-                />
-                <div className="absolute right-0 mt-2 w-56 bg-white border border-slate-150 rounded-2xl shadow-xl py-2 z-50 animate-in fade-in slide-in-from-top-1 duration-100">
-                  <div className="px-4 py-2 border-b border-slate-100">
-                    <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">Sohbet İşlemleri</p>
-                  </div>
-                  <button 
-                    onClick={() => { setIsHeaderMenuOpen(false); setBatchMode(!batchMode); setSelectedMsgs(new Set()); }}
-                    className="w-full text-left px-4 py-3 text-xs font-bold text-slate-700 hover:bg-slate-50 transition-colors flex items-center gap-2"
-                  >
-                    ☑️ Toplu Mesaj Seç
-                  </button>
-                  <button 
-                    onClick={() => { 
-                      setIsHeaderMenuOpen(false); 
-                      if (chat?.type === 'group') {
-                        setShowGroupInfo(true); 
-                      } else if (otherUser) {
-                        setViewProfile(otherUser);
-                      }
-                    }}
-                    className="w-full text-left px-4 py-3 text-xs font-bold text-slate-700 hover:bg-slate-50 transition-colors flex items-center gap-2"
-                  >
-                    ℹ️ {chat?.type === 'group' ? 'Grup Bilgileri' : 'Kişi Bilgileri'}
-                  </button>
-                </div>
-              </>
-            )}
-          </div>
+          <button 
+            onClick={() => { 
+              if (chat?.type === 'group') {
+                setShowGroupInfo(true); 
+              } else if (otherUser) {
+                setViewProfile(otherUser);
+              }
+            }}
+            className="hover:text-blue-600 transition-colors p-1.5 rounded-full hover:bg-blue-50"
+            title={chat?.type === 'group' ? 'Grup Bilgileri' : 'Kişi Bilgileri'}
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
+          </button>
         </div>
       </header>
 
@@ -1226,10 +1212,10 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
                       )}
                       
                       {msg.type === 'image' && msg.imageUrl && (
-                        <div className={cn("relative rounded-lg overflow-hidden mb-1 min-w-[200px]", isDeleted && "grayscale blur-[2px] opacity-40")}>
+                        <div className={cn("relative rounded-lg overflow-hidden mb-1 max-w-[60vw] sm:max-w-[60%]", isDeleted && "grayscale blur-[2px] opacity-40")}>
                           {msg.encrypted && !isDeleted && !isMe ? (
                             <>
-                              <img src={msg.imageUrl} alt="" className="max-w-full h-auto object-cover blur-[12px]" />
+                              <img src={msg.imageUrl} alt="" className="w-full h-auto object-cover blur-[12px]" />
                               <div className="absolute inset-0 flex items-center justify-center">
                                 <button onClick={(e) => { e.stopPropagation(); setDecryptModal(msg); }}
                                   className="bg-black/50 text-white text-[10px] font-bold px-3 py-1.5 rounded-full backdrop-blur-sm hover:bg-black/70 cursor-pointer">🔒 Şifreli</button>
@@ -1237,7 +1223,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
                             </>
                           ) : (
                             <img src={msg.imageUrl} alt=""
-                              className={cn("max-w-full h-auto object-cover cursor-pointer transition-all duration-300", !msg.encrypted && "hover:scale-105")}
+                              className={cn("w-full h-auto object-cover cursor-pointer transition-all duration-300", !msg.encrypted && "hover:scale-105")}
                               onClick={() => { if (!isDeleted) setFullScreenImage(msg.imageUrl!); }} />
                           )}
                         </div>
@@ -1260,14 +1246,22 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
                       )}
 
                       {msg.type === 'call' && (
-                        <div className="flex items-center gap-2 py-1 px-2">
+                        <div className={cn("flex items-center gap-2 py-2 px-3 rounded-xl", 
+                          msg.callStatus === 'answered' ? "bg-green-100 text-green-800" :
+                          msg.callStatus === 'rejected' || msg.callStatus === 'missed' ? "bg-red-100 text-red-800" :
+                          msg.callStatus === 'completed' ? "bg-blue-50 text-blue-800" : "bg-slate-50 text-slate-600")}>
                           <span className="text-lg">
-                            {msg.callStatus === 'completed' ? '✅' : msg.callStatus === 'missed' ? '❌' : '📞'}
+                            {msg.callStatus === 'completed' ? '✅' : 
+                             msg.callStatus === 'answered' ? '✅' :
+                             msg.callStatus === 'missed' ? '❌' : 
+                             msg.callStatus === 'rejected' ? '❌' : '📞'}
                           </span>
                           <div>
                             <p className="text-xs font-bold">
                               {msg.callStatus === 'completed' 
                                 ? `Görüşme ${Math.floor((msg.callDuration || 0) / 60)}:${String((msg.callDuration || 0) % 60).padStart(2, '0')}`
+                                : msg.callStatus === 'answered' ? 'Gelen Arama Yanıtlandı'
+                                : msg.callStatus === 'rejected' ? 'Gelen Arama Reddedildi'
                                 : msg.callStatus === 'missed' ? 'Cevaplanmadı' : 'Çağrı'}
                             </p>
                           </div>
@@ -1336,6 +1330,10 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
                               onClick={(e) => {
                                 e.stopPropagation();
                                 setSelectedActionMsg(null);
+                                if (msg.encrypted && !isMe) {
+                                  setDecryptModal(msg);
+                                  return;
+                                }
                                 const url = msg.imageUrl || msg.videoUrl || '';
                                 const a = document.createElement('a');
                                 a.href = url;
@@ -1917,37 +1915,68 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
         )}
       </AnimatePresence>
 
-      {/* Full Screen Image Viewer */}
-      {fullScreenImage && (
-        <div className="fixed inset-0 z-[9999] bg-black/90 flex items-center justify-center" onClick={() => setFullScreenImage(null)}>
-          <div className="relative max-w-[95vw] max-h-[95vh]" onClick={e => e.stopPropagation()}>
-            <img src={fullScreenImage} alt="Tam ekran" className="max-w-full max-h-[90vh] object-contain rounded-lg shadow-2xl" />
-            <div className="absolute top-4 right-4 flex gap-2">
-              <button
-                onClick={() => {
-                  const a = document.createElement('a');
-                  a.href = fullScreenImage;
-                  a.download = 'image.png';
-                  document.body.appendChild(a);
-                  a.click();
-                  document.body.removeChild(a);
-                }}
-                className="p-2 bg-white/20 hover:bg-white/30 backdrop-blur-sm rounded-full text-white transition-all"
-                title="İndir"
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-              </button>
-              <button
-                onClick={() => setFullScreenImage(null)}
-                className="p-2 bg-white/20 hover:bg-white/30 backdrop-blur-sm rounded-full text-white transition-all"
-                title="Kapat"
-              >
-                <X size={20} />
-              </button>
+      {/* Full Screen Image Viewer with Zoom */}
+      {fullScreenImage && (() => {
+        const ZoomViewer: React.FC = () => {
+          const [scale, setScale] = useState(1);
+          const [position, setPosition] = useState({ x: 0, y: 0 });
+          const [isDragging, setIsDragging] = useState(false);
+          const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+          const imgRef = useRef<HTMLDivElement>(null);
+
+          const resetZoom = () => { setScale(1); setPosition({ x: 0, y: 0 }); };
+
+          const handleWheel = (e: React.WheelEvent) => {
+            e.preventDefault();
+            const delta = e.deltaY > 0 ? -0.1 : 0.1;
+            setScale(prev => Math.max(0.5, Math.min(5, prev + delta)));
+          };
+
+          const handleMouseDown = (e: React.MouseEvent) => {
+            if (scale > 1) { setIsDragging(true); setDragStart({ x: e.clientX - position.x, y: e.clientY - position.y }); }
+          };
+          const handleMouseMove = (e: React.MouseEvent) => {
+            if (isDragging && scale > 1) setPosition({ x: e.clientX - dragStart.x, y: e.clientY - dragStart.y });
+          };
+          const handleMouseUp = () => setIsDragging(false);
+
+          return (
+            <div className="fixed inset-0 z-[9999] bg-black/90 flex items-center justify-center overflow-hidden"
+              onClick={() => setFullScreenImage(null)}>
+              <div ref={imgRef}
+                onWheel={handleWheel}
+                onMouseDown={handleMouseDown}
+                onMouseMove={handleMouseMove}
+                onMouseUp={handleMouseUp}
+                onMouseLeave={handleMouseUp}
+                onClick={e => e.stopPropagation()}
+                className="select-none"
+                style={{ transform: `scale(${scale}) translate(${position.x / scale}px, ${position.y / scale}px)`, transition: isDragging ? 'none' : 'transform 0.2s' }}>
+                <img src={fullScreenImage} alt="Tam ekran" className="max-w-[90vw] max-h-[90vh] object-contain rounded-lg shadow-2xl" style={{ maxWidth: '90vw', maxHeight: '90vh' }} />
+              </div>
+              <div className="absolute top-4 right-4 flex gap-2">
+                <div className="flex items-center gap-1 bg-black/40 backdrop-blur-sm rounded-full px-2 py-1">
+                  <button onClick={() => setScale(prev => Math.min(5, prev + 0.5))} className="p-1.5 text-white hover:bg-white/20 rounded-full transition-all text-sm font-bold">+</button>
+                  <span className="text-white text-[10px] font-bold min-w-[32px] text-center tabular-nums">{Math.round(scale * 100)}%</span>
+                  <button onClick={() => setScale(prev => Math.max(0.5, prev - 0.5))} className="p-1.5 text-white hover:bg-white/20 rounded-full transition-all text-sm font-bold">−</button>
+                </div>
+                <button onClick={() => { resetZoom(); const a = document.createElement('a'); a.href = fullScreenImage!; a.download = 'image.png'; document.body.appendChild(a); a.click(); document.body.removeChild(a); }}
+                  className="p-2 bg-white/20 hover:bg-white/30 backdrop-blur-sm rounded-full text-white transition-all" title="İndir">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                </button>
+                <button onClick={() => setFullScreenImage(null)}
+                  className="p-2 bg-white/20 hover:bg-white/30 backdrop-blur-sm rounded-full text-white transition-all" title="Kapat">
+                  <X size={20} />
+                </button>
+              </div>
+              <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex gap-2">
+                <button onClick={resetZoom} className="px-3 py-1.5 bg-white/20 hover:bg-white/30 backdrop-blur-sm rounded-full text-white text-[10px] font-bold transition-all">Sıfırla</button>
+              </div>
             </div>
-          </div>
-        </div>
-      )}
+          );
+        };
+        return <ZoomViewer />;
+      })()}
 
     </div>
   );

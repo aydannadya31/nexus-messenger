@@ -86,30 +86,23 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return () => unsubscribe();
   }, [user]);
 
-  const postCallMessage = async (chatId: string, duration: number, callStatus: 'missed' | 'completed' | 'cancelled') => {
+  const postCallMessage = async (chatId: string, duration: number, callStatus: 'missed' | 'completed' | 'cancelled' | 'rejected' | 'answered') => {
     if (!user) return;
     try {
       const { collection: col, addDoc, serverTimestamp: ts } = await import('firebase/firestore');
+      const text = callStatus === 'completed'
+        ? `📞 Görüşme ${Math.floor(duration / 60)}:${String(duration % 60).padStart(2, '0')}`
+        : callStatus === 'missed' ? '❌ Gelen Arama Reddedildi'
+        : callStatus === 'rejected' ? '❌ Gelen Arama Reddedildi'
+        : callStatus === 'answered' ? '✅ Gelen Arama Yanıtlandı'
+        : '📞 Çağrı iptal edildi';
       await addDoc(col(db, 'chats', chatId, 'messages'), {
-        senderId: user.uid,
-        timestamp: ts(),
-        type: 'call',
-        callDuration: duration,
-        callStatus,
-        text: callStatus === 'completed'
-          ? `📞 Görüşme ${Math.floor(duration / 60)}:${String(duration % 60).padStart(2, '0')}`
-          : callStatus === 'missed' ? '📞 Cevaplanmadı' : '📞 Çağrı iptal edildi',
-        status: 'sent'
+        senderId: user.uid, timestamp: ts(), type: 'call',
+        callDuration: callStatus === 'completed' ? duration : 0,
+        callStatus, text, status: 'sent'
       });
       await updateDoc(doc(db, 'chats', chatId), {
-        lastMessage: {
-          senderId: user.uid,
-          senderName: user.displayName,
-          text: callStatus === 'completed'
-            ? `📞 Görüşme ${Math.floor(duration / 60)}:${String(duration % 60).padStart(2, '0')}`
-            : callStatus === 'missed' ? '📞 Cevaplanmadı' : '📞 Çağrı iptal edildi',
-          timestamp: ts()
-        },
+        lastMessage: { senderId: user.uid, senderName: user.displayName, text, timestamp: ts() },
         updatedAt: ts()
       });
     } catch (err) {
@@ -164,6 +157,7 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
         status: 'ongoing',
         activeParticipants: activeParts
       });
+      await postCallMessage(incomingCall.chatId, 0, 'answered');
       setIncomingCall(null);
     } catch (error) {
       console.error("Accept call error:", error);
@@ -177,7 +171,7 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
         await updateDoc(doc(db, 'calls', incomingCall.id), {
           status: 'ended'
         });
-        await postCallMessage(incomingCall.chatId, 0, 'missed');
+        await postCallMessage(incomingCall.chatId, 0, 'rejected');
       }
       setIncomingCall(null);
     } catch (error) {

@@ -44,6 +44,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
   const [showGroupInfo, setShowGroupInfo] = useState<Chat | null>(null);
   const [showFriendRequests, setShowFriendRequests] = useState(false);
   const [pendingRequestCount, setPendingRequestCount] = useState(0);
+  const [broadcastUnread, setBroadcastUnread] = useState(false);
 
   useEffect(() => {
     if (!user) return;
@@ -51,6 +52,23 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
       query(collection(db, 'friendRequests'), where('to', '==', user.uid)),
       (snap) => setPendingRequestCount(snap.docs.filter(d => d.data().status === 'pending').length)
     );
+    return () => unsub();
+  }, [user]);
+
+  useEffect(() => {
+    if (!user) return;
+    const q = query(collection(db, 'broadcastMessages'), orderBy('createdAt', 'desc'));
+    const unsub = onSnapshot(q, (snap) => {
+      const lastRead = localStorage.getItem('broadcastLastRead');
+      if (snap.docs.length > 0) {
+        const latest = snap.docs[0].data().createdAt as string;
+        if (latest && lastRead) {
+          setBroadcastUnread(new Date(latest).getTime() > new Date(lastRead).getTime());
+        } else {
+          setBroadcastUnread(false);
+        }
+      }
+    });
     return () => unsub();
   }, [user]);
 
@@ -181,6 +199,11 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
   const [showAdminMsg, setShowAdminMsg] = useState(false);
   const [adminMsgText, setAdminMsgText] = useState('');
 
+  const markBroadcastRead = () => {
+    setBroadcastUnread(false);
+    localStorage.setItem('broadcastLastRead', new Date().toISOString());
+  };
+
   const handleSelectChat = (chatId: string) => {
     onSelectChat(chatId);
     setUnreadCounts(prev => ({ ...prev, [chatId]: 0 }));
@@ -208,12 +231,14 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
         <div className="flex items-center justify-between gap-1">
           <div className="flex flex-col items-center gap-0.5">
             <button 
-              onClick={onOpenBroadcast}
+              onClick={() => { markBroadcastRead(); onOpenBroadcast(); }}
               className="p-2.5 bg-blue-50 hover:bg-blue-100 rounded-xl text-blue-600 transition-all active:scale-95 group relative"
               title="Brodcast"
             >
               <Radio size={20} />
-              <div className="absolute -top-1 -right-1 w-2 h-2 bg-red-500 rounded-full animate-ping" />
+              {broadcastUnread && (
+                <div className="absolute -top-1 -right-1 w-2 h-2 bg-red-500 rounded-full animate-ping" />
+              )}
             </button>
             <span className="text-[8px] text-slate-400 font-bold text-center">Brodcast</span>
           </div>
@@ -280,14 +305,17 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
       <div className="flex-1 overflow-y-auto custom-scrollbar pb-20">
         {/* Broadcast Channel */}
         <div 
-          onClick={() => onSelectChat('__broadcast__')}
+          onClick={() => { markBroadcastRead(); onSelectChat('__broadcast__'); }}
           className={cn(
             "group px-4 sm:px-6 py-3 sm:py-4 flex items-center gap-3 sm:gap-4 cursor-pointer border-b border-slate-100 transition-colors",
             selectedChatId === '__broadcast__' ? "bg-blue-50 border-r-4 border-blue-500" : "hover:bg-slate-50"
           )}
         >
-          <div className="w-12 h-12 bg-blue-600 rounded-full flex-shrink-0 flex items-center justify-center shadow-sm">
+          <div className="w-12 h-12 bg-blue-600 rounded-full flex-shrink-0 flex items-center justify-center shadow-sm relative">
             <Radio size={20} className="text-white" />
+            {broadcastUnread && (
+              <div className="absolute -top-0.5 -right-0.5 w-3 h-3 bg-red-500 border-2 border-white rounded-full animate-ping" />
+            )}
           </div>
           <div className="flex-1 min-w-0">
             <h2 className="text-sm font-semibold truncate">📢 Broadcast Kanalı</h2>

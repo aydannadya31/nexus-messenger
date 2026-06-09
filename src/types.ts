@@ -13,6 +13,12 @@ export interface UserProfile {
   role?: 'user' | 'admin';
   country?: string;
   profileCompleted?: boolean;
+  birthDate?: string;
+  phone?: string;
+  location?: string;
+  showBirthDate?: boolean;
+  showPhone?: boolean;
+  showLocation?: boolean;
 }
 
 export interface Chat {
@@ -41,6 +47,7 @@ export interface Chat {
   holdDailyCount?: number;
   holdDate?: string;
   heldMembers?: Record<string, { heldBy: string; expiresAt?: any }>;
+  groupCountry?: string;
 }
 
 export interface Message {
@@ -57,7 +64,7 @@ export interface Message {
   deletedBy?: string[];
   toAdmin?: boolean;
   callDuration?: number;
-  callStatus?: 'missed' | 'completed' | 'cancelled';
+  callStatus?: 'missed' | 'completed' | 'cancelled' | 'rejected' | 'answered';
   encrypted?: boolean;
   imagePassword?: string;
 }

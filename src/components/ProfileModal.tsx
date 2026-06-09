@@ -16,6 +16,12 @@ const ProfileModal: React.FC<ProfileModalProps> = ({ user, onClose }) => {
   const [about, setAbout] = useState(user.about || '');
   const [onlineStatus, setOnlineStatus] = useState(user.onlineStatus || 'online');
   const [photoURL, setPhotoURL] = useState(user.photoURL);
+  const [birthDate, setBirthDate] = useState(user.birthDate || '');
+  const [phone, setPhone] = useState(user.phone || '');
+  const [location, setLocation] = useState(user.location || '');
+  const [showBirthDate, setShowBirthDate] = useState(user.showBirthDate ?? true);
+  const [showPhone, setShowPhone] = useState(user.showPhone ?? true);
+  const [showLocation, setShowLocation] = useState(user.showLocation ?? true);
   const [saving, setSaving] = useState(false);
   
   const [isCameraActive, setIsCameraActive] = useState(false);
@@ -33,7 +39,13 @@ const ProfileModal: React.FC<ProfileModalProps> = ({ user, onClose }) => {
         nickname,
         about,
         onlineStatus,
-        photoURL
+        photoURL,
+        birthDate,
+        phone,
+        location,
+        showBirthDate,
+        showPhone,
+        showLocation
       });
       onClose();
     } catch (error) {
@@ -253,6 +265,51 @@ const ProfileModal: React.FC<ProfileModalProps> = ({ user, onClose }) => {
               className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl px-4 py-3 text-sm font-bold text-slate-900 focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 outline-none transition-all resize-none placeholder:text-slate-300"
               placeholder="Neler yapıyorsun?"
             />
+          </div>
+
+          {/* Birth Date */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                🎂 Doğum Tarihi
+              </label>
+              <button onClick={() => setShowBirthDate(!showBirthDate)}
+                className={cn("text-[9px] font-bold px-2 py-1 rounded-lg transition-all", showBirthDate ? "bg-green-100 text-green-600" : "bg-slate-100 text-slate-400")}>
+                {showBirthDate ? 'Gösteriliyor' : 'Gizli'}
+              </button>
+            </div>
+            <input type="date" value={birthDate} onChange={e => setBirthDate(e.target.value)}
+              className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl px-4 py-3 text-sm font-bold text-slate-900 focus:border-blue-500 outline-none transition-all" />
+          </div>
+
+          {/* Phone */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                📞 Telefon No.
+              </label>
+              <button onClick={() => setShowPhone(!showPhone)}
+                className={cn("text-[9px] font-bold px-2 py-1 rounded-lg transition-all", showPhone ? "bg-green-100 text-green-600" : "bg-slate-100 text-slate-400")}>
+                {showPhone ? 'Gösteriliyor' : 'Gizli'}
+              </button>
+            </div>
+            <input type="tel" value={phone} onChange={e => setPhone(e.target.value)} placeholder="+90 5XX XXX XXXX"
+              className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl px-4 py-3 text-sm font-bold text-slate-900 focus:border-blue-500 outline-none transition-all" />
+          </div>
+
+          {/* Location */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                📍 Konum
+              </label>
+              <button onClick={() => setShowLocation(!showLocation)}
+                className={cn("text-[9px] font-bold px-2 py-1 rounded-lg transition-all", showLocation ? "bg-green-100 text-green-600" : "bg-slate-100 text-slate-400")}>
+                {showLocation ? 'Gösteriliyor' : 'Gizli'}
+              </button>
+            </div>
+            <input type="text" value={location} onChange={e => setLocation(e.target.value)} placeholder="İstanbul, Türkiye"
+              className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl px-4 py-3 text-sm font-bold text-slate-900 focus:border-blue-500 outline-none transition-all" />
           </div>
 
           <div className="flex gap-3 pt-4">

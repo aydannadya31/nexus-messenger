@@ -40,7 +40,7 @@ interface NewChatModalProps {
 }
 
 export const NewChatModal: React.FC<NewChatModalProps> = ({ onClose, onChatCreated }) => {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const [tab, setTab] = useState<'people' | 'groups'>('people');
   const [users, setUsers] = useState<UserProfile[]>([]);
   const [peopleSearch, setPeopleSearch] = useState('');
@@ -53,8 +53,11 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({ onClose, onChatCreat
   const [isGroupMode, setIsGroupMode] = useState(false);
   const [selectedUsers, setSelectedUsers] = useState<UserProfile[]>([]);
   const [groupName, setGroupName] = useState('');
+  const [groupCountry, setGroupCountry] = useState(profile?.country || '');
   const [groupPassword, setGroupPassword] = useState('');
   const [step, setStep] = useState(1);
+
+  const [groupCountryFilter, setGroupCountryFilter] = useState('');
 
   // Group join state
   const [foundGroups, setFoundGroups] = useState<Chat[]>([]);
@@ -169,6 +172,7 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({ onClose, onChatCreat
     const participants = [user.uid, ...selectedUsers.map(u => u.uid)];
     const newChatRef = await addDoc(collection(db, 'chats'), {
       participants, type: 'group',
+      groupCountry: groupCountry || profile?.country || '',
       groupMetadata: {
         name: groupName.trim(), createdBy: user.uid, adminId: user.uid,
         photoURL: `https://api.dicebear.com/7.x/initials/svg?seed=${groupName}`,
@@ -186,7 +190,8 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({ onClose, onChatCreat
     try {
       const snap = await getDocs(collection(db, 'chats'));
       const groups = snap.docs.map(d => ({ id: d.id, ...d.data() } as Chat)).filter(g =>
-        g.type === 'group' && g.groupMetadata?.name?.toLowerCase().includes(name.toLowerCase()) && !g.participants.includes(user!.uid)
+        g.type === 'group' && g.groupMetadata?.name?.toLowerCase().includes(name.toLowerCase()) && !g.participants.includes(user!.uid) &&
+        (!groupCountryFilter || g.groupCountry === groupCountryFilter)
       );
       setFoundGroups(groups);
     } catch (err) {
@@ -279,19 +284,20 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({ onClose, onChatCreat
                             <p className="text-sm font-bold text-slate-900 truncate">{u.displayName}</p>
                             <p className="text-[10px] text-slate-500 font-medium truncate">{u.uin ? `#${u.uin}` : u.email}</p>
                           </div>
-                          <div className="flex items-center gap-1.5 shrink-0">
+                          <div className="flex items-center gap-1 shrink-0">
                             {isFriend ? (
                               <button onClick={() => startPrivateChat(u)}
-                                className="px-3 py-1.5 bg-blue-50 text-blue-600 rounded-xl text-[10px] font-black uppercase tracking-wider hover:bg-blue-100 transition-all active:scale-95">Arkadaş Ekle</button>
+                                className="px-2 sm:px-3 py-1 bg-blue-50 text-blue-600 rounded-lg sm:rounded-xl text-[8px] sm:text-[10px] font-black uppercase tracking-wider hover:bg-blue-100 transition-all active:scale-95 flex items-center gap-1"><MessageSquarePlus size={12} className="hidden sm:block" />Ark.</button>
                             ) : (
                               <button onClick={() => sendFriendRequest(u)}
-                                className={cn("px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all active:scale-95",
+                                className={cn("px-2 sm:px-3 py-1 rounded-lg sm:rounded-xl text-[8px] sm:text-[10px] font-black uppercase tracking-wider transition-all active:scale-95 flex items-center gap-1",
                                   fs === 'pending_sent' ? "bg-amber-50 text-amber-500 cursor-not-allowed" :
                                   fs === 'pending_received' ? "bg-amber-50 text-amber-500 cursor-not-allowed" :
                                   "bg-green-50 text-green-600 hover:bg-green-100"
                                 )}
                                 disabled={fs === 'pending_sent' || fs === 'pending_received'}>
-                                {fs === 'pending_sent' ? 'Bekliyor' : fs === 'pending_received' ? 'İstek Var' : 'İstek Gönder'}
+                                {fs === 'pending_sent' ? '⏳' : fs === 'pending_received' ? '📨' : '➕'}
+                                <span className="hidden sm:inline">{fs === 'pending_sent' ? 'Bekliyor' : fs === 'pending_received' ? 'İstek Var' : 'İstek Gönder'}</span>
                               </button>
                             )}
                           </div>
@@ -310,6 +316,16 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({ onClose, onChatCreat
 
               {tab === 'groups' && (
                 <>
+                  <div className="flex items-center gap-2">
+                    <div className="relative flex-1">
+                      <Globe className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
+                      <select value={groupCountryFilter} onChange={e => { setGroupCountryFilter(e.target.value); if (groupSearch.trim()) searchGroups(groupSearch); }}
+                        className="w-full bg-slate-50 border border-slate-100 rounded-2xl py-2.5 pl-9 pr-3 text-xs font-bold text-slate-700 outline-none appearance-none cursor-pointer">
+                        <option value="">Tüm Ülkeler</option>
+                        {COUNTRIES.map(c => (<option key={c.code} value={c.code}>{c.name}</option>))}
+                      </select>
+                    </div>
+                  </div>
                   <div className="relative">
                     <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
                     <input type="text" value={groupSearch} onChange={e => { setGroupSearch(e.target.value); searchGroups(e.target.value); }}
@@ -380,13 +396,21 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({ onClose, onChatCreat
                 {selectedUsers.map(u => <span key={u.uid} className="px-3 py-1 bg-slate-100 rounded-full text-[10px] font-bold text-slate-500">{u.displayName}</span>)}
               </div>
               <div className="space-y-2 mb-4">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><Globe size={12} /> Grup Ülkesi</label>
+                <select value={groupCountry} onChange={e => setGroupCountry(e.target.value)}
+                  className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl px-4 py-3 text-sm font-bold outline-none focus:border-blue-500 appearance-none cursor-pointer">
+                  <option value="">Ülke seçilmedi</option>
+                  {COUNTRIES.map(c => <option key={c.code} value={c.code}>{c.name}</option>)}
+                </select>
+              </div>
+              <div className="space-y-2 mb-4">
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">🔒 Grup Şifresi (opsiyonel)</label>
                 <input type="text" value={groupPassword} onChange={e => setGroupPassword(e.target.value)} placeholder="Şifre girilmezse herkes katılabilir"
                   className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl px-4 py-3 text-sm font-bold outline-none focus:border-blue-500" />
               </div>
               <div className="flex gap-3">
                 <button onClick={() => setStep(1)} className="flex-1 py-4 font-bold text-slate-500 bg-slate-100 hover:bg-slate-200 rounded-2xl">Geri</button>
-                <button onClick={createGroup} disabled={!groupName.trim()} className="flex-1 py-4 font-bold text-white bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 rounded-2xl">Grubu Oluştur</button>
+                <button onClick={createGroup} disabled={!groupName.trim() || selectedUsers.length === 0} className="flex-1 py-4 font-bold text-white bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 rounded-2xl">Grubu Oluştur</button>
               </div>
             </div>
           )}
