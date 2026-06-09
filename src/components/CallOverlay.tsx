@@ -24,13 +24,16 @@ export const CallOverlay = () => {
   const pcs = useRef<Record<string, RTCPeerConnection>>({});
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const pendingCandidates = useRef<Record<string, RTCIceCandidateInit[]>>({});
+  const mediaInitPromiseRef = useRef<Promise<MediaStream | null> | null>(null);
 
   const configuration: RTCConfiguration = {
     iceServers: [
       { urls: 'stun:stun.l.google.com:19302' },
       { urls: 'stun:stun1.l.google.com:19302' },
+      { urls: 'stun:stun2.l.google.com:19302' },
+      { urls: 'stun:stun3.l.google.com:19302' },
     ],
-    iceCandidatePoolSize: 5,
+    iceCandidatePoolSize: 0,
   };
 
   // Play ringtone for incoming call
@@ -153,24 +156,11 @@ export const CallOverlay = () => {
 
     pc.oniceconnectionstatechange = () => {
       console.log("ICE connection state:", pc.iceConnectionState);
+      if (pc.iceConnectionState === 'connected') {
+        console.log(`Peer ${pId} connected!`);
+      }
       if (pc.iceConnectionState === 'disconnected' || pc.iceConnectionState === 'failed') {
         cleanupPeer(pId);
-      }
-    };
-
-    pc.onnegotiationneeded = async () => {
-      try {
-        const offer = await pc.createOffer();
-        await pc.setLocalDescription(offer);
-        await addDoc(collection(db, 'calls', activeCall.id, 'signals'), {
-          from: user.uid,
-          to: pId,
-          type: 'offer',
-          data: { type: offer.type, sdp: offer.sdp },
-          createdAt: serverTimestamp()
-        });
-      } catch (err) {
-        console.error("Negotiation error:", err);
       }
     };
 
@@ -206,26 +196,23 @@ export const CallOverlay = () => {
 
   const initLocalMedia = useCallback(async (isVideoCall: boolean) => {
     if (localStreamRef.current) return localStreamRef.current;
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ 
-        video: isVideoCall ? { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } } : false, 
-        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } 
-      });
-      localStreamRef.current = stream;
-      setLocalStream(stream);
-      return stream;
-    } catch (err) {
-      console.error("Media access error:", err);
-      return null;
-    }
+    if (mediaInitPromiseRef.current) return mediaInitPromiseRef.current;
+    mediaInitPromiseRef.current = (async () => {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: isVideoCall ? { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } } : false,
+          audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
+        });
+        localStreamRef.current = stream;
+        setLocalStream(stream);
+        return stream;
+      } catch (err) {
+        console.error("Media access error:", err);
+        return null;
+      }
+    })();
+    return await mediaInitPromiseRef.current;
   }, []);
-
-  // Initialize Local Media
-  useEffect(() => {
-    if (activeCall && !localStreamRef.current) {
-      initLocalMedia(activeCall.mediaType === 'video');
-    }
-  }, [activeCall?.id, initLocalMedia]);
 
   // Global Signaling Listener
   useEffect(() => {
@@ -237,67 +224,63 @@ export const CallOverlay = () => {
     );
 
     const unsubscribe = onSnapshot(qSignals, async (snapshot) => {
-      snapshot.docChanges().forEach(async (change) => {
-        if (change.type === 'added') {
-          const signal = { id: change.doc.id, ...change.doc.data() } as CallSignal;
+      const changes = snapshot.docChanges();
+      for (const change of changes) {
+        if (change.type !== 'added') continue;
+        const signal = { id: change.doc.id, ...change.doc.data() } as CallSignal;
 
-          try {
-            if (signal.type === 'offer') {
-              // Wait for local stream before processing offer
-              const stream = localStreamRef.current || await initLocalMedia(activeCall?.mediaType === 'video');
-              if (!stream) return;
-              let pc = pcs.current[signal.from];
-              if (!pc) {
+        try {
+          if (signal.type === 'offer') {
+            const stream = localStreamRef.current || await initLocalMedia(activeCall?.mediaType === 'video');
+            if (!stream) continue;
+            let pc = pcs.current[signal.from];
+            if (!pc) {
               pc = await getOrCreatePC(signal.from, false);
             }
-            if (!pc) return;
+            if (!pc) continue;
             addLocalTracksToPC(pc);
             await pc.setRemoteDescription(new RTCSessionDescription(signal.data));
-            // Process buffered candidates
             const buffered = pendingCandidates.current[signal.from] || [];
             delete pendingCandidates.current[signal.from];
             for (const c of buffered) {
               try { await pc.addIceCandidate(new RTCIceCandidate(c)); } catch (e) {}
             }
             const answer = await pc.createAnswer();
-              await pc.setLocalDescription(answer);
-              await addDoc(collection(db, 'calls', activeCall.id, 'signals'), {
-                from: user.uid,
-                to: signal.from,
-                type: 'answer',
-                data: { type: answer.type, sdp: answer.sdp },
-                createdAt: serverTimestamp()
-              });
-            } else if (signal.type === 'answer') {
-              let pc = pcs.current[signal.from];
-              if (!pc) return;
-              if (pc.signalingState !== 'have-local-offer') return;
-              await pc.setRemoteDescription(new RTCSessionDescription(signal.data));
-              // Process buffered candidates
-              const buffered = pendingCandidates.current[signal.from] || [];
-              delete pendingCandidates.current[signal.from];
-              for (const c of buffered) {
-                try { await pc.addIceCandidate(new RTCIceCandidate(c)); } catch (e) {}
-              }
-            } else if (signal.type === 'candidate') {
-              let pc = pcs.current[signal.from];
-              if (!pc || !pc.remoteDescription) {
-                // Buffer candidates until remote description is set
-                if (!pendingCandidates.current[signal.from]) {
-                  pendingCandidates.current[signal.from] = [];
-                }
-                pendingCandidates.current[signal.from].push(signal.data);
-                return;
-              }
-              try {
-                await pc.addIceCandidate(new RTCIceCandidate(signal.data));
-              } catch (e) {}
+            await pc.setLocalDescription(answer);
+            await addDoc(collection(db, 'calls', activeCall.id, 'signals'), {
+              from: user.uid,
+              to: signal.from,
+              type: 'answer',
+              data: { type: answer.type, sdp: answer.sdp },
+              createdAt: serverTimestamp()
+            });
+          } else if (signal.type === 'answer') {
+            let pc = pcs.current[signal.from];
+            if (!pc) continue;
+            if (pc.signalingState !== 'have-local-offer') continue;
+            await pc.setRemoteDescription(new RTCSessionDescription(signal.data));
+            const buffered = pendingCandidates.current[signal.from] || [];
+            delete pendingCandidates.current[signal.from];
+            for (const c of buffered) {
+              try { await pc.addIceCandidate(new RTCIceCandidate(c)); } catch (e) {}
             }
-          } catch (err) {
-            console.error("Signal processing error:", err);
+          } else if (signal.type === 'candidate') {
+            let pc = pcs.current[signal.from];
+            if (!pc || !pc.remoteDescription) {
+              if (!pendingCandidates.current[signal.from]) {
+                pendingCandidates.current[signal.from] = [];
+              }
+              pendingCandidates.current[signal.from].push(signal.data);
+              continue;
+            }
+            try {
+              await pc.addIceCandidate(new RTCIceCandidate(signal.data));
+            } catch (e) {}
           }
+        } catch (err) {
+          console.error("Signal processing error:", err);
         }
-      });
+      }
     });
 
     return () => unsubscribe();
@@ -324,24 +307,26 @@ export const CallOverlay = () => {
 
   // Mesh Management: Connect to active participants
   useEffect(() => {
-    if (!activeCall || !user || !localStream) return;
+    if (!activeCall || !user) return;
+    let cancelled = false;
+    (async () => {
+      const stream = localStreamRef.current || await initLocalMedia(activeCall.mediaType === 'video');
+      if (!stream || cancelled) return;
 
-    activeCall.activeParticipants.forEach(async (pId) => {
-      if (pId !== user.uid && !pcs.current[pId]) {
-        // Smaller UID initiates to larger UID to avoid double offers
-        if (user.uid < pId) {
+      for (const pId of activeCall.activeParticipants) {
+        if (pId !== user.uid && !pcs.current[pId] && user.uid < pId) {
           await getOrCreatePC(pId, true);
         }
       }
-    });
+    })();
 
-    // Cleanup peers who left activeParticipants
     Object.keys(pcs.current).forEach(pId => {
       if (!activeCall.activeParticipants.includes(pId)) {
         cleanupPeer(pId);
       }
     });
-  }, [activeCall?.activeParticipants, user?.uid, localStream, getOrCreatePC, cleanupPeer]);
+    return () => { cancelled = true; };
+  }, [activeCall?.activeParticipants, user?.uid, getOrCreatePC, cleanupPeer]);
 
   // Cleanup on call end
   useEffect(() => {

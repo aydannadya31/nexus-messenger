@@ -81,6 +81,58 @@ const AudioPlayer: React.FC<{ url: string; isMe: boolean }> = ({ url, isMe }) =>
   );
 };
 
+const DecryptContent: React.FC<{ msg: Message; onClose: () => void }> = ({ msg, onClose }) => {
+  const [pwd, setPwd] = useState('');
+  const [decrypted, setDecrypted] = useState(false);
+  const [error, setError] = useState('');
+
+  const handleSubmit = () => {
+    if (btoa(pwd) === msg.imagePassword) {
+      setDecrypted(true);
+      setError('');
+    } else {
+      setError('Hatalı şifre!');
+    }
+  };
+
+  if (decrypted) {
+    return (
+      <div className="space-y-4">
+        {msg.type === 'text' && (
+          <p className="text-sm font-medium leading-relaxed text-slate-900 whitespace-pre-wrap">{msg.text}</p>
+        )}
+        {msg.type === 'image' && msg.imageUrl && (
+          <img src={msg.imageUrl} alt="" className="w-full max-h-80 object-contain rounded-2xl bg-slate-50" />
+        )}
+        {msg.type === 'video' && msg.videoUrl && (
+          <video src={msg.videoUrl} className="w-full max-h-80 rounded-2xl" controls playsInline />
+        )}
+        {msg.type === 'audio' && msg.audioUrl && (
+          <audio src={msg.audioUrl} className="w-full" controls />
+        )}
+        <button onClick={onClose} className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition-all">
+          Kapat
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <p className="text-xs text-slate-500 font-bold text-center">Bu mesajı görüntülemek için şifreyi girin</p>
+      <input type="text" value={pwd} onChange={e => setPwd(e.target.value)} autoFocus
+        placeholder="Şifre..."
+        onKeyDown={e => e.key === 'Enter' && handleSubmit()}
+        className="w-full bg-slate-100 border-2 border-slate-200 rounded-2xl px-4 py-3 text-sm font-bold text-center outline-none focus:border-blue-500 transition-all" />
+      {error && <p className="text-xs text-red-500 font-bold text-center">{error}</p>}
+      <div className="flex gap-3">
+        <button onClick={onClose} className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl text-xs font-bold transition-all">İptal</button>
+        <button onClick={handleSubmit} className="flex-1 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition-all">Çöz</button>
+      </div>
+    </div>
+  );
+};
+
 export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
   const { user } = useAuth();
   const { startCall, activeCall, acceptCall, callError } = useCall();
@@ -99,11 +151,8 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
   const [isEmojiMenuOpen, setIsEmojiMenuOpen] = useState(false);
   const [viewProfile, setViewProfile] = useState<UserProfile | null>(null);
   const [fullScreenImage, setFullScreenImage] = useState<string | null>(null);
-  const [fullScreenEncrypted, setFullScreenEncrypted] = useState<string | null>(null);
-  const [encryptImagePwd, setEncryptImagePwd] = useState('');
-  const [encryptImageMsgId, setEncryptImageMsgId] = useState<string | null>(null);
+  const [decryptModal, setDecryptModal] = useState<Message | null>(null);
   const [encryptMode, setEncryptMode] = useState(false);
-  const encryptPwdRef = useRef('');
   const [selectedActionMsg, setSelectedActionMsg] = useState<string | null>(null);
   const [customDialog, setCustomDialog] = useState<{
     isOpen: boolean;
@@ -350,11 +399,10 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
     const reader = new FileReader();
     reader.onloadend = async () => {
       const base64Video = reader.result as string;
-      let pwd = encryptPwdRef.current;
-      if (encryptMode && !pwd) {
+      let pwd = '';
+      if (encryptMode) {
         pwd = prompt('Şifreli video şifresini girin:') || '';
         if (!pwd) { setEncryptMode(false); return; }
-        encryptPwdRef.current = pwd;
       }
       try {
         const msgData: any = {
@@ -459,11 +507,10 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
 
   const sendAudioMessage = async (audioUrl: string) => {
     if (!user || !chatId) return;
-    let pwd = encryptPwdRef.current;
-    if (encryptMode && !pwd) {
+    let pwd = '';
+    if (encryptMode) {
       pwd = prompt('Şifreli ses mesajı şifresini girin:') || '';
       if (!pwd) { setEncryptMode(false); return; }
-      encryptPwdRef.current = pwd;
     }
     try {
       const msgData: any = {
@@ -623,11 +670,10 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
       showCustomAlert("Video Çok Büyük", "Video dosyası çok büyük. Lütfen daha kısa bir kayıt yapın.");
       return;
     }
-    let pwd = encryptPwdRef.current;
-    if (encryptMode && !pwd) {
+    let pwd = '';
+    if (encryptMode) {
       pwd = prompt('Şifreli video şifresini girin:') || '';
       if (!pwd) { setEncryptMode(false); return; }
-      encryptPwdRef.current = pwd;
     }
     try {
       const msgData: any = {
@@ -673,11 +719,10 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
     const reader = new FileReader();
     reader.onloadend = async () => {
       const base64Image = reader.result as string;
-      let pwd = encryptPwdRef.current;
-      if (encryptMode && !pwd) {
+      let pwd = '';
+      if (encryptMode) {
         pwd = prompt('Şifreli görsel şifresini girin:') || '';
         if (!pwd) { setEncryptMode(false); return; }
-        encryptPwdRef.current = pwd;
       }
       try {
         const msgData: any = {
@@ -751,12 +796,8 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
 
     let pwd = '';
     if (encryptMode) {
-      pwd = encryptPwdRef.current;
-      if (!pwd) {
-        pwd = prompt('Şifreli mesaj şifresini girin:') || '';
-        if (!pwd) { setEncryptMode(false); return; }
-        encryptPwdRef.current = pwd;
-      }
+      pwd = prompt('Şifreli mesaj şifresini girin:') || '';
+      if (!pwd) { setEncryptMode(false); return; }
     }
 
     const messageData: any = {
@@ -1168,24 +1209,14 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
 
                       {msg.type === 'text' && (
                         msg.encrypted && !isDeleted ? (
-                          <div>
-                            {encryptImageMsgId === msg.id ? (
-                              <p className="text-sm font-medium leading-relaxed">{msg.text}</p>
-                            ) : (
-                              <button onClick={(e) => {
-                                e.stopPropagation();
-                                const pwd = prompt('Şifreli mesaj şifresini girin:');
-                                if (pwd && btoa(pwd) === msg.imagePassword) {
-                                  setEncryptImageMsgId(msg.id!);
-                                } else {
-                                  alert('Hatalı şifre!');
-                                }
-                              }}
+                          isMe ? (
+                            <p className="text-sm font-medium leading-relaxed">{msg.text}</p>
+                          ) : (
+                            <button onClick={(e) => { e.stopPropagation(); setDecryptModal(msg); }}
                               className="text-sm font-medium leading-relaxed opacity-70 hover:opacity-100 text-left w-full">
-                                🔒 Şifreli Mesaj (dokunun)
-                              </button>
-                            )}
-                          </div>
+                              🔒 Şifreli Mesaj (dokunun)
+                            </button>
+                          )
                         ) : (
                           <p className={cn(
                             "text-sm font-medium leading-relaxed",
@@ -1195,78 +1226,35 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
                       )}
                       
                       {msg.type === 'image' && msg.imageUrl && (
-                        <div className={cn(
-                          "relative rounded-lg overflow-hidden mb-1 min-w-[200px]",
-                          isDeleted && "grayscale blur-[2px] opacity-40"
-                        )}>
-                          <img 
-                            src={msg.imageUrl} 
-                            alt="Paylaşılan görsel" 
-                            className={cn(
-                              "max-w-full h-auto object-cover cursor-pointer transition-all duration-300",
-                              msg.encrypted && !isDeleted && "blur-[12px] hover:blur-[8px]",
-                              !msg.encrypted && "hover:scale-105"
-                            )}
-                            onClick={() => {
-                              if (isDeleted) return;
-                              if (msg.encrypted) {
-                                const pwd = prompt('Şifreli görsel şifresini girin:');
-                                if (pwd && btoa(pwd) === msg.imagePassword) {
-                                  setFullScreenImage(msg.imageUrl!);
-                                } else if (pwd) {
-                                  showCustomAlert('Hata', 'Yanlış şifre!');
-                                }
-                              } else {
-                                setFullScreenImage(msg.imageUrl!);
-                              }
-                            }}
-                          />
-                          {msg.encrypted && !isDeleted && (
-                            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                              <span className="bg-black/50 text-white text-[10px] font-bold px-2 py-1 rounded-full backdrop-blur-sm">🔒 Şifreli</span>
-                            </div>
+                        <div className={cn("relative rounded-lg overflow-hidden mb-1 min-w-[200px]", isDeleted && "grayscale blur-[2px] opacity-40")}>
+                          {msg.encrypted && !isDeleted && !isMe ? (
+                            <>
+                              <img src={msg.imageUrl} alt="" className="max-w-full h-auto object-cover blur-[12px]" />
+                              <div className="absolute inset-0 flex items-center justify-center">
+                                <button onClick={(e) => { e.stopPropagation(); setDecryptModal(msg); }}
+                                  className="bg-black/50 text-white text-[10px] font-bold px-3 py-1.5 rounded-full backdrop-blur-sm hover:bg-black/70 cursor-pointer">🔒 Şifreli</button>
+                              </div>
+                            </>
+                          ) : (
+                            <img src={msg.imageUrl} alt=""
+                              className={cn("max-w-full h-auto object-cover cursor-pointer transition-all duration-300", !msg.encrypted && "hover:scale-105")}
+                              onClick={() => { if (!isDeleted) setFullScreenImage(msg.imageUrl!); }} />
                           )}
                         </div>
                       )}
 
                       {msg.type === 'video' && msg.videoUrl && (
-                        <div className={cn(
-                          "relative rounded-lg overflow-hidden mb-1 min-w-[240px] bg-black/5",
-                          isDeleted && "grayscale blur-[2px] opacity-40"
-                        )}>
-                          {msg.encrypted && !isDeleted ? (
+                        <div className={cn("relative rounded-lg overflow-hidden mb-1 min-w-[240px] bg-black/5", isDeleted && "grayscale blur-[2px] opacity-40")}>
+                          {msg.encrypted && !isDeleted && !isMe ? (
                             <div className="relative">
-                              <video 
-                                src={msg.videoUrl} 
-                                className="max-w-full h-auto blur-[12px]" 
-                                playsInline
-                              />
+                              <video src={msg.videoUrl} className="max-w-full h-auto blur-[12px]" playsInline />
                               <div className="absolute inset-0 flex items-center justify-center">
-                                <button onClick={(e) => {
-                                  e.stopPropagation();
-                                  if (encryptImageMsgId === msg.id) {
-                                    setEncryptImageMsgId(null);
-                                  } else {
-                                    const pwd = prompt('Şifreli video şifresini girin:');
-                                    if (pwd && btoa(pwd) === msg.imagePassword) {
-                                      setEncryptImageMsgId(msg.id!);
-                                    } else if (pwd) {
-                                      showCustomAlert('Hata', 'Yanlış şifre!');
-                                    }
-                                  }
-                                }}
-                                className="bg-black/50 text-white text-[10px] font-bold px-3 py-1.5 rounded-full backdrop-blur-sm hover:bg-black/70">
-                                  {encryptImageMsgId === msg.id ? '🔓 İzle' : '🔒 Şifreli'}
-                                </button>
+                                <button onClick={(e) => { e.stopPropagation(); setDecryptModal(msg); }}
+                                  className="bg-black/50 text-white text-[10px] font-bold px-3 py-1.5 rounded-full backdrop-blur-sm hover:bg-black/70 cursor-pointer">🔒 Şifreli</button>
                               </div>
                             </div>
                           ) : (
-                            <video 
-                              src={msg.videoUrl} 
-                              className="max-w-full h-auto" 
-                              controls={!isDeleted}
-                              playsInline
-                            />
+                            <video src={msg.videoUrl} className="max-w-full h-auto" controls={!isDeleted} playsInline />
                           )}
                         </div>
                       )}
@@ -1289,25 +1277,12 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
                       {msg.type === 'audio' && msg.audioUrl && (
                         <div className={cn(isDeleted && "grayscale opacity-40 pointer-events-none")}>
                           {msg.encrypted && !isDeleted ? (
-                            <div className="flex items-center gap-2 p-2">
-                              <span className="text-sm">🔒</span>
-                              {encryptImageMsgId === msg.id ? (
-                                <AudioPlayer url={msg.audioUrl} isMe={isMe} />
-                              ) : (
-                                <button onClick={(e) => {
-                                  e.stopPropagation();
-                                  const pwd = prompt('Şifreli ses mesajı şifresini girin:');
-                                  if (pwd && btoa(pwd) === msg.imagePassword) {
-                                    setEncryptImageMsgId(msg.id!);
-                                  } else if (pwd) {
-                                    showCustomAlert('Hata', 'Yanlış şifre!');
-                                  }
-                                }}
-                                className="text-[10px] font-bold text-slate-500 hover:text-slate-700">
-                                  Şifreli Ses Mesajı (dokunun)
-                                </button>
-                              )}
-                            </div>
+                            isMe ? (
+                              <AudioPlayer url={msg.audioUrl} isMe={isMe} />
+                            ) : (
+                              <button onClick={(e) => { e.stopPropagation(); setDecryptModal(msg); }}
+                                className="text-[10px] font-bold flex items-center gap-1 text-slate-500 hover:text-slate-700">🔒 Şifreli Ses Mesajı (dokunun)</button>
+                            )
                           ) : (
                             <AudioPlayer url={msg.audioUrl} isMe={isMe} />
                           )}
@@ -1924,6 +1899,22 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
           </motion.div>
         </div>
       )}
+      </AnimatePresence>
+
+      {/* Decrypt Modal */}
+      <AnimatePresence>
+        {decryptModal && (
+          <div className="fixed inset-0 z-[9998] flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-md" onClick={() => setDecryptModal(null)}>
+            <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.9 }}
+              className="bg-white rounded-3xl p-6 shadow-2xl max-w-md w-full border border-slate-100" onClick={e => e.stopPropagation()}>
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-sm font-black text-slate-900 flex items-center gap-2">🔒 Şifreli Mesaj</h3>
+                <button onClick={() => setDecryptModal(null)} className="p-1 hover:bg-slate-100 rounded-full text-slate-400"><X size={18} /></button>
+              </div>
+              <DecryptContent msg={decryptModal} onClose={() => setDecryptModal(null)} />
+            </motion.div>
+          </div>
+        )}
       </AnimatePresence>
 
       {/* Full Screen Image Viewer */}

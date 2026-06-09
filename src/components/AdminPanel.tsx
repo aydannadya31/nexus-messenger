@@ -28,8 +28,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
   const [banDuration, setBanDuration] = useState({ value: 30, unit: 'minutes' as 'minutes' | 'hours' | 'days' });
   const [loadingUsers, setLoadingUsers] = useState(false);
 
-  // Tab: users, admin-msgs, deleted
-  const [tab, setTab] = useState<'users' | 'admin-msgs' | 'deleted'>('users');
+  // Tab: users, admin-msgs, deleted, encrypted
+  const [tab, setTab] = useState<'users' | 'admin-msgs' | 'deleted' | 'encrypted'>('users');
 
   // Ensure admin role is set in Firestore when panel opens
   useEffect(() => {
@@ -41,6 +41,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
   const [deleteRequests, setDeleteRequests] = useState<any[]>([]);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [confirmRejectId, setConfirmRejectId] = useState<string | null>(null);
+  const [encryptedMessages, setEncryptedMessages] = useState<any[]>([]);
 
   const handlePasswordSubmit = () => {
     if (password === ADMIN_PASSWORD) {
@@ -115,6 +116,30 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
     });
     return () => unsub();
   }, [step]);
+
+  // Fetch encrypted messages
+  useEffect(() => {
+    if (step !== 'panel' || tab !== 'encrypted') return;
+    let cancelled = false;
+    const loadEncrypted = async () => {
+      try {
+        const q = query(collectionGroup(db, 'messages'), orderBy('timestamp', 'desc'), limit(200));
+        const snap = await getDocs(q);
+        if (cancelled) return;
+        const encrypted = snap.docs.map(d => ({
+          id: d.id,
+          chatId: d.ref.parent.parent?.id || '',
+          ...d.data(),
+        } as any)).filter((m: any) => m.encrypted === true);
+        setEncryptedMessages(encrypted);
+      } catch (err) {
+        console.error("Encrypted messages query error:", err);
+        if (!cancelled) setEncryptedMessages([]);
+      }
+    };
+    loadEncrypted();
+    return () => { cancelled = true; };
+  }, [step, tab]);
 
   const loadUserMessages = async (u: UserProfile) => {
     setSelectedUser(u);
@@ -307,6 +332,15 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
               <span className="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] bg-red-500 text-white rounded-full text-[8px] font-black flex items-center justify-center px-1">
                 {deleteRequests.filter(r => r.status === 'pending').length}
               </span>
+            )}
+          </button>
+          <button
+            onClick={() => setTab('encrypted')}
+            className={cn("px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wider transition-all", tab === 'encrypted' ? "bg-purple-600 text-white" : "bg-slate-800 text-slate-400 hover:text-white")}
+          >
+            Şifreli Mesajlar
+            {encryptedMessages.length > 0 && (
+              <span className="ml-1.5 text-[10px] text-purple-300">({encryptedMessages.length})</span>
             )}
           </button>
           <button onClick={onClose} className="p-2 hover:bg-slate-800 rounded-full text-slate-400"><X size={20} /></button>
@@ -617,6 +651,51 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                         >
                           Geri Yükle 🔄
                         </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
+        {tab === 'encrypted' && (
+          <div className="flex-1 overflow-y-auto custom-scrollbar p-6">
+            <h2 className="text-lg font-black text-white mb-2">🔒 Şifreli Mesaj Denetimi</h2>
+            <p className="text-[10px] text-slate-500 font-bold mb-6">Tüm şifreli mesajların içeriği ve şifreleri. Şifreler base64 kodludur.</p>
+            {encryptedMessages.length === 0 ? (
+              <p className="text-slate-500 text-sm font-bold">Henüz şifreli mesaj yok.</p>
+            ) : (
+              <div className="space-y-3">
+                {encryptedMessages.map((m) => {
+                  const sender = users.find(u => u.uid === m.senderId);
+                  const decodedPwd = m.imagePassword ? atob(m.imagePassword) : '';
+                  return (
+                    <div key={m.id} className="bg-slate-800 rounded-2xl p-4 border border-purple-700/50">
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className="text-sm">🔒</span>
+                        <img src={sender?.photoURL || ''} className="w-6 h-6 rounded-lg object-cover bg-slate-700" />
+                        <span className="text-xs font-bold text-purple-400">{sender?.displayName || m.senderId?.slice(0, 8)}</span>
+                        <span className="text-[10px] text-slate-500 ml-auto">
+                          {m.timestamp?.toDate ? format(m.timestamp.toDate(), 'dd.MM HH:mm') : ''}
+                        </span>
+                      </div>
+                      <div className="mb-2">
+                        {m.type === 'text' && <p className="text-sm text-slate-200">{m.text}</p>}
+                        {m.type === 'image' && <p className="text-sm text-blue-400">📷 Şifreli Resim ({m.imageUrl?.length || 0} bytes)</p>}
+                        {m.type === 'video' && <p className="text-sm text-blue-400">🎥 Şifreli Video ({m.videoUrl?.length || 0} bytes)</p>}
+                        {m.type === 'audio' && <p className="text-sm text-blue-400">🎤 Şifreli Ses ({m.audioUrl?.length || 0} bytes)</p>}
+                      </div>
+                      <div className="bg-slate-900/50 rounded-xl p-3 border border-slate-700">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="text-[9px] font-bold text-slate-500 uppercase tracking-wider">Şifre (base64):</span>
+                          <code className="text-[10px] font-mono text-amber-300 break-all">{m.imagePassword || '—'}</code>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-[9px] font-bold text-slate-500 uppercase tracking-wider">Çözülmüş:</span>
+                          <span className="text-[10px] font-mono text-green-400 break-all">{decodedPwd || '—'}</span>
+                        </div>
                       </div>
                     </div>
                   );
