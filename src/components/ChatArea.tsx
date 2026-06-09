@@ -176,6 +176,11 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
     onConfirm?: () => void;
   } | null>(null);
 
+  const [zoomScale, setZoomScale] = useState(1);
+  const [zoomPos, setZoomPos] = useState({ x: 0, y: 0 });
+  const [isDraggingZoom, setIsDraggingZoom] = useState(false);
+  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+
   const [batchMode, setBatchMode] = useState(false);
   const [selectedMsgs, setSelectedMsgs] = useState<Set<string>>(new Set());
   const [chatSearchQuery, setChatSearchQuery] = useState('');
@@ -1061,6 +1066,11 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
                 setShowGroupInfo(true); 
               } else if (otherUser) {
                 setViewProfile(otherUser);
+              } else if (chat?.type === 'private') {
+                const otherId = chat.participants.find(p => p !== user?.uid);
+                if (otherId && participantInfo[otherId]) {
+                  setViewProfile(participantInfo[otherId]);
+                }
               }
             }}
             className="hover:text-blue-600 transition-colors p-1.5 rounded-full hover:bg-blue-50"
@@ -1934,67 +1944,43 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
       </AnimatePresence>
 
       {/* Full Screen Image Viewer with Zoom */}
-      {fullScreenImage && (() => {
-        const ZoomViewer: React.FC = () => {
-          const [scale, setScale] = useState(1);
-          const [position, setPosition] = useState({ x: 0, y: 0 });
-          const [isDragging, setIsDragging] = useState(false);
-          const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
-          const imgRef = useRef<HTMLDivElement>(null);
-
-          const resetZoom = () => { setScale(1); setPosition({ x: 0, y: 0 }); };
-
-          const handleWheel = (e: React.WheelEvent) => {
-            e.preventDefault();
-            const delta = e.deltaY > 0 ? -0.1 : 0.1;
-            setScale(prev => Math.max(0.5, Math.min(5, prev + delta)));
-          };
-
-          const handleMouseDown = (e: React.MouseEvent) => {
-            if (scale > 1) { setIsDragging(true); setDragStart({ x: e.clientX - position.x, y: e.clientY - position.y }); }
-          };
-          const handleMouseMove = (e: React.MouseEvent) => {
-            if (isDragging && scale > 1) setPosition({ x: e.clientX - dragStart.x, y: e.clientY - dragStart.y });
-          };
-          const handleMouseUp = () => setIsDragging(false);
-
-          return (
-            <div className="fixed inset-0 z-[9999] bg-black/90 flex items-center justify-center overflow-hidden"
-              onClick={() => setFullScreenImage(null)}>
-              <div ref={imgRef}
-                onWheel={handleWheel}
-                onMouseDown={handleMouseDown}
-                onMouseMove={handleMouseMove}
-                onMouseUp={handleMouseUp}
-                onMouseLeave={handleMouseUp}
-                onClick={e => e.stopPropagation()}
-                className="select-none"
-                style={{ transform: `scale(${scale}) translate(${position.x / scale}px, ${position.y / scale}px)`, transition: isDragging ? 'none' : 'transform 0.2s' }}>
-                <img src={fullScreenImage} alt="Tam ekran" className="max-w-[90vw] max-h-[90vh] object-contain rounded-lg shadow-2xl" style={{ maxWidth: '90vw', maxHeight: '90vh' }} />
-              </div>
-              <div className="absolute top-4 right-4 flex gap-2">
-                <div className="flex items-center gap-1 bg-black/40 backdrop-blur-sm rounded-full px-2 py-1">
-                  <button onClick={() => setScale(prev => Math.min(5, prev + 0.5))} className="p-1.5 text-white hover:bg-white/20 rounded-full transition-all text-sm font-bold">+</button>
-                  <span className="text-white text-[10px] font-bold min-w-[32px] text-center tabular-nums">{Math.round(scale * 100)}%</span>
-                  <button onClick={() => setScale(prev => Math.max(0.5, prev - 0.5))} className="p-1.5 text-white hover:bg-white/20 rounded-full transition-all text-sm font-bold">−</button>
-                </div>
-                <button onClick={() => { resetZoom(); const a = document.createElement('a'); a.href = fullScreenImage!; a.download = 'image.png'; document.body.appendChild(a); a.click(); document.body.removeChild(a); }}
-                  className="p-2 bg-white/20 hover:bg-white/30 backdrop-blur-sm rounded-full text-white transition-all" title="İndir">
-                  <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-                </button>
-                <button onClick={() => setFullScreenImage(null)}
-                  className="p-2 bg-white/20 hover:bg-white/30 backdrop-blur-sm rounded-full text-white transition-all" title="Kapat">
-                  <X size={20} />
-                </button>
-              </div>
-              <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex gap-2">
-                <button onClick={resetZoom} className="px-3 py-1.5 bg-white/20 hover:bg-white/30 backdrop-blur-sm rounded-full text-white text-[10px] font-bold transition-all">Sıfırla</button>
-              </div>
+      {fullScreenImage && (
+        <div className="fixed inset-0 z-[9999] bg-black/90 flex items-center justify-center overflow-hidden"
+          onClick={() => { setFullScreenImage(null); setZoomScale(1); setZoomPos({ x: 0, y: 0 }); }}>
+          <div
+            onWheel={(e) => { e.preventDefault(); e.stopPropagation(); setZoomScale(prev => Math.max(0.5, Math.min(5, prev + (e.deltaY > 0 ? -0.1 : 0.1)))); }}
+            onMouseDown={(e) => { if (zoomScale > 1) { setIsDraggingZoom(true); setDragStart({ x: e.clientX - zoomPos.x, y: e.clientY - zoomPos.y }); } }}
+            onMouseMove={(e) => { if (isDraggingZoom && zoomScale > 1) setZoomPos({ x: e.clientX - dragStart.x, y: e.clientY - dragStart.y }); }}
+            onMouseUp={() => setIsDraggingZoom(false)}
+            onMouseLeave={() => setIsDraggingZoom(false)}
+            onTouchStart={(e) => { if (zoomScale > 1 && e.touches.length === 1) { const t = e.touches[0]; setIsDraggingZoom(true); setDragStart({ x: t.clientX - zoomPos.x, y: t.clientY - zoomPos.y }); } }}
+            onTouchMove={(e) => { if (isDraggingZoom && zoomScale > 1 && e.touches.length === 1) { const t = e.touches[0]; setZoomPos({ x: t.clientX - dragStart.x, y: t.clientY - dragStart.y }); } }}
+            onTouchEnd={() => setIsDraggingZoom(false)}
+            onClick={e => e.stopPropagation()}
+            className="select-none"
+            style={{ transform: `scale(${zoomScale}) translate(${zoomPos.x / zoomScale}px, ${zoomPos.y / zoomScale}px)`, transition: isDraggingZoom ? 'none' : 'transform 0.2s' }}>
+            <img src={fullScreenImage} alt="Tam ekran" className="max-w-[90vw] max-h-[90vh] object-contain rounded-lg shadow-2xl" draggable={false} />
+          </div>
+          <div className="absolute top-4 right-4 flex gap-2">
+            <div className="flex items-center gap-1 bg-black/40 backdrop-blur-sm rounded-full px-2 py-1">
+              <button onClick={(e) => { e.stopPropagation(); setZoomScale(prev => Math.min(5, prev + 0.5)); }} className="p-1.5 text-white hover:bg-white/20 rounded-full transition-all text-sm font-bold">+</button>
+              <span className="text-white text-[10px] font-bold min-w-[32px] text-center tabular-nums">{Math.round(zoomScale * 100)}%</span>
+              <button onClick={(e) => { e.stopPropagation(); setZoomScale(prev => Math.max(0.5, prev - 0.5)); }} className="p-1.5 text-white hover:bg-white/20 rounded-full transition-all text-sm font-bold">−</button>
             </div>
-          );
-        };
-        return <ZoomViewer />;
-      })()}
+            <button onClick={(e) => { e.stopPropagation(); setZoomScale(1); setZoomPos({ x: 0, y: 0 }); const a = document.createElement('a'); a.href = fullScreenImage!; a.download = 'image.png'; document.body.appendChild(a); a.click(); document.body.removeChild(a); }}
+              className="p-2 bg-white/20 hover:bg-white/30 backdrop-blur-sm rounded-full text-white transition-all" title="İndir">
+              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            </button>
+            <button onClick={() => setFullScreenImage(null)}
+              className="p-2 bg-white/20 hover:bg-white/30 backdrop-blur-sm rounded-full text-white transition-all" title="Kapat">
+              <X size={20} />
+            </button>
+          </div>
+          <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex gap-2">
+            <button onClick={(e) => { e.stopPropagation(); setZoomScale(1); setZoomPos({ x: 0, y: 0 }); }} className="px-3 py-1.5 bg-white/20 hover:bg-white/30 backdrop-blur-sm rounded-full text-white text-[10px] font-bold transition-all">Sıfırla</button>
+          </div>
+        </div>
+      )}
 
     </div>
   );

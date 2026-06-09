@@ -89,21 +89,20 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const postCallMessage = async (chatId: string, duration: number, callStatus: 'missed' | 'completed' | 'cancelled' | 'rejected' | 'answered') => {
     if (!user) return;
     try {
-      const { collection: col, addDoc, serverTimestamp: ts } = await import('firebase/firestore');
       const text = callStatus === 'completed'
         ? `📞 Görüşme ${Math.floor(duration / 60)}:${String(duration % 60).padStart(2, '0')}`
         : callStatus === 'missed' ? '❌ Gelen Arama Reddedildi'
         : callStatus === 'rejected' ? '❌ Gelen Arama Reddedildi'
         : callStatus === 'answered' ? '✅ Gelen Arama Yanıtlandı'
         : '📞 Çağrı iptal edildi';
-      await addDoc(col(db, 'chats', chatId, 'messages'), {
-        senderId: user.uid, timestamp: ts(), type: 'call',
+      await addDoc(collection(db, 'chats', chatId, 'messages'), {
+        senderId: user.uid, timestamp: serverTimestamp(), type: 'call',
         callDuration: callStatus === 'completed' ? duration : 0,
         callStatus, text, status: 'sent'
       });
       await updateDoc(doc(db, 'chats', chatId), {
-        lastMessage: { senderId: user.uid, senderName: user.displayName, text, timestamp: ts() },
-        updatedAt: ts()
+        lastMessage: { senderId: user.uid, senderName: user.displayName, text, timestamp: serverTimestamp() },
+        updatedAt: serverTimestamp()
       });
     } catch (err) {
       console.error("Post call message error:", err);

@@ -28,9 +28,9 @@ export const CallOverlay = () => {
 
   const configuration: RTCConfiguration = {
     iceServers: [
+      { urls: 'turns:free.turnservers.com:443' },
       { urls: 'stun:stun.l.google.com:19302' },
       { urls: 'stun:stun1.l.google.com:19302' },
-      { urls: 'turns:free.turnservers.com:443' },
     ],
     iceCandidatePoolSize: 0,
   };
