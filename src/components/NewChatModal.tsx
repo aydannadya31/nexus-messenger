@@ -184,13 +184,13 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({ onClose, onChatCreat
     onClose();
   };
 
-  const searchGroups = async (name: string) => {
-    if (!name.trim()) { setFoundGroups([]); return; }
+  const loadGroups = async (name: string = '') => {
     setGroupSearchLoading(true);
     try {
       const snap = await getDocs(collection(db, 'chats'));
       const groups = snap.docs.map(d => ({ id: d.id, ...d.data() } as Chat)).filter(g =>
-        g.type === 'group' && g.groupMetadata?.name?.toLowerCase().includes(name.toLowerCase()) && !g.participants.includes(user!.uid) &&
+        g.type === 'group' && !g.participants.includes(user!.uid) &&
+        (!name || g.groupMetadata?.name?.toLowerCase().includes(name.toLowerCase())) &&
         (!groupCountryFilter || g.groupCountry === groupCountryFilter)
       );
       setFoundGroups(groups);
@@ -201,6 +201,14 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({ onClose, onChatCreat
       setGroupSearchLoading(false);
     }
   };
+
+  const searchGroups = async (name: string) => {
+    loadGroups(name);
+  };
+
+  useEffect(() => {
+    if (tab === 'groups') loadGroups();
+  }, [tab, groupCountryFilter]);
 
   const requestJoinGroup = async (group: Chat) => {
     if (!user) return;
@@ -251,21 +259,20 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({ onClose, onChatCreat
                 <button onClick={() => setTab('groups')} className={cn("flex-1 py-2.5 rounded-xl text-xs font-bold uppercase tracking-wider transition-all", tab === 'groups' ? "bg-white text-slate-900 shadow-sm" : "text-slate-500")}>Gruplar</button>
               </div>
 
-              {/* Country Filter (common) */}
-              <div className="flex items-center gap-2">
-                <div className="relative flex-1">
-                  <Globe className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
-                  <select value={countryFilter} onChange={e => setCountryFilter(e.target.value)}
-                    className="w-full bg-slate-50 border border-slate-100 rounded-2xl py-2.5 pl-9 pr-3 text-xs font-bold text-slate-700 outline-none appearance-none cursor-pointer">
-                    <option value="">Tüm Ülkeler</option>
-                    {COUNTRIES.map(c => (<option key={c.code} value={c.code}>{c.name}</option>))}
-                  </select>
-                </div>
-                {countryFilter && <button onClick={() => setCountryFilter('')} className="p-2 text-slate-400 hover:text-red-500 shrink-0"><X size={14} /></button>}
-              </div>
-
               {tab === 'people' && (
                 <>
+                  {/* Country Filter (only for People tab) */}
+                  <div className="flex items-center gap-2">
+                    <div className="relative flex-1">
+                      <Globe className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
+                      <select value={countryFilter} onChange={e => setCountryFilter(e.target.value)}
+                        className="w-full bg-slate-50 border border-slate-100 rounded-2xl py-2.5 pl-9 pr-3 text-xs font-bold text-slate-700 outline-none appearance-none cursor-pointer">
+                        <option value="">Tüm Ülkeler</option>
+                        {COUNTRIES.map(c => (<option key={c.code} value={c.code}>{c.name}</option>))}
+                      </select>
+                    </div>
+                    {countryFilter && <button onClick={() => setCountryFilter('')} className="p-2 text-slate-400 hover:text-red-500 shrink-0"><X size={14} /></button>}
+                  </div>
                   <div className="relative">
                     <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
                     <input type="text" value={peopleSearch} onChange={e => setPeopleSearch(e.target.value)}
@@ -319,12 +326,13 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({ onClose, onChatCreat
                   <div className="flex items-center gap-2">
                     <div className="relative flex-1">
                       <Globe className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
-                      <select value={groupCountryFilter} onChange={e => { setGroupCountryFilter(e.target.value); if (groupSearch.trim()) searchGroups(groupSearch); }}
+                      <select value={groupCountryFilter} onChange={e => { setGroupCountryFilter(e.target.value); }}
                         className="w-full bg-slate-50 border border-slate-100 rounded-2xl py-2.5 pl-9 pr-3 text-xs font-bold text-slate-700 outline-none appearance-none cursor-pointer">
                         <option value="">Tüm Ülkeler</option>
                         {COUNTRIES.map(c => (<option key={c.code} value={c.code}>{c.name}</option>))}
                       </select>
                     </div>
+                    {groupCountryFilter && <button onClick={() => setGroupCountryFilter('')} className="p-2 text-slate-400 hover:text-red-500 shrink-0"><X size={14} /></button>}
                   </div>
                   <div className="relative">
                     <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
@@ -333,7 +341,7 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({ onClose, onChatCreat
                   </div>
                   <div className="space-y-1 max-h-80 overflow-y-auto custom-scrollbar pr-2">
                     {groupSearchLoading ? (
-                      <div className="text-center py-12"><div className="w-8 h-8 border-3 border-blue-100 border-t-blue-600 rounded-full animate-spin mx-auto mb-3" /><p className="text-xs font-bold text-slate-400 uppercase">Aranıyor</p></div>
+                      <div className="text-center py-12"><div className="w-8 h-8 border-3 border-blue-100 border-t-blue-600 rounded-full animate-spin mx-auto mb-3" /><p className="text-xs font-bold text-slate-400 uppercase">Yükleniyor</p></div>
                     ) : foundGroups.length > 0 ? foundGroups.map(g => (
                       <div key={g.id} onClick={() => requestJoinGroup(g)}
                         className="flex items-center gap-4 p-4 rounded-2xl cursor-pointer transition-all border hover:bg-slate-50 border-transparent hover:border-slate-100 group">
@@ -344,10 +352,8 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({ onClose, onChatCreat
                         </div>
                         <div className="p-2 bg-green-50 rounded-xl text-green-600 group-hover:bg-green-100 transition-all"><LogIn size={18} /></div>
                       </div>
-                    )) : groupSearch.trim() ? (
+                    )) : (
                       <div className="text-center py-12"><p className="text-sm font-bold text-slate-400 uppercase">Grup bulunamadı</p></div>
-                    ) : (
-                      <div className="text-center py-8"><p className="text-xs font-bold text-slate-400 uppercase">Grup aramak için yukarıya isim yazın</p></div>
                     )}
                   </div>
                 </>

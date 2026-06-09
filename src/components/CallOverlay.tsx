@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { useCall } from './CallProvider';
 import { useAuth } from './AuthProvider';
 import { db } from '../lib/firebase';
@@ -20,51 +20,20 @@ export const CallOverlay = () => {
   const [isVideoOff, setIsVideoOff] = useState(false);
   const [callerInfo, setCallerInfo] = useState<UserProfile | null>(null);
   const [isInviting, setIsInviting] = useState(false);
-  const [useFallbackTurn, setUseFallbackTurn] = useState(false);
 
   const pcs = useRef<Record<string, RTCPeerConnection>>({});
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const pendingCandidates = useRef<Record<string, RTCIceCandidateInit[]>>({});
   const mediaInitPromiseRef = useRef<Promise<MediaStream | null> | null>(null);
-  const turnTimerRef = useRef<number | null>(null);
 
-  // TURN fallback: 60 saniye sonra bağlantı yoksa free.turnservers.com devreye girer
-  useEffect(() => {
-    if (!activeCall) return;
-    setUseFallbackTurn(false);
-    turnTimerRef.current = window.setTimeout(() => {
-      const anyConnected = Object.values(pcs.current).some(pc =>
-        pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed'
-      );
-      if (!anyConnected) {
-        setUseFallbackTurn(true);
-      }
-    }, 60000);
-    return () => {
-      if (turnTimerRef.current) { clearTimeout(turnTimerRef.current); turnTimerRef.current = null; }
-    };
-  }, [activeCall?.id]);
-
-  // Fallback TURN etkinleşince tüm peer'larda ICE restart
-  useEffect(() => {
-    if (!useFallbackTurn) return;
-    Object.values(pcs.current).forEach(pc => {
-      try { pc.restartIce(); } catch (e) {}
-    });
-  }, [useFallbackTurn]);
-
-  const configuration: RTCConfiguration = useMemo(() => ({
+  const configuration: RTCConfiguration = {
     iceServers: [
       { urls: 'stun:stun.l.google.com:19302' },
       { urls: 'stun:stun1.l.google.com:19302' },
-      { urls: 'stun:stun2.l.google.com:19302' },
-      { urls: 'stun:stun3.l.google.com:19302' },
-      // Birincil: Firebase / Google Cloud TURN (kendi TURN sunucunuzu buraya ekleyin)
-      // Örnek: { urls: 'turns:turn.your-firebase-project.com:443', credential: '...', username: '...' },
-      ...(useFallbackTurn ? [{ urls: 'turns:free.turnservers.com:443' }] : []),
+      { urls: 'turns:free.turnservers.com:443' },
     ],
     iceCandidatePoolSize: 0,
-  }), [useFallbackTurn]);
+  };
 
   // Play ringtone for incoming call
   const ringtoneRef = useRef<AudioContext | null>(null);
@@ -120,12 +89,17 @@ export const CallOverlay = () => {
     };
   }, [incomingCall?.callerId]);
 
-  // Fetch calller info for incoming call
+  // Fetch caller info for incoming call
   useEffect(() => {
     if (incomingCall?.callerId) {
       getDoc(doc(db, 'users', incomingCall.callerId)).then(d => {
-        if (d.exists()) setCallerInfo(d.data() as UserProfile);
-      });
+        if (d.exists()) {
+          setCallerInfo(d.data() as UserProfile);
+          setParticipantInfo(prev => ({ ...prev, [incomingCall.callerId]: d.data() as UserProfile }));
+        }
+      }).catch(err => console.error("callerInfo fetch error:", err));
+    } else {
+      setCallerInfo(null);
     }
   }, [incomingCall?.callerId]);
 

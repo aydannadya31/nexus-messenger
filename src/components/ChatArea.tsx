@@ -1212,7 +1212,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
                       )}
                       
                       {msg.type === 'image' && msg.imageUrl && (
-                        <div className={cn("relative rounded-lg overflow-hidden mb-1 max-w-[60vw] sm:max-w-[60%]", isDeleted && "grayscale blur-[2px] opacity-40")}>
+                        <div className={cn("relative rounded-lg overflow-hidden mb-1 max-w-[180px]", isDeleted && "grayscale blur-[2px] opacity-40")}>
                           {msg.encrypted && !isDeleted && !isMe ? (
                             <>
                               <img src={msg.imageUrl} alt="" className="w-full h-auto object-cover blur-[12px]" />
@@ -1655,6 +1655,24 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
                   <div className="w-full bg-slate-50 rounded-2xl p-4 border border-slate-100">
                     <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Hakkında</p>
                     <p className="text-sm font-bold text-slate-700">{viewProfile.about}</p>
+                  </div>
+                )}
+                {viewProfile.showBirthDate !== false && viewProfile.birthDate && (
+                  <div className="w-full bg-slate-50 rounded-2xl p-4 border border-slate-100">
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">🎂 Doğum Tarihi</p>
+                    <p className="text-sm font-bold text-slate-700">{viewProfile.birthDate}</p>
+                  </div>
+                )}
+                {viewProfile.showPhone !== false && viewProfile.phone && (
+                  <div className="w-full bg-slate-50 rounded-2xl p-4 border border-slate-100">
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">📞 Telefon</p>
+                    <p className="text-sm font-bold text-slate-700">{viewProfile.phone}</p>
+                  </div>
+                )}
+                {viewProfile.showLocation !== false && viewProfile.location && (
+                  <div className="w-full bg-slate-50 rounded-2xl p-4 border border-slate-100">
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">📍 Konum</p>
+                    <p className="text-sm font-bold text-slate-700">{viewProfile.location}</p>
                   </div>
                 )}
                 <div className="flex items-center gap-2">
