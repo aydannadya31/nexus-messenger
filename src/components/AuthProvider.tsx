@@ -43,6 +43,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             }, { merge: true });
 
             // Listen to profile changes in real-time
+            if (unsubProfile) unsubProfile();
             unsubProfile = onSnapshot(userRef, (snap) => {
               if (snap.exists() && !cancelled) {
                 setProfile({ ...snap.data() as UserProfile, uid: snap.id });

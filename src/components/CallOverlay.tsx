@@ -264,19 +264,17 @@ export const CallOverlay = () => {
             for (const c of buffered) {
               try { await pc.addIceCandidate(new RTCIceCandidate(c)); } catch (e) {}
             }
-            if (pc.signalingState === 'stable') {
-              const answer = await pc.createAnswer();
-              await pc.setLocalDescription(answer);
-              const currentCall = activeCallRef.current;
-              if (currentCall) {
-                await addDoc(collection(db, 'calls', currentCall.id, 'signals'), {
-                  from: user.uid,
-                  to: signal.from,
-                  type: 'answer',
-                  data: { type: answer.type, sdp: answer.sdp },
-                  createdAt: serverTimestamp()
-                });
-              }
+            const answer = await pc.createAnswer();
+            await pc.setLocalDescription(answer);
+            const currentCall = activeCallRef.current;
+            if (currentCall) {
+              await addDoc(collection(db, 'calls', currentCall.id, 'signals'), {
+                from: user.uid,
+                to: signal.from,
+                type: 'answer',
+                data: { type: answer.type, sdp: answer.sdp },
+                createdAt: serverTimestamp()
+              });
             }
           } else if (signal.type === 'answer') {
             let pc = pcs.current[signal.from];
@@ -339,8 +337,7 @@ export const CallOverlay = () => {
 
       for (const pId of activeCall.activeParticipants) {
         if (pId !== user.uid && !pcs.current[pId]) {
-          const isInitiator = user.uid === activeCall.callerId;
-          await getOrCreatePC(pId, isInitiator);
+          await getOrCreatePC(pId, user.uid < pId);
         }
       }
     })();
@@ -351,7 +348,7 @@ export const CallOverlay = () => {
       }
     });
     return () => { cancelled = true; };
-  }, [activeCall?.activeParticipants, user?.uid, activeCall?.callerId, getOrCreatePC, cleanupPeer]);
+  }, [activeCall?.activeParticipants, user?.uid, getOrCreatePC, cleanupPeer]);
 
   // Cleanup on call end
   useEffect(() => {

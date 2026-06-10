@@ -93,7 +93,7 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({ onClose, onChatCreat
           getDocs(query(collection(db, 'friendRequests'), where('to', '==', user.uid)))
         ]);
         const status: Record<string, 'none' | 'pending_sent' | 'pending_received' | 'approved'> = {};
-        const requests = [...q1.docs, ...q2.docs].map(d => ({ id: d.id, ...d.data() } as any));
+        const requests = [...q1.docs, ...q2.docs].map(d => ({ ...d.data(), id: d.id } as any));
         const unique = requests.filter((r, i, arr) => arr.findIndex(x => x.id === r.id) === i);
         unique.forEach(r => {
           const otherId = r.from === user.uid ? r.to : r.from;
@@ -188,8 +188,7 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({ onClose, onChatCreat
     setGroupSearchLoading(true);
     try {
       const snap = await getDocs(query(collection(db, 'chats'), where('type', '==', 'group')));
-      const groups = snap.docs.map(d => ({ id: d.id, ...d.data() } as Chat)).filter(g =>
-        !g.participants.includes(user!.uid) &&
+      const groups = snap.docs.map(d => ({ ...d.data(), id: d.id } as Chat)).filter(g =>
         (!name || g.groupMetadata?.name?.toLowerCase().includes(name.toLowerCase())) &&
         (!groupCountryFilter || g.groupCountry === groupCountryFilter)
       );

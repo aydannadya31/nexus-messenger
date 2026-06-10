@@ -81,6 +81,7 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     }, (err) => {
       console.error("Call listener failed:", err);
+      setCallError('Arama sistemi hatası: ' + (err.message || 'Bağlantı kaybı'));
     });
 
     return () => unsubscribe();
@@ -91,7 +92,7 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       const text = callStatus === 'completed'
         ? `📞 Görüşme ${Math.floor(duration / 60)}:${String(duration % 60).padStart(2, '0')}`
-        : callStatus === 'missed' ? '❌ Gelen Arama Reddedildi'
+        : callStatus === 'missed' ? '📞 Cevapsız Arama'
         : callStatus === 'rejected' ? '❌ Gelen Arama Reddedildi'
         : callStatus === 'answered' ? '✅ Gelen Arama Yanıtlandı'
         : '📞 Çağrı iptal edildi';
@@ -125,7 +126,9 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
         createdAt: serverTimestamp(),
       };
 
-      await addDoc(collection(db, 'calls'), callData);
+      const docRef = await addDoc(collection(db, 'calls'), callData);
+      // Set active call immediately instead of waiting for listener
+      setActiveCall({ id: docRef.id, ...callData, createdAt: serverTimestamp() } as Call);
     } catch (error: any) {
       console.error("Start call error:", error);
       if (error?.code === 'permission-denied') {

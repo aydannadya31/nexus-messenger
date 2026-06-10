@@ -61,9 +61,10 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
     const unsub = onSnapshot(q, (snap) => {
       const lastRead = localStorage.getItem('broadcastLastRead');
       if (snap.docs.length > 0) {
-        const latest = snap.docs[0].data().createdAt as string;
+        const latest = snap.docs[0].data().createdAt;
         if (latest && lastRead) {
-          setBroadcastUnread(new Date(latest).getTime() > new Date(lastRead).getTime());
+          const latestTime = latest.toMillis ? latest.toMillis() : new Date(latest as any).getTime();
+          setBroadcastUnread(latestTime > new Date(lastRead).getTime());
         } else {
           setBroadcastUnread(false);
         }
@@ -84,7 +85,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
     );
 
     const unsubscribe = onSnapshot(q, async (snapshot) => {
-      const chatList = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Chat));
+      const chatList = snapshot.docs.map(d => ({ ...d.data(), id: d.id } as Chat));
       
       // Play sound if new message arrived and not from me
       const prevMsgs = prevLastMessagesRef.current;
