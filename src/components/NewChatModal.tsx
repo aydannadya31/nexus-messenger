@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { collection, query, getDocs, addDoc, serverTimestamp, where, limit, orderBy, doc, getDoc, updateDoc, arrayUnion } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { useAuth } from './AuthProvider';
@@ -141,68 +141,87 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({ onClose, onChatCreat
 
   const startPrivateChat = async (otherUser: UserProfile) => {
     if (!user) return;
-    const opened = await openExistingChat(otherUser.uid);
-    if (opened) return;
-    const newChatRef = await addDoc(collection(db, 'chats'), {
-      participants: [user.uid, otherUser.uid],
-      type: 'private',
-      updatedAt: serverTimestamp(),
-      lastMessage: null
-    });
-    onChatCreated(newChatRef.id);
-    onClose();
+    try {
+      const opened = await openExistingChat(otherUser.uid);
+      if (opened) return;
+      const newChatRef = await addDoc(collection(db, 'chats'), {
+        participants: [user.uid, otherUser.uid],
+        type: 'private',
+        updatedAt: serverTimestamp(),
+        lastMessage: null
+      });
+      onChatCreated(newChatRef.id);
+      onClose();
+    } catch (err) {
+      console.error("startPrivateChat error:", err);
+      alert('Sohbet başlatılamadı: ' + (err instanceof Error ? err.message : 'Bilinmeyen hata'));
+    }
   };
 
   const sendFriendRequest = async (otherUser: UserProfile) => {
     if (!user) return;
-    const opened = await openExistingChat(otherUser.uid);
-    if (opened) return;
-    await addDoc(collection(db, 'friendRequests'), {
-      from: user.uid, to: otherUser.uid,
-      fromName: user.displayName || user.email, toName: otherUser.displayName || otherUser.email,
-      fromPhoto: user.photoURL || '', toPhoto: otherUser.photoURL || '',
-      status: 'pending', timestamp: serverTimestamp()
-    });
-    setFriendStatus(prev => ({ ...prev, [otherUser.uid]: 'pending_sent' }));
-    alert('Arkadaşlık isteği gönderildi!');
+    try {
+      const opened = await openExistingChat(otherUser.uid);
+      if (opened) return;
+      await addDoc(collection(db, 'friendRequests'), {
+        from: user.uid, to: otherUser.uid,
+        fromName: user.displayName || user.email, toName: otherUser.displayName || otherUser.email,
+        fromPhoto: user.photoURL || '', toPhoto: otherUser.photoURL || '',
+        status: 'pending', timestamp: serverTimestamp()
+      });
+      setFriendStatus(prev => ({ ...prev, [otherUser.uid]: 'pending_sent' }));
+      alert('Arkadaşlık isteği gönderildi!');
+    } catch (err) {
+      console.error("sendFriendRequest error:", err);
+      alert('İstek gönderilemedi: ' + (err instanceof Error ? err.message : 'Bilinmeyen hata'));
+    }
   };
 
   const createGroup = async () => {
     if (!user || !groupName.trim() || selectedUsers.length === 0) return;
-    const participants = [user.uid, ...selectedUsers.map(u => u.uid)];
-    const newChatRef = await addDoc(collection(db, 'chats'), {
-      participants, type: 'group',
-      groupCountry: groupCountry || profile?.country || '',
-      groupMetadata: {
-        name: groupName.trim(), createdBy: user.uid, adminId: user.uid,
-        photoURL: `https://api.dicebear.com/7.x/initials/svg?seed=${groupName}`,
-        ...(groupPassword.trim() ? { password: groupPassword.trim() } : {})
-      },
-      updatedAt: serverTimestamp(), lastMessage: null
-    });
-    onChatCreated(newChatRef.id);
-    onClose();
+    try {
+      const participants = [user.uid, ...selectedUsers.map(u => u.uid)];
+      const newChatRef = await addDoc(collection(db, 'chats'), {
+        participants, type: 'group',
+        groupCountry: groupCountry || profile?.country || '',
+        groupMetadata: {
+          name: groupName.trim(), createdBy: user.uid, adminId: user.uid,
+          photoURL: `https://api.dicebear.com/7.x/initials/svg?seed=${groupName}`,
+          ...(groupPassword.trim() ? { password: groupPassword.trim() } : {})
+        },
+        updatedAt: serverTimestamp(), lastMessage: null
+      });
+      onChatCreated(newChatRef.id);
+      onClose();
+    } catch (err) {
+      console.error("createGroup error:", err);
+      alert('Grup oluşturulamadı: ' + (err instanceof Error ? err.message : 'Bilinmeyen hata'));
+    }
   };
 
   const loadGroups = async (name: string = '') => {
     setGroupSearchLoading(true);
     try {
-      const snap = await getDocs(query(collection(db, 'chats'), where('type', '==', 'group')));
+      const snap = await getDocs(query(collection(db, 'chats'), where('type', '==', 'group'), limit(100)));
+      console.log("loadGroups: fetched", snap.docs.length, "group docs");
       const groups = snap.docs.map(d => ({ ...d.data(), id: d.id } as Chat)).filter(g =>
         (!name || g.groupMetadata?.name?.toLowerCase().includes(name.toLowerCase())) &&
         (!groupCountryFilter || g.groupCountry === groupCountryFilter)
       );
+      console.log("loadGroups: filtered to", groups.length, "groups, groupCountryFilter:", groupCountryFilter);
       setFoundGroups(groups);
     } catch (err) {
-      console.error(err);
+      console.error("loadGroups error:", err);
       setFoundGroups([]);
     } finally {
       setGroupSearchLoading(false);
     }
   };
 
-  const searchGroups = async (name: string) => {
-    loadGroups(name);
+  const searchGroupsRef = useRef<ReturnType<typeof setTimeout>>(null);
+  const searchGroups = (name: string) => {
+    if (searchGroupsRef.current) clearTimeout(searchGroupsRef.current);
+    searchGroupsRef.current = setTimeout(() => loadGroups(name), 300);
   };
 
   useEffect(() => {

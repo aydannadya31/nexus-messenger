@@ -18,6 +18,15 @@ service cloud.firestore {
       return isSignedIn() && request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants;
     }
 
+    function isGroupAdmin(chatId) {
+      return isSignedIn() && request.auth.uid == get(/databases/$(database)/documents/chats/$(chatId)).data.groupMetadata.adminId;
+    }
+
+    function isValidGroupMetadata(data) {
+      return data.keys().hasOnly(['name', 'createdBy', 'adminId', 'photoURL', 'password']) ||
+             data.keys().hasOnly(['name', 'createdBy', 'adminId', 'photoURL']);
+    }
+
     function isValidUser(data) {
       return data.keys().hasAll(['uid', 'displayName', 'email']) &&
              data.uid == request.auth.uid &&
@@ -109,14 +118,14 @@ service cloud.firestore {
       }
     }
 
-    // Admin messages (any authenticated user can send/read)
+    // Admin messages (only admins can send/read)
     match /adminMessages/{docId} {
-      allow read, write: if isSignedIn();
+      allow read, write: if isAdmin();
     }
 
-    // Admin settings
+    // Admin settings (only admins can send/read)
     match /adminSettings/{docId} {
-      allow read, write: if isSignedIn();
+      allow read, write: if isAdmin();
     }
 
     // Broadcast messages (any authenticated user can create/read)
@@ -142,9 +151,9 @@ service cloud.firestore {
 
     // Group join requests
     match /groupJoinRequests/{docId} {
-      allow read: if isSignedIn() && (resource.data.from == request.auth.uid || isAdmin());
+      allow read: if isSignedIn() && (resource.data.from == request.auth.uid || isGroupAdmin(resource.data.groupId) || isAdmin());
       allow create: if isSignedIn() && request.resource.data.from == request.auth.uid;
-      allow update: if isAdmin();
+      allow update: if isSignedIn() && (isGroupAdmin(resource.data.groupId) || isAdmin());
     }
   }
 }

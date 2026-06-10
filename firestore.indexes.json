@@ -9,11 +9,34 @@
       ]
     },
     {
+      "collectionGroup": "chats",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "participants", "arrayConfig": "CONTAINS" },
+        { "fieldPath": "type", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "chats",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "type", "order": "ASCENDING" },
+        { "fieldPath": "groupCountry", "order": "ASCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "calls",
       "queryScope": "COLLECTION",
       "fields": [
         { "fieldPath": "participants", "arrayConfig": "CONTAINS" },
         { "fieldPath": "status", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "broadcastMessages",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
       ]
     },
     {

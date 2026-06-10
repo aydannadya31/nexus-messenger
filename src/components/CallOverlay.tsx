@@ -30,11 +30,12 @@ export const CallOverlay = () => {
 
   const configuration: RTCConfiguration = {
     iceServers: [
-      { urls: 'turns:free.turnservers.com:443' },
       { urls: 'stun:stun.l.google.com:19302' },
       { urls: 'stun:stun1.l.google.com:19302' },
+      { urls: 'stun:stun2.l.google.com:19302' },
+      { urls: 'turn:free.turnservers.com:3478' },
     ],
-    iceCandidatePoolSize: 0,
+    iceCandidatePoolSize: 1,
   };
 
   // Play ringtone for incoming call
@@ -172,12 +173,23 @@ export const CallOverlay = () => {
       setRemoteStreams(prev => ({ ...prev, [pId]: stream }));
     };
 
+    let disconnectTimer: ReturnType<typeof setTimeout> | null = null;
     pc.oniceconnectionstatechange = () => {
       console.log("ICE state:", pc.iceConnectionState, "peer:", pId);
       if (pc.iceConnectionState === 'connected') {
         console.log(`Peer ${pId} connected!`);
+        if (disconnectTimer) { clearTimeout(disconnectTimer); disconnectTimer = null; }
       }
-      if (pc.iceConnectionState === 'disconnected' || pc.iceConnectionState === 'failed') {
+      if (pc.iceConnectionState === 'disconnected') {
+        if (!disconnectTimer) {
+          disconnectTimer = setTimeout(() => {
+            console.log("ICE disconnected timeout, cleaning up peer:", pId);
+            cleanupPeer(pId);
+          }, 10000);
+        }
+      }
+      if (pc.iceConnectionState === 'failed') {
+        if (disconnectTimer) { clearTimeout(disconnectTimer); disconnectTimer = null; }
         cleanupPeer(pId);
       }
     };
@@ -250,22 +262,26 @@ export const CallOverlay = () => {
 
         try {
           if (signal.type === 'offer') {
+            console.log("📨 Received OFFER from", signal.from);
             const stream = localStreamRef.current || await initLocalMedia(activeCallRef.current?.mediaType === 'video');
-            if (!stream) continue;
+            if (!stream) { console.error("❌ No media stream for offer"); continue; }
             let pc = pcs.current[signal.from];
             if (!pc) {
+              console.log("Creating PC for offer from", signal.from);
               pc = await getOrCreatePC(signal.from, false);
             }
-            if (!pc) continue;
+            if (!pc) { console.error("❌ Failed to create PC for offer"); continue; }
             addLocalTracksToPC(pc);
             await pc.setRemoteDescription(new RTCSessionDescription(signal.data));
+            console.log("✅ Remote description set from offer, state:", pc.signalingState);
             const buffered = pendingCandidates.current[signal.from] || [];
             delete pendingCandidates.current[signal.from];
             for (const c of buffered) {
-              try { await pc.addIceCandidate(new RTCIceCandidate(c)); } catch (e) {}
+              try { await pc.addIceCandidate(new RTCIceCandidate(c)); } catch (e) { console.warn("candidate add error:", e); }
             }
             const answer = await pc.createAnswer();
             await pc.setLocalDescription(answer);
+            console.log("✅ Answer created and set, state:", pc.signalingState);
             const currentCall = activeCallRef.current;
             if (currentCall) {
               await addDoc(collection(db, 'calls', currentCall.id, 'signals'), {
@@ -275,16 +291,20 @@ export const CallOverlay = () => {
                 data: { type: answer.type, sdp: answer.sdp },
                 createdAt: serverTimestamp()
               });
+              console.log("✅ Answer sent to", signal.from);
             }
           } else if (signal.type === 'answer') {
+            console.log("📨 Received ANSWER from", signal.from);
             let pc = pcs.current[signal.from];
-            if (!pc) continue;
-            if (pc.signalingState !== 'have-local-offer') continue;
+            if (!pc) { console.error("❌ No PC for answer"); continue; }
+            console.log("Signaling state before answer:", pc.signalingState);
+            if (pc.signalingState !== 'have-local-offer') { console.warn("⚠️ Wrong state for answer:", pc.signalingState); continue; }
             await pc.setRemoteDescription(new RTCSessionDescription(signal.data));
+            console.log("✅ Remote description set from answer, state:", pc.signalingState);
             const buffered = pendingCandidates.current[signal.from] || [];
             delete pendingCandidates.current[signal.from];
             for (const c of buffered) {
-              try { await pc.addIceCandidate(new RTCIceCandidate(c)); } catch (e) {}
+              try { await pc.addIceCandidate(new RTCIceCandidate(c)); } catch (e) { console.warn("candidate add error:", e); }
             }
           } else if (signal.type === 'candidate') {
             let pc = pcs.current[signal.from];
@@ -293,11 +313,12 @@ export const CallOverlay = () => {
                 pendingCandidates.current[signal.from] = [];
               }
               pendingCandidates.current[signal.from].push(signal.data);
+              console.log("📦 Buffered ICE candidate from", signal.from, "buffer size:", pendingCandidates.current[signal.from].length);
               continue;
             }
             try {
               await pc.addIceCandidate(new RTCIceCandidate(signal.data));
-            } catch (e) {}
+            } catch (e) { console.warn("candidate add error:", e); }
           }
         } catch (err) {
           console.error("Signal processing error:", err);
@@ -330,20 +351,27 @@ export const CallOverlay = () => {
   // Mesh Management: Connect to active participants
   useEffect(() => {
     if (!activeCall || !user) return;
+    console.log("🔄 Mesh Management: active participants:", activeCall.activeParticipants, "my uid:", user.uid);
     let cancelled = false;
     (async () => {
       const stream = localStreamRef.current || await initLocalMedia(activeCall.mediaType === 'video');
-      if (!stream || cancelled) return;
+      if (!stream || cancelled) {
+        console.log("⚠️ Mesh: no stream, initLocalMedia result:", !!stream);
+        return;
+      }
 
       for (const pId of activeCall.activeParticipants) {
         if (pId !== user.uid && !pcs.current[pId]) {
-          await getOrCreatePC(pId, user.uid < pId);
+          const isInit = user.uid < pId;
+          console.log("🔌 Mesh: connecting to", pId, "isInitiator:", isInit);
+          await getOrCreatePC(pId, isInit);
         }
       }
     })();
 
     Object.keys(pcs.current).forEach(pId => {
       if (!activeCall.activeParticipants.includes(pId)) {
+        console.log("🧹 Mesh: cleaning up peer", pId);
         cleanupPeer(pId);
       }
     });
