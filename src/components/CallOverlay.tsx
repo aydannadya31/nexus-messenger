@@ -22,6 +22,8 @@ export const CallOverlay = () => {
   const [isInviting, setIsInviting] = useState(false);
 
   const pcs = useRef<Record<string, RTCPeerConnection>>({});
+  const activeCallRef = useRef(activeCall);
+  useEffect(() => { activeCallRef.current = activeCall; }, [activeCall]);
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const pendingCandidates = useRef<Record<string, RTCIceCandidateInit[]>>({});
   const mediaInitPromiseRef = useRef<Promise<MediaStream | null> | null>(null);
@@ -145,14 +147,17 @@ export const CallOverlay = () => {
       addLocalTracksToPC(pcs.current[pId]);
       return pcs.current[pId];
     }
-    if (!activeCall || !user) return null;
+    if (!activeCallRef.current || !user) return null;
 
+    const ac = activeCallRef.current;
     const pc = new RTCPeerConnection(configuration);
     pcs.current[pId] = pc;
 
     pc.onicecandidate = (event) => {
       if (event.candidate) {
-        addDoc(collection(db, 'calls', activeCall.id, 'signals'), {
+        const currentCall = activeCallRef.current;
+        if (!currentCall) return;
+        addDoc(collection(db, 'calls', currentCall.id, 'signals'), {
           from: user.uid,
           to: pId,
           type: 'candidate',
@@ -168,7 +173,7 @@ export const CallOverlay = () => {
     };
 
     pc.oniceconnectionstatechange = () => {
-      console.log("ICE connection state:", pc.iceConnectionState);
+      console.log("ICE state:", pc.iceConnectionState, "peer:", pId);
       if (pc.iceConnectionState === 'connected') {
         console.log(`Peer ${pId} connected!`);
       }
@@ -178,11 +183,11 @@ export const CallOverlay = () => {
     };
 
     pc.onsignalingstatechange = () => {
-      console.log("Signaling state:", pc.signalingState);
+      console.log("Signaling state:", pc.signalingState, "peer:", pId);
     };
 
     pc.onicegatheringstatechange = () => {
-      console.log("ICE gathering state:", pc.iceGatheringState);
+      console.log("ICE gathering:", pc.iceGatheringState, "peer:", pId);
     };
 
     // Add local tracks
@@ -190,9 +195,9 @@ export const CallOverlay = () => {
 
     if (isInitiator) {
       try {
-        const offer = await pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: activeCall?.mediaType === 'video' });
+        const offer = await pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: ac.mediaType === 'video' });
         await pc.setLocalDescription(offer);
-        await addDoc(collection(db, 'calls', activeCall.id, 'signals'), {
+        await addDoc(collection(db, 'calls', ac.id, 'signals'), {
           from: user.uid,
           to: pId,
           type: 'offer',
@@ -205,7 +210,7 @@ export const CallOverlay = () => {
     }
 
     return pc;
-  }, [activeCall, user?.uid, cleanupPeer, addLocalTracksToPC]);
+  }, [user?.uid, cleanupPeer, addLocalTracksToPC]);
 
   const initLocalMedia = useCallback(async (isVideoCall: boolean) => {
     if (localStreamRef.current) return localStreamRef.current;
@@ -230,9 +235,10 @@ export const CallOverlay = () => {
   // Global Signaling Listener
   useEffect(() => {
     if (!activeCall || !user) return;
+    const callId = activeCall.id;
 
     const qSignals = query(
-      collection(db, 'calls', activeCall.id, 'signals'),
+      collection(db, 'calls', callId, 'signals'),
       where('to', '==', user.uid)
     );
 
@@ -244,7 +250,7 @@ export const CallOverlay = () => {
 
         try {
           if (signal.type === 'offer') {
-            const stream = localStreamRef.current || await initLocalMedia(activeCall?.mediaType === 'video');
+            const stream = localStreamRef.current || await initLocalMedia(activeCallRef.current?.mediaType === 'video');
             if (!stream) continue;
             let pc = pcs.current[signal.from];
             if (!pc) {
@@ -258,15 +264,20 @@ export const CallOverlay = () => {
             for (const c of buffered) {
               try { await pc.addIceCandidate(new RTCIceCandidate(c)); } catch (e) {}
             }
-            const answer = await pc.createAnswer();
-            await pc.setLocalDescription(answer);
-            await addDoc(collection(db, 'calls', activeCall.id, 'signals'), {
-              from: user.uid,
-              to: signal.from,
-              type: 'answer',
-              data: { type: answer.type, sdp: answer.sdp },
-              createdAt: serverTimestamp()
-            });
+            if (pc.signalingState === 'stable') {
+              const answer = await pc.createAnswer();
+              await pc.setLocalDescription(answer);
+              const currentCall = activeCallRef.current;
+              if (currentCall) {
+                await addDoc(collection(db, 'calls', currentCall.id, 'signals'), {
+                  from: user.uid,
+                  to: signal.from,
+                  type: 'answer',
+                  data: { type: answer.type, sdp: answer.sdp },
+                  createdAt: serverTimestamp()
+                });
+              }
+            }
           } else if (signal.type === 'answer') {
             let pc = pcs.current[signal.from];
             if (!pc) continue;
@@ -327,8 +338,9 @@ export const CallOverlay = () => {
       if (!stream || cancelled) return;
 
       for (const pId of activeCall.activeParticipants) {
-        if (pId !== user.uid && !pcs.current[pId] && user.uid < pId) {
-          await getOrCreatePC(pId, true);
+        if (pId !== user.uid && !pcs.current[pId]) {
+          const isInitiator = user.uid === activeCall.callerId;
+          await getOrCreatePC(pId, isInitiator);
         }
       }
     })();
@@ -339,7 +351,7 @@ export const CallOverlay = () => {
       }
     });
     return () => { cancelled = true; };
-  }, [activeCall?.activeParticipants, user?.uid, getOrCreatePC, cleanupPeer]);
+  }, [activeCall?.activeParticipants, user?.uid, activeCall?.callerId, getOrCreatePC, cleanupPeer]);
 
   // Cleanup on call end
   useEffect(() => {

@@ -187,9 +187,9 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({ onClose, onChatCreat
   const loadGroups = async (name: string = '') => {
     setGroupSearchLoading(true);
     try {
-      const snap = await getDocs(collection(db, 'chats'));
+      const snap = await getDocs(query(collection(db, 'chats'), where('type', '==', 'group')));
       const groups = snap.docs.map(d => ({ id: d.id, ...d.data() } as Chat)).filter(g =>
-        g.type === 'group' && !g.participants.includes(user!.uid) &&
+        !g.participants.includes(user!.uid) &&
         (!name || g.groupMetadata?.name?.toLowerCase().includes(name.toLowerCase())) &&
         (!groupCountryFilter || g.groupCountry === groupCountryFilter)
       );
