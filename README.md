@@ -37,4 +37,3 @@ Firebase Console > Authentication > Settings > Authorized domains:
 
 - Project ID: `gen-lang-client-0308378658`
 - Database: `ai-studio-6f70c272-6822-4c0b-a15d-b77d18f46fb0` (named)
-- Admin password: `Ag1453ag!`
