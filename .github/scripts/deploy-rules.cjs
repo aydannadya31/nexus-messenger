@@ -50,7 +50,7 @@ async function main() {
   // Step 2: Release ruleset to cloud.firestore
   console.log('Releasing ruleset...');
   const releaseResponse = await fetch(
-    `https://firebaserules.googleapis.com/v1/projects/${projectId}/releases`,
+    `https://firebaserules.googleapis.com/v1/projects/${projectId}/releases/cloud.firestore`,
     {
       method: 'PATCH',
       headers: {
@@ -58,7 +58,6 @@ async function main() {
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        name: `projects/${projectId}/releases/cloud.firestore`,
         rulesetName: ruleset.name
       })
     }
