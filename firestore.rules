@@ -1,9 +1,9 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Admin check: user must have role == 'admin'
+    // Admin check: user must have an admin document in adminUsers collection
     function isAdmin() {
-      return isSignedIn() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+      return isSignedIn() && exists(/databases/$(database)/documents/adminUsers/$(request.auth.uid));
     }
 
     function isSignedIn() {
@@ -20,6 +20,43 @@ service cloud.firestore {
 
     function isGroupAdmin(chatId) {
       return isSignedIn() && request.auth.uid == get(/databases/$(database)/documents/chats/$(chatId)).data.groupMetadata.adminId;
+    }
+
+    // ----- Validation functions for create operations -----
+
+    function isValidUser(data) {
+      return data.keys().hasAll(['uid', 'displayName'])
+        && data.uid is string
+        && data.displayName is string
+        && data.displayName.size() > 0;
+    }
+
+    function isValidChat(data) {
+      return data.keys().hasAll(['participants', 'type', 'updatedAt'])
+        && data.participants is list
+        && data.participants.size() >= 2
+        && data.type in ['private', 'group'];
+    }
+
+    function isValidMessage(data) {
+      return data.keys().hasAll(['senderId', 'type', 'timestamp'])
+        && data.senderId is string
+        && data.type in ['text', 'image', 'video', 'audio', 'call'];
+    }
+
+    function isValidCall(data) {
+      return data.keys().hasAll(['participants', 'chatId', 'callerId', 'type', 'status', 'createdAt'])
+        && data.participants is list
+        && data.participants.size() >= 1
+        && data.type in ['private', 'group']
+        && data.status in ['calling', 'ongoing', 'ended'];
+    }
+
+    function isValidSignal(data) {
+      return data.keys().hasAll(['from', 'to', 'type', 'data', 'createdAt'])
+        && data.from is string
+        && data.to is string
+        && data.type in ['offer', 'answer', 'candidate'];
     }
 
     // Admin-only: full access
@@ -66,6 +103,19 @@ service cloud.firestore {
       }
     }
 
+    // Admin users (managed client-side with password hash verification)
+    match /adminUsers/{uid} {
+      allow read, create: if isSignedIn() && request.auth.uid == uid;
+      allow delete: if isSignedIn() && request.auth.uid == uid;
+    }
+
+    // Admin config (password hash - any authenticated user can read, any can create for first setup)
+    match /config/{doc} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update, delete: if isAdmin();
+    }
+
     // Admin messages (only admins can send/read)
     match /adminMessages/{docId} {
       allow read, write: if isAdmin();
@@ -99,9 +149,9 @@ service cloud.firestore {
 
     // Group join requests
     match /groupJoinRequests/{docId} {
-      allow read: if isSignedIn() && (resource.data.from == request.auth.uid || isGroupAdmin(resource.data.groupId) || isAdmin());
+      allow read: if isSignedIn() && (resource.data.from == request.auth.uid || isGroupAdmin(resource.data.chatId) || isAdmin());
       allow create: if isSignedIn() && request.resource.data.from == request.auth.uid;
-      allow update: if isSignedIn() && (isGroupAdmin(resource.data.groupId) || isAdmin());
+      allow update: if isSignedIn() && (isGroupAdmin(resource.data.chatId) || isAdmin());
     }
   }
 }
