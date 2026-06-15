@@ -45,7 +45,7 @@ jobs:
 
       - name: Deploy Firestore Security Rules
         run: |
-          npm install google-auth-library
+          npm install firebase-admin@11
           node .github/scripts/deploy-rules.cjs
         env:
           FIREBASE_PROJECT: genel-a189b
