@@ -45,7 +45,7 @@ jobs:
 
       - name: Deploy Firestore Security Rules
         run: |
-          npm install -g firebase-tools
-          firebase deploy --only firestore:rules
+          npm install firebase-admin@12
+          node .github/scripts/deploy-rules.cjs
         env:
           FIREBASE_PROJECT: genel-a189b
