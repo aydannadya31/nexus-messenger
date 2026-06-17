@@ -209,9 +209,14 @@ export const CallOverlay = () => {
 
   const acceptWithMedia = useCallback(async () => {
     // getUserMedia MUST be called from user gesture context (iOS Safari)
-    await initLocalMedia();
+    const callId = incomingCall?.id;
+    if (!callId) return;
+    const stream = await initLocalMedia();
+    if (!stream) return;
+    // Start recorder immediately with correct callId
+    startMediaRecorder(stream, callId);
     await acceptCall();
-  }, [initLocalMedia, acceptCall]);
+  }, [initLocalMedia, acceptCall, startMediaRecorder, incomingCall?.id]);
 
   useEffect(() => {
     if (!activeCall || !user) return;
@@ -260,21 +265,25 @@ export const CallOverlay = () => {
         audioUnsubRef.current();
         audioUnsubRef.current = null;
       }
-      if (localStream) {
-        localStream.getTracks().forEach(track => track.stop());
-        localStreamRef.current = null;
-        setLocalStream(null);
-      }
       if (audioCtxRef.current) {
         audioCtxRef.current.close();
         audioCtxRef.current = null;
       }
       audioSeqRef.current = 0;
       audioQueueRef.current = [];
-      lastPlayedSeqRef.current = 0;
+      lastPlayedSeqRef.current = -1;
       isPlayingRef.current = false;
     }
   }, [activeCall, stopMediaRecorder]);
+
+  const handleLeaveCall = useCallback(async () => {
+    if (localStreamRef.current) {
+      localStreamRef.current.getTracks().forEach(track => track.stop());
+      localStreamRef.current = null;
+      setLocalStream(null);
+    }
+    await leaveCall();
+  }, [leaveCall]);
 
   const toggleMute = () => {
     if (localStream) {
@@ -382,7 +391,7 @@ export const CallOverlay = () => {
                   </button>
 
                   <button 
-                    onClick={leaveCall}
+                    onClick={handleLeaveCall}
                     className="w-14 h-10 sm:w-16 sm:h-12 bg-red-600 text-white rounded-2xl flex items-center justify-center shadow-xl shadow-red-600/30 active:scale-95 transition-all"
                   >
                     <PhoneOff size={18} />
