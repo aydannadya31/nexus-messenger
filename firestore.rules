@@ -74,7 +74,7 @@ service cloud.firestore {
     // Chats
     match /chats/{chatId} {
       allow get: if isSignedIn() && (request.auth.uid in resource.data.participants || isAdmin());
-      allow list: if isSignedIn() && (request.auth.uid in resource.data.participants || isAdmin());
+      allow list: if isSignedIn() && (request.auth.uid in resource.data.participants || resource.data.type == 'group' || isAdmin());
       allow create: if isSignedIn() && isValidChat(request.resource.data);
       allow update: if isSignedIn() && (request.auth.uid in resource.data.participants || isAdmin());
 
