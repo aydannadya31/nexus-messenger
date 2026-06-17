@@ -207,15 +207,31 @@ export const CallOverlay = () => {
     }
   }, []);
 
+  const acceptWithMedia = useCallback(async () => {
+    // getUserMedia MUST be called from user gesture context (iOS Safari)
+    const stream = await initLocalMedia();
+    await acceptCall();
+    if (!stream) return;
+    startMediaRecorder(stream, activeCallRef.current?.id || '');
+  }, [initLocalMedia, acceptCall, startMediaRecorder]);
+
   useEffect(() => {
     if (!activeCall || !user) return;
     let cancelled = false;
 
+    // If stream is already started (from acceptWithMedia), use it
+    const existingStream = localStreamRef.current;
+    if (existingStream && !mediaRecorderRef.current) {
+      startMediaRecorder(existingStream, activeCall.id);
+    }
+
     (async () => {
-      const stream = await initLocalMedia();
+      const stream = localStreamRef.current || await initLocalMedia();
       if (!stream || cancelled) return;
 
-      startMediaRecorder(stream, activeCall.id);
+      if (!mediaRecorderRef.current) {
+        startMediaRecorder(stream, activeCall.id);
+      }
 
       const qAudio = query(
         collection(db, 'calls', activeCall.id, 'audio'),
@@ -307,7 +323,7 @@ export const CallOverlay = () => {
                 <PhoneOff size={22} />
               </button>
               <button 
-                onClick={acceptCall}
+                onClick={acceptWithMedia}
                 className="w-14 h-14 bg-green-600 text-white rounded-full flex items-center justify-center hover:bg-green-700 transition-colors animate-bounce active:scale-95 shadow-xl shadow-green-600/20"
               >
                 <Phone size={22} />
