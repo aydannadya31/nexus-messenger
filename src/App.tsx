@@ -14,7 +14,7 @@ import { Login } from './components/Login';
 import { NewChatModal } from './components/NewChatModal';
 import { BroadcastModal } from './components/BroadcastModal';
 import { UsersPage } from './components/UsersPage';
-import { CallProvider } from './components/CallProvider';
+import { CallProvider, useCall } from './components/CallProvider';
 import { CallOverlay } from './components/CallOverlay';
 import { ProfileSetup } from './components/ProfileSetup';
 import { ToastProvider } from './lib/toast';
@@ -24,6 +24,7 @@ import { MessageSquare, Ban } from 'lucide-react';
 
 function NexusApp() {
   const { user, profile, loading } = useAuth();
+  const { activeCall, incomingCall } = useCall();
   const [selectedChatId, setSelectedChatId] = useState<string | undefined>();
   const [isNewChatModalOpen, setIsNewChatModalOpen] = useState(false);
   const [isBroadcastModalOpen, setIsBroadcastModalOpen] = useState(false);
@@ -180,7 +181,8 @@ function NexusApp() {
         />
       )}
 
-      <CallOverlay />
+      {/* Only mount CallOverlay when there's an active/incoming call to avoid auth timing issues on mobile */}
+      {(activeCall || incomingCall) && <CallOverlay />}
 
       <ProfileSetup
         isOpen={showProfileSetup}
