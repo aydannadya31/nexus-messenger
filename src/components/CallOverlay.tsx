@@ -2,11 +2,11 @@ import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { useCall } from './CallProvider';
 import { useAuth } from './AuthProvider';
 import { db } from '../lib/firebase';
-import { doc, onSnapshot, updateDoc, collection, addDoc, serverTimestamp, getDoc, query, where } from 'firebase/firestore';
-import { X, Phone, PhoneOff, Mic, MicOff, Video, VideoOff, Users, UserPlus } from 'lucide-react';
+import { doc, onSnapshot, collection, addDoc, serverTimestamp, getDoc, query, where, orderBy } from 'firebase/firestore';
+import { X, Phone, PhoneOff, Mic, MicOff } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
-import { UserProfile, CallSignal } from '../types';
+import { UserProfile } from '../types';
 
 export const CallOverlay = () => {
   const { activeCall, incomingCall, acceptCall, rejectCall, leaveCall, inviteToCall } = useCall();
@@ -14,42 +14,22 @@ export const CallOverlay = () => {
   
   const localStreamRef = useRef<MediaStream | null>(null);
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
-  const [remoteStreams, setRemoteStreams] = useState<Record<string, MediaStream>>({});
   const [participantInfo, setParticipantInfo] = useState<Record<string, UserProfile>>({});
   const [isMuted, setIsMuted] = useState(false);
-  const [isVideoOff, setIsVideoOff] = useState(false);
   const [callerInfo, setCallerInfo] = useState<UserProfile | null>(null);
   const [isInviting, setIsInviting] = useState(false);
-  const [iceFailed, setIceFailed] = useState(false);
 
-  const pcs = useRef<Record<string, RTCPeerConnection>>({});
   const activeCallRef = useRef(activeCall);
   useEffect(() => { activeCallRef.current = activeCall; }, [activeCall]);
-  const localVideoRef = useRef<HTMLVideoElement>(null);
-  const pendingCandidates = useRef<Record<string, RTCIceCandidateInit[]>>({});
   const mediaInitPromiseRef = useRef<Promise<MediaStream | null> | null>(null);
 
-  const configuration: RTCConfiguration = {
-    iceServers: [
-      { urls: 'stun:stun.l.google.com:19302' },
-      { urls: 'stun:stun1.l.google.com:19302' },
-      { urls: 'stun:stun2.l.google.com:19302' },
-      { urls: 'stun:stun3.l.google.com:19302' },
-      { urls: 'stun:stun4.l.google.com:19302' },
-      { urls: 'stun:stun.voipstrike.com:19302' },
-      {
-        urls: 'turn:openrelay.metered.ca:80',
-        username: 'openrelayproject',
-        credential: 'openrelayproject',
-      },
-      {
-        urls: 'turn:openrelay.metered.ca:443',
-        username: 'openrelayproject',
-        credential: 'openrelayproject',
-      },
-    ],
-    iceCandidatePoolSize: 1,
-  };
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioSeqRef = useRef(0);
+  const audioQueueRef = useRef<{ data: string; seq: number }[]>([]);
+  const isPlayingRef = useRef(false);
+  const lastPlayedSeqRef = useRef(0);
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const audioUnsubRef = useRef<(() => void) | null>(null);
 
   // Play ringtone for incoming call
   const ringtoneRef = useRef<AudioContext | null>(null);
@@ -133,127 +113,45 @@ export const CallOverlay = () => {
     }
   }, [activeCall?.participants]);
 
-  const cleanupPeer = useCallback((pId: string) => {
-    if (pcs.current[pId]) {
-      pcs.current[pId].close();
-      delete pcs.current[pId];
+  const playAudioChunk = useCallback(async (base64Data: string) => {
+    try {
+      if (!audioCtxRef.current) {
+        audioCtxRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
+      }
+      const ctx = audioCtxRef.current;
+      if (ctx.state === 'suspended') await ctx.resume();
+      const binaryStr = atob(base64Data);
+      const bytes = new Uint8Array(binaryStr.length);
+      for (let i = 0; i < binaryStr.length; i++) bytes[i] = binaryStr.charCodeAt(i);
+      const audioBuf = await ctx.decodeAudioData(bytes.buffer);
+      const source = ctx.createBufferSource();
+      source.buffer = audioBuf;
+      source.connect(ctx.destination);
+      source.start();
+    } catch (err) {
+      console.warn("Audio playback error:", err);
     }
-    setRemoteStreams(prev => {
-      const next = { ...prev };
-      delete next[pId];
-      return next;
-    });
   }, []);
 
-  const addLocalTracksToPC = useCallback((pc: RTCPeerConnection) => {
-    const stream = localStreamRef.current;
-    if (!stream) return;
-    const senders = pc.getSenders().map(s => s.track?.kind);
-    stream.getTracks().forEach(track => {
-      if (!senders.includes(track.kind)) {
-        pc.addTrack(track, stream);
-      }
-    });
-  }, []);
-
-  const getOrCreatePC = useCallback(async (pId: string, isInitiator: boolean) => {
-    if (pcs.current[pId]) {
-      addLocalTracksToPC(pcs.current[pId]);
-      return pcs.current[pId];
+  const processAudioQueue = useCallback(async () => {
+    if (isPlayingRef.current || audioQueueRef.current.length === 0) return;
+    isPlayingRef.current = true;
+    audioQueueRef.current.sort((a, b) => a.seq - b.seq);
+    while (audioQueueRef.current.length > 0) {
+      const chunk = audioQueueRef.current.shift()!;
+      await playAudioChunk(chunk.data);
+      lastPlayedSeqRef.current = chunk.seq;
     }
-    if (!activeCallRef.current || !user) return null;
+    isPlayingRef.current = false;
+  }, [playAudioChunk]);
 
-    const ac = activeCallRef.current;
-    const pc = new RTCPeerConnection(configuration);
-    pcs.current[pId] = pc;
-
-    pc.onicecandidate = (event) => {
-      if (event.candidate) {
-        const currentCall = activeCallRef.current;
-        if (!currentCall) return;
-        addDoc(collection(db, 'calls', currentCall.id, 'signals'), {
-          from: user.uid,
-          to: pId,
-          type: 'candidate',
-          data: event.candidate.toJSON(),
-          createdAt: serverTimestamp()
-        }).catch(() => {});
-      }
-    };
-
-    pc.ontrack = (event) => {
-      const stream = event.streams[0] || new MediaStream(event.track ? [event.track] : []);
-      setRemoteStreams(prev => ({ ...prev, [pId]: stream }));
-    };
-
-    let disconnectTimer: ReturnType<typeof setTimeout> | null = null;
-    let failedRetryCount = 0;
-    pc.oniceconnectionstatechange = () => {
-      console.log("ICE state:", pc.iceConnectionState, "peer:", pId);
-      if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') {
-        console.log(`Peer ${pId} connected!`);
-        setIceFailed(false);
-        if (disconnectTimer) { clearTimeout(disconnectTimer); disconnectTimer = null; }
-      }
-      if (pc.iceConnectionState === 'disconnected') {
-        if (!disconnectTimer) {
-          disconnectTimer = setTimeout(() => {
-            console.log("ICE disconnected timeout, cleaning up peer:", pId);
-            cleanupPeer(pId);
-          }, 10000);
-        }
-      }
-      if (pc.iceConnectionState === 'failed') {
-        if (disconnectTimer) { clearTimeout(disconnectTimer); disconnectTimer = null; }
-        if (failedRetryCount >= 1) {
-          console.error("ICE failed after retry for peer:", pId);
-          setIceFailed(true);
-          cleanupPeer(pId);
-          return;
-        }
-        failedRetryCount++;
-        console.log("ICE failed, restarting ICE for peer:", pId);
-        pc.restartIce();
-      }
-    };
-
-    pc.onsignalingstatechange = () => {
-      console.log("Signaling state:", pc.signalingState, "peer:", pId);
-    };
-
-    pc.onicegatheringstatechange = () => {
-      console.log("ICE gathering:", pc.iceGatheringState, "peer:", pId);
-    };
-
-    // Add local tracks
-    addLocalTracksToPC(pc);
-
-    if (isInitiator) {
-      try {
-        const offer = await pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: ac.mediaType === 'video' });
-        await pc.setLocalDescription(offer);
-        await addDoc(collection(db, 'calls', ac.id, 'signals'), {
-          from: user.uid,
-          to: pId,
-          type: 'offer',
-          data: { type: offer.type, sdp: offer.sdp },
-          createdAt: serverTimestamp()
-        });
-      } catch (err) {
-        console.error("Error creating offer:", err);
-      }
-    }
-
-    return pc;
-  }, [user?.uid, cleanupPeer, addLocalTracksToPC]);
-
-  const initLocalMedia = useCallback(async (isVideoCall: boolean) => {
+  const initLocalMedia = useCallback(async () => {
     if (localStreamRef.current) return localStreamRef.current;
     if (mediaInitPromiseRef.current) return mediaInitPromiseRef.current;
     mediaInitPromiseRef.current = (async () => {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({
-          video: isVideoCall ? { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } } : false,
+          video: false,
           audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
         });
         localStreamRef.current = stream;
@@ -267,187 +165,101 @@ export const CallOverlay = () => {
     return await mediaInitPromiseRef.current;
   }, []);
 
-  // Global Signaling Listener
+  const startMediaRecorder = useCallback((stream: MediaStream, callId: string) => {
+    try {
+      const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+        ? 'audio/webm;codecs=opus'
+        : 'audio/webm';
+      const recorder = new MediaRecorder(stream, { mimeType });
+      mediaRecorderRef.current = recorder;
+      recorder.ondataavailable = (event) => {
+        if (event.data.size === 0) return;
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          const base64 = (reader.result as string).split(',')[1];
+          if (!base64) return;
+          const currentCall = activeCallRef.current;
+          if (!currentCall) return;
+          const seq = audioSeqRef.current++;
+          currentCall.activeParticipants.forEach(pId => {
+            if (pId === user?.uid) return;
+            addDoc(collection(db, 'calls', callId, 'audio'), {
+              from: user?.uid,
+              to: pId,
+              data: base64,
+              seq,
+              createdAt: serverTimestamp()
+            }).catch(() => {});
+          });
+        };
+        reader.readAsDataURL(event.data);
+      };
+      recorder.start(1500);
+    } catch (err) {
+      console.error("MediaRecorder error:", err);
+    }
+  }, [user?.uid]);
+
+  const stopMediaRecorder = useCallback(() => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      mediaRecorderRef.current.stop();
+      mediaRecorderRef.current = null;
+    }
+  }, []);
+
   useEffect(() => {
     if (!activeCall || !user) return;
-    const callId = activeCall.id;
-
-    const qSignals = query(
-      collection(db, 'calls', callId, 'signals'),
-      where('to', '==', user.uid)
-    );
-
-    const unsubscribe = onSnapshot(qSignals, async (snapshot) => {
-      const changes = snapshot.docChanges();
-      for (const change of changes) {
-        if (change.type !== 'added') continue;
-        const signal = { id: change.doc.id, ...change.doc.data() } as CallSignal;
-
-        try {
-          if (signal.type === 'offer') {
-            console.log("📨 Received OFFER from", signal.from);
-            const stream = localStreamRef.current || await initLocalMedia(activeCallRef.current?.mediaType === 'video');
-            if (!stream) { console.error("❌ No media stream for offer"); continue; }
-            let pc = pcs.current[signal.from];
-            if (!pc) {
-              console.log("Creating PC for offer from", signal.from);
-              pc = await getOrCreatePC(signal.from, false);
-            }
-            if (!pc) { console.error("❌ Failed to create PC for offer"); continue; }
-            addLocalTracksToPC(pc);
-            await pc.setRemoteDescription(new RTCSessionDescription(signal.data));
-            console.log("✅ Remote description set from offer, state:", pc.signalingState);
-            const buffered = pendingCandidates.current[signal.from] || [];
-            delete pendingCandidates.current[signal.from];
-            for (const c of buffered) {
-              try { await pc.addIceCandidate(new RTCIceCandidate(c)); } catch (e) { console.warn("candidate add error:", e); }
-            }
-            const answer = await pc.createAnswer();
-            await pc.setLocalDescription(answer);
-            console.log("✅ Answer created and set, state:", pc.signalingState);
-            const currentCall = activeCallRef.current;
-            if (currentCall) {
-              await addDoc(collection(db, 'calls', currentCall.id, 'signals'), {
-                from: user.uid,
-                to: signal.from,
-                type: 'answer',
-                data: { type: answer.type, sdp: answer.sdp },
-                createdAt: serverTimestamp()
-              });
-              console.log("✅ Answer sent to", signal.from);
-            }
-          } else if (signal.type === 'answer') {
-            console.log("📨 Received ANSWER from", signal.from);
-            let pc = pcs.current[signal.from];
-            if (!pc) { console.error("❌ No PC for answer"); continue; }
-            console.log("Signaling state before answer:", pc.signalingState);
-            if (pc.signalingState !== 'have-local-offer') { console.warn("⚠️ Wrong state for answer:", pc.signalingState); continue; }
-            await pc.setRemoteDescription(new RTCSessionDescription(signal.data));
-            console.log("✅ Remote description set from answer, state:", pc.signalingState);
-            const buffered = pendingCandidates.current[signal.from] || [];
-            delete pendingCandidates.current[signal.from];
-            for (const c of buffered) {
-              try { await pc.addIceCandidate(new RTCIceCandidate(c)); } catch (e) { console.warn("candidate add error:", e); }
-            }
-          } else if (signal.type === 'candidate') {
-            let pc = pcs.current[signal.from];
-            if (!pc || !pc.remoteDescription) {
-              if (!pendingCandidates.current[signal.from]) {
-                pendingCandidates.current[signal.from] = [];
-              }
-              pendingCandidates.current[signal.from].push(signal.data);
-              console.log("📦 Buffered ICE candidate from", signal.from, "buffer size:", pendingCandidates.current[signal.from].length);
-              continue;
-            }
-            try {
-              await pc.addIceCandidate(new RTCIceCandidate(signal.data));
-            } catch (e) { console.warn("candidate add error:", e); }
-          }
-        } catch (err) {
-          console.error("Signal processing error:", err);
-        }
-      }
-    });
-
-    return () => unsubscribe();
-  }, [activeCall?.id, user?.uid, getOrCreatePC, initLocalMedia]);
-
-  // Re-add local tracks to all peers when localStream changes
-  useEffect(() => {
-    if (!localStream || !activeCall || !user) return;
-    Object.entries(pcs.current).forEach(([pId, pc]) => {
-      const senders = pc.getSenders().map(s => s.track?.kind);
-      let added = false;
-      localStream.getTracks().forEach(track => {
-        if (!senders.includes(track.kind)) {
-          pc.addTrack(track, localStream);
-          added = true;
-        }
-      });
-      // If tracks were added and connection is stable, renegotiate
-      if (added && pc.signalingState === 'stable' && pc.connectionState === 'connected') {
-        pc.restartIce();
-      }
-    });
-  }, [localStream, activeCall, user]);
-
-  // Mesh Management: Connect to active participants
-  useEffect(() => {
-    if (!activeCall || !user) return;
-    console.log("🔄 Mesh Management: active participants:", activeCall.activeParticipants, "my uid:", user.uid);
     let cancelled = false;
-    (async () => {
-      const stream = localStreamRef.current || await initLocalMedia(activeCall.mediaType === 'video');
-      if (!stream || cancelled) {
-        console.log("⚠️ Mesh: no stream, initLocalMedia result:", !!stream);
-        return;
-      }
 
-      for (const pId of activeCall.activeParticipants) {
-        if (pId !== user.uid && !pcs.current[pId]) {
-          const isInit = user.uid < pId;
-          console.log("🔌 Mesh: connecting to", pId, "isInitiator:", isInit);
-          await getOrCreatePC(pId, isInit);
-        }
-      }
+    (async () => {
+      const stream = await initLocalMedia();
+      if (!stream || cancelled) return;
+
+      startMediaRecorder(stream, activeCall.id);
+
+      const qAudio = query(
+        collection(db, 'calls', activeCall.id, 'audio'),
+        where('to', '==', user.uid),
+        orderBy('createdAt', 'asc')
+      );
+
+      audioUnsubRef.current = onSnapshot(qAudio, (snap) => {
+        snap.docChanges().forEach(change => {
+          if (change.type !== 'added') return;
+          const d = change.doc.data() as { from: string; data: string; seq: number };
+          if (d.from === user.uid) return;
+          if (d.seq <= lastPlayedSeqRef.current) return;
+          audioQueueRef.current.push({ data: d.data, seq: d.seq });
+        });
+        processAudioQueue();
+      });
     })();
 
-    Object.keys(pcs.current).forEach(pId => {
-      if (!activeCall.activeParticipants.includes(pId)) {
-        console.log("🧹 Mesh: cleaning up peer", pId);
-        cleanupPeer(pId);
-      }
-    });
     return () => { cancelled = true; };
-  }, [activeCall?.activeParticipants, user?.uid, getOrCreatePC, cleanupPeer]);
+  }, [activeCall?.id, user?.uid, initLocalMedia, startMediaRecorder, processAudioQueue]);
 
-  // Connection timeout detection: if ICE hasn't connected within 30s, show error
-  useEffect(() => {
-    if (!activeCall || !user) return;
-    const peerIds = activeCall.activeParticipants.filter(id => id !== user.uid);
-    if (peerIds.length === 0) return;
-
-    const allConnected = peerIds.every(pId => {
-      const pc = pcs.current[pId];
-      return pc && (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed');
-    });
-    if (allConnected) {
-      setIceFailed(false);
-      return;
-    }
-
-    const timeout = setTimeout(() => {
-      const stillDisconnected = peerIds.some(pId => {
-        const pc = pcs.current[pId];
-        return !pc || pc.iceConnectionState === 'failed' || pc.iceConnectionState === 'disconnected' || pc.iceConnectionState === 'new';
-      });
-      if (stillDisconnected) {
-        console.error("ICE connection timeout for peers:", peerIds);
-        setIceFailed(true);
-      }
-    }, 30000);
-
-    return () => clearTimeout(timeout);
-  }, [activeCall, user]);
-
-  // Cleanup on call end
   useEffect(() => {
     if (!activeCall) {
-      Object.keys(pcs.current).forEach(cleanupPeer);
+      stopMediaRecorder();
+      if (audioUnsubRef.current) {
+        audioUnsubRef.current();
+        audioUnsubRef.current = null;
+      }
       if (localStream) {
         localStream.getTracks().forEach(track => track.stop());
         localStreamRef.current = null;
         setLocalStream(null);
       }
-      setIceFailed(false);
+      if (audioCtxRef.current) {
+        audioCtxRef.current.close();
+        audioCtxRef.current = null;
+      }
+      audioSeqRef.current = 0;
+      audioQueueRef.current = [];
+      lastPlayedSeqRef.current = 0;
+      isPlayingRef.current = false;
     }
-  }, [activeCall, cleanupPeer]);
-
-  useEffect(() => {
-    if (localVideoRef.current && localStream) {
-      localVideoRef.current.srcObject = localStream;
-    }
-  }, [localStream]);
+  }, [activeCall, stopMediaRecorder]);
 
   const toggleMute = () => {
     if (localStream) {
@@ -459,24 +271,7 @@ export const CallOverlay = () => {
     }
   };
 
-  const toggleVideo = () => {
-    if (localStream) {
-      const videoTrack = localStream.getVideoTracks()[0];
-      if (videoTrack) {
-        videoTrack.enabled = !videoTrack.enabled;
-        setIsVideoOff(!videoTrack.enabled);
-      }
-    }
-  };
-
   if (!incomingCall && !activeCall) return null;
-
-  const participantsCount = activeCall?.activeParticipants?.length || 1;
-  const gridCols = participantsCount <= 1 ? 'grid-cols-1' : 
-                   participantsCount <= 2 ? 'grid-cols-2' : 
-                   participantsCount <= 4 ? 'grid-cols-2' : 'grid-cols-3';
-  const gridRows = participantsCount <= 2 ? 'grid-rows-1' : 
-                   participantsCount <= 6 ? 'grid-rows-2' : 'grid-rows-3';
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
@@ -494,7 +289,7 @@ export const CallOverlay = () => {
                 <img src={callerInfo?.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${incomingCall.callerId}`} className="w-full h-full object-cover" />
               </div>
               <div className={cn("absolute -bottom-2 -right-2 p-2 rounded-full border-4 border-white", incomingCall.mediaType === 'video' ? "bg-green-500" : "bg-blue-500")}>
-                {incomingCall.mediaType === 'video' ? <Video size={14} className="text-white" /> : <Phone size={14} className="text-white" />}
+                <Phone size={14} className="text-white" />
               </div>
             </div>
             
@@ -514,7 +309,7 @@ export const CallOverlay = () => {
                 onClick={acceptCall}
                 className="w-14 h-14 bg-green-600 text-white rounded-full flex items-center justify-center hover:bg-green-700 transition-colors animate-bounce active:scale-95 shadow-xl shadow-green-600/20"
               >
-                {incomingCall.mediaType === 'video' ? <Video size={22} /> : <Phone size={22} />}
+                <Phone size={22} />
               </button>
             </div>
           </motion.div>
@@ -526,80 +321,35 @@ export const CallOverlay = () => {
             animate={{ opacity: 1, scale: 1 }}
             className="w-[92vw] max-w-2xl h-auto max-h-[85vh] bg-slate-950 rounded-3xl overflow-hidden shadow-2xl flex flex-col pointer-events-auto relative z-10"
           >
-            {/* Main Video Area */}
-            <div className={cn("flex-1 p-3 grid gap-3 transition-all duration-500 min-h-0", gridCols, gridRows)}>
-              {/* Local Participant */}
-              <div className="relative bg-slate-900 rounded-[2rem] overflow-hidden shadow-inner group">
-                <video 
-                  ref={localVideoRef} 
-                  autoPlay 
-                  playsInline 
-                  muted 
-                  className={cn("w-full h-full object-cover", !isVideoOff && "mirror")}
-                />
-                <div className="absolute bottom-4 left-4 flex items-center gap-2 bg-black/40 backdrop-blur-md px-3 py-1.5 rounded-xl border border-white/10">
-                  <span className="text-[10px] font-black text-white uppercase tracking-widest">Sen (Ben)</span>
-                  {isMuted && <MicOff size={10} className="text-red-400" />}
-                </div>
-                {isVideoOff && (
-                  <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-900 gap-3">
-                    <div className="w-16 h-16 rounded-full bg-slate-800 flex items-center justify-center text-slate-500">
-                      <VideoOff size={32} />
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {/* Remote Participants */}
+            {/* Audio Call Participants Area */}
+            <div className="flex-1 p-8 flex flex-col items-center justify-center gap-6 min-h-0">
               {activeCall.activeParticipants.filter(id => id !== user?.uid).map(pId => {
-                const stream = remoteStreams[pId];
                 const info = participantInfo[pId];
                 return (
-                  <div key={pId} className="relative bg-slate-900 rounded-[2rem] overflow-hidden shadow-inner group">
-                    {stream ? (
-                      <video 
-                        autoPlay 
-                        playsInline 
-                        ref={el => { if (el) el.srcObject = stream; }}
-                        className="w-full h-full object-cover"
-                      />
-                    ) : (
-                      <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-slate-900">
-                        <div className={cn("w-20 h-20 rounded-full flex items-center justify-center", iceFailed ? "bg-red-900/50" : "bg-slate-800 animate-pulse")}>
-                           <img src={info?.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${pId}`} className={cn("w-full h-full rounded-full", iceFailed ? "opacity-30" : "opacity-50")} />
-                        </div>
-                        {iceFailed ? (
-                          <div className="text-center">
-                            <p className="text-[10px] font-black text-red-400 uppercase tracking-widest">Bağlantı Başarısız</p>
-                            <p className="text-[8px] font-bold text-slate-500 mt-1">Güvenlik duvarı/NAT sorunu olabilir. Tekrar deneyin.</p>
-                          </div>
-                        ) : (
-                          <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Bağlanılıyor...</p>
-                        )}
-                      </div>
-                    )}
-                    <div className="absolute bottom-4 left-4 flex items-center gap-2 bg-black/40 backdrop-blur-md px-3 py-1.5 rounded-xl border border-white/10">
-                      <span className="text-[10px] font-black text-white uppercase tracking-widest">{info?.displayName || 'Katılımcı'}</span>
+                  <div key={pId} className="flex flex-col items-center gap-3">
+                    <div className="w-24 h-24 rounded-full bg-slate-800 flex items-center justify-center animate-pulse shadow-xl shadow-blue-500/10">
+                      <img src={info?.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${pId}`} className="w-full h-full rounded-full opacity-80" />
                     </div>
+                    <p className="text-sm font-black text-white tracking-tight">{info?.displayName || 'Katılımcı'}</p>
+                    <p className="text-[10px] font-bold text-blue-400 uppercase tracking-widest">Bağlı</p>
                   </div>
                 );
               })}
 
-              {/* Placeholder for unfilled grid slots if calling */}
               {activeCall.status === 'calling' && activeCall.participants.length > 1 && activeCall.activeParticipants.length === 1 && (
-                 <div className="relative bg-slate-900/50 rounded-[2rem] border-2 border-dashed border-slate-800 flex flex-col items-center justify-center gap-4">
-                    <div className="w-16 h-16 rounded-full bg-slate-800 flex items-center justify-center text-slate-600 animate-bounce">
-                      <Users size={32} />
-                    </div>
-                    <p className="text-[10px] font-black text-slate-600 uppercase tracking-widest">Yanıt Bekleniyor...</p>
-                 </div>
+                <div className="flex flex-col items-center gap-4">
+                  <div className="w-20 h-20 rounded-full bg-slate-800 flex items-center justify-center text-slate-600 animate-bounce">
+                    <Phone size={36} />
+                  </div>
+                  <p className="text-xs font-black text-slate-500 uppercase tracking-widest">Çalıyor...</p>
+                </div>
               )}
             </div>
 
             {/* Controls */}
             <div className="h-20 sm:h-24 bg-slate-900 border-t border-white/5 px-4 sm:px-6 flex items-center justify-between shrink-0">
                <div className="hidden sm:flex flex-col">
-                   <h4 className="text-xs font-black text-white tracking-tight">Nexus {activeCall.mediaType === 'video' ? 'Video' : 'Sesli'} Arama</h4>
+                   <h4 className="text-xs font-black text-white tracking-tight">Nexus Sesli Arama</h4>
                   <p className="text-[9px] font-bold text-blue-500 uppercase tracking-widest">
                     {activeCall.type === 'private' ? 'BİREBİR GÖRÜŞME' : `GRUP SOHBETİ (${activeCall.activeParticipants.length}/${activeCall.participants.length})`}
                   </p>
@@ -616,27 +366,6 @@ export const CallOverlay = () => {
                     {isMuted ? <MicOff size={18} /> : <Mic size={18} />}
                   </button>
 
-                  {activeCall.mediaType === 'video' && (
-                    <button 
-                      onClick={toggleVideo}
-                      className={cn(
-                        "w-10 h-10 sm:w-12 sm:h-12 rounded-2xl flex items-center justify-center transition-all shadow-lg active:scale-95",
-                        isVideoOff ? "bg-red-500 text-white" : "bg-slate-800 text-slate-300 hover:bg-slate-700"
-                      )}
-                    >
-                      {isVideoOff ? <VideoOff size={18} /> : <Video size={18} />}
-                    </button>
-                  )}
-
-                  {activeCall.type === 'group' && (
-                    <button 
-                      onClick={() => setIsInviting(!isInviting)}
-                      className="w-10 h-10 sm:w-12 sm:h-12 bg-slate-800 text-blue-400 rounded-2xl flex items-center justify-center hover:bg-slate-700 active:scale-95 transition-all"
-                    >
-                      <UserPlus size={18} />
-                    </button>
-                  )}
-
                   <button 
                     onClick={leaveCall}
                     className="w-14 h-10 sm:w-16 sm:h-12 bg-red-600 text-white rounded-2xl flex items-center justify-center shadow-xl shadow-red-600/30 active:scale-95 transition-all"
@@ -644,9 +373,7 @@ export const CallOverlay = () => {
                     <PhoneOff size={18} />
                   </button>
                </div>
-
-               <div className="hidden sm:block w-24" />
-            </div>
+             </div>
 
             {/* Invite Members Flyout */}
             <AnimatePresence>
