@@ -150,10 +150,7 @@ export const CallOverlay = () => {
     if (mediaInitPromiseRef.current) return mediaInitPromiseRef.current;
     mediaInitPromiseRef.current = (async () => {
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: false,
-          audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
-        });
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
         localStreamRef.current = stream;
         setLocalStream(stream);
         return stream;
@@ -208,13 +205,25 @@ export const CallOverlay = () => {
   }, []);
 
   const acceptWithMedia = useCallback(async () => {
-    // getUserMedia MUST be called from user gesture context (iOS Safari)
+    // MUST run in user gesture context (iOS Safari)
     const callId = incomingCall?.id;
     if (!callId) return;
+
+    // Pre-create AudioContext in gesture context (iOS requirement)
+    if (!audioCtxRef.current) {
+      audioCtxRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
+    }
+    if (audioCtxRef.current.state === 'suspended') {
+      await audioCtxRef.current.resume();
+    }
+
+    // Try to get mic — do NOT block call acceptance if it fails
     const stream = await initLocalMedia();
-    if (!stream) return;
-    // Start recorder immediately with correct callId
-    startMediaRecorder(stream, callId);
+    if (stream) {
+      startMediaRecorder(stream, callId);
+    }
+
+    // Always accept the call so the other side knows we answered
     await acceptCall();
   }, [initLocalMedia, acceptCall, startMediaRecorder, incomingCall?.id]);
 
