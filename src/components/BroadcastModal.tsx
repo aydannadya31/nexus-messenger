@@ -20,7 +20,7 @@ const COUNTRIES: { code: string; name: string }[] = [
   { code: 'IDN', name: 'Indonesia' }, { code: 'MYS', name: 'Malaysia' }, { code: 'SGP', name: 'Singapore' },
   { code: 'PHL', name: 'Philippines' }, { code: 'VNM', name: 'Vietnam' }, { code: 'THA', name: 'Thailand' },
   { code: 'PRT', name: 'Portugal' }, { code: 'ROU', name: 'Romania' }, { code: 'BGR', name: 'Bulgaria' },
-  { code: 'SRC', name: 'Serbia' }, { code: 'HRV', name: 'Croatia' }, { code: 'BIH', name: 'Bosnia and Herzegovina' },
+  { code: 'SRB', name: 'Serbia' }, { code: 'HRV', name: 'Croatia' }, { code: 'BIH', name: 'Bosnia and Herzegovina' },
   { code: 'ALB', name: 'Albania' }, { code: 'GEO', name: 'Georgia' }, { code: 'AZE', name: 'Azerbaijan' },
   { code: 'KAZ', name: 'Kazakhstan' }, { code: 'ISR', name: 'Israel' }, { code: 'MAR', name: 'Morocco' },
   { code: 'PAK', name: 'Pakistan' }, { code: 'BGD', name: 'Bangladesh' }, { code: 'NGA', name: 'Nigeria' },
@@ -75,7 +75,7 @@ export const BroadcastModal: React.FC<BroadcastModalProps> = ({ onClose }) => {
 
         if (!cooldownOk) {
           const wait = (6 * 60 * 60 * 1000) - timeSince;
-          setCooldownText(`${Math.floor(wait / (60 * 60 * 1000))}s ${Math.floor((wait % (60 * 60 * 1000)) / (60 * 1000))}dk`);
+          setCooldownText(`${Math.floor(wait / (60 * 60 * 1000))}sa ${Math.floor((wait % (60 * 60 * 1000)) / (60 * 1000))}dk`);
         } else {
           setCooldownText('');
         }

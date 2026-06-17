@@ -1,10 +1,11 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { collection, query, where, onSnapshot, orderBy, doc, getDoc, updateDoc, addDoc, serverTimestamp } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, orderBy, doc, getDoc, getDocs, updateDoc, addDoc, serverTimestamp } from 'firebase/firestore';
 import { db, logout } from '../lib/firebase';
 import { useAuth } from './AuthProvider';
+import { useToast } from '../lib/toast';
 import { Chat, UserProfile } from '../types';
 import { cn } from '../lib/utils';
-import { LogOut, MessageSquarePlus, Search, User as UserIcon, ChevronUp, Settings, Radio, X, MoreVertical, UserPlus } from 'lucide-react';
+import { LogOut, MessageSquarePlus, Search, User as UserIcon, ChevronUp, Settings, Radio, X, MoreVertical, UserPlus, Users } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import ProfileModal from './ProfileModal';
 import FriendRequestsModal from './FriendRequestsModal';
@@ -33,6 +34,7 @@ interface SidebarProps {
 
 export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, onStartNewChat, onOpenBroadcast }) => {
   const { user, profile } = useAuth();
+  const { addToast } = useToast();
   const [chats, setChats] = useState<Chat[]>([]);
   const [chatDetails, setChatDetails] = useState<Record<string, UserProfile>>({});
   const prevLastMessagesRef = useRef<Record<string, any>>({});
@@ -45,14 +47,34 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
   const [showFriendRequests, setShowFriendRequests] = useState(false);
   const [pendingRequestCount, setPendingRequestCount] = useState(0);
   const [broadcastUnread, setBroadcastUnread] = useState(false);
+  const [sidebarView, setSidebarView] = useState<'friends' | 'groups'>('friends');
+  const [friendsList, setFriendsList] = useState<string[]>([]);
+  const [friendProfiles, setFriendProfiles] = useState<Record<string, UserProfile>>({});
 
   useEffect(() => {
     if (!user) return;
-    const unsub = onSnapshot(
+    const unsub1 = onSnapshot(
       query(collection(db, 'friendRequests'), where('to', '==', user.uid)),
-      (snap) => setPendingRequestCount(snap.docs.filter(d => d.data().status === 'pending').length)
+      (snap) => {
+        const docs = snap.docs.map(d => ({ ...d.data(), id: d.id } as any));
+        setPendingRequestCount(docs.filter(d => d.status === 'pending').length);
+        setFriendsList(prev => [...new Set([
+          ...prev,
+          ...docs.filter(d => d.status === 'approved').map(d => d.from)
+        ])]);
+      }
     );
-    return () => unsub();
+    const unsub2 = onSnapshot(
+      query(collection(db, 'friendRequests'), where('from', '==', user.uid)),
+      (snap) => {
+        const docs = snap.docs.map(d => ({ ...d.data(), id: d.id } as any));
+        setFriendsList(prev => [...new Set([
+          ...prev,
+          ...docs.filter(d => d.status === 'approved').map(d => d.to)
+        ])]);
+      }
+    );
+    return () => { unsub1(); unsub2(); };
   }, [user]);
 
   useEffect(() => {
@@ -73,6 +95,19 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
     return () => unsub();
   }, [user]);
 
+  // Friend profiles subscription
+  useEffect(() => {
+    if (!user || friendsList.length === 0) return;
+    const unsubs = friendsList.map(uid =>
+      onSnapshot(doc(db, 'users', uid), (snap) => {
+        if (snap.exists()) {
+          setFriendProfiles(prev => ({ ...prev, [uid]: { ...snap.data() as UserProfile, uid: snap.id } }));
+        }
+      })
+    );
+    return () => unsubs.forEach(u => u());
+  }, [user, friendsList]);
+
   useEffect(() => {
     if (!user) return;
 
@@ -80,12 +115,17 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
 
     const q = query(
       collection(db, 'chats'),
-      where('participants', 'array-contains', user.uid),
-      orderBy('updatedAt', 'desc')
+      where('participants', 'array-contains', user.uid)
     );
 
     const unsubscribe = onSnapshot(q, async (snapshot) => {
-      const chatList = snapshot.docs.map(d => ({ ...d.data(), id: d.id } as Chat));
+      const chatList = snapshot.docs
+        .map(d => ({ ...d.data(), id: d.id } as Chat))
+        .sort((a, b) => {
+          const aTime = a.updatedAt?.toMillis?.() || 0;
+          const bTime = b.updatedAt?.toMillis?.() || 0;
+          return bTime - aTime;
+        });
       
       // Play sound if new message arrived and not from me
       const prevMsgs = prevLastMessagesRef.current;
@@ -177,6 +217,32 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
     }
   };
 
+  const handleFriendClick = async (friendUid: string) => {
+    if (!user) return;
+    const chatQuery = query(
+      collection(db, 'chats'),
+      where('participants', 'array-contains', user.uid),
+      where('type', '==', 'private')
+    );
+    const chatSnap = await getDocs(chatQuery);
+    let foundId: string | null = null;
+    chatSnap.forEach(d => {
+      const data = d.data();
+      if (data.participants.includes(friendUid)) foundId = d.id;
+    });
+    if (foundId) {
+      onSelectChat(foundId);
+    } else {
+      const newRef = await addDoc(collection(db, 'chats'), {
+        participants: [user.uid, friendUid],
+        type: 'private',
+        updatedAt: serverTimestamp(),
+        lastMessage: null
+      });
+      onSelectChat(newRef.id);
+    }
+  };
+
   const handleRemoveChat = (chatId: string) => {
     setHiddenChats(prev => [...prev, chatId]);
   };
@@ -234,14 +300,14 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
             <button 
               onClick={() => { markBroadcastRead(); onOpenBroadcast(); }}
               className="p-2.5 bg-blue-50 hover:bg-blue-100 rounded-xl text-blue-600 transition-all active:scale-95 group relative"
-              title="Brodcast"
+              title="Broadcast"
             >
               <Radio size={20} />
               {broadcastUnread && (
                 <div className="absolute -top-1 -right-1 w-2 h-2 bg-red-500 rounded-full animate-ping" />
               )}
             </button>
-            <span className="text-[8px] text-slate-400 font-bold text-center">Brodcast</span>
+            <span className="text-[8px] text-slate-400 font-bold text-center">Broadcast</span>
           </div>
           <div className="flex flex-col items-center gap-0.5">
             <button 
@@ -302,9 +368,33 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
         </div>
       </header>
 
-      {/* Chat List */}
+      {/* Content Area with Tabs */}
       <div className="flex-1 overflow-y-auto custom-scrollbar pb-20">
-        {/* Broadcast Channel */}
+        {/* Tab Navigation */}
+        <div className="flex gap-1 px-4 sm:px-6 py-3 border-b border-slate-100 bg-white sticky top-0 z-20">
+          <button
+            onClick={() => setSidebarView('friends')}
+            className={cn(
+              "flex-1 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all relative",
+              sidebarView === 'friends' ? "bg-slate-900 text-white shadow-sm" : "bg-slate-100 text-slate-500 hover:bg-slate-200"
+            )}
+          >
+            Arkadaşlar
+            <span className="ml-1 text-[8px] opacity-60">({friendsList.length})</span>
+          </button>
+          <button
+            onClick={() => setSidebarView('groups')}
+            className={cn(
+              "flex-1 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all",
+              sidebarView === 'groups' ? "bg-slate-900 text-white shadow-sm" : "bg-slate-100 text-slate-500 hover:bg-slate-200"
+            )}
+          >
+            Gruplar
+            <span className="ml-1 text-[8px] opacity-60">({filteredChats.filter(c => c.type === 'group').length})</span>
+          </button>
+        </div>
+
+        {/* BROADCAST - always visible */}
         <div 
           onClick={() => { markBroadcastRead(); onSelectChat('__broadcast__'); }}
           className={cn(
@@ -324,266 +414,159 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
           </div>
         </div>
 
-        {/* Users section */}
-        <div className="sticky top-0 z-20 bg-white/95 backdrop-blur-sm border-b border-slate-100 px-4 sm:px-6 py-2">
-          <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-1.5">
-            <div className="w-1.5 h-1.5 rounded-full bg-blue-500" />
-            Kullanıcılar
-            <span className="ml-1 text-slate-300 font-bold">({filteredChats.filter(c => c.type === 'private').length})</span>
-          </span>
-        </div>
-        {filteredChats.filter(c => c.type === 'private').map(chat => {
-          const info = getChatInfo(chat);
-          const isSelected = selectedChatId === chat.id;
-          const unread = unreadCounts[chat.id] || 0;
-          const otherId = chat.type === 'private' ? chat.participants.find(p => p !== user?.uid) : null;
-          const otherInfo = otherId ? chatDetails[otherId] : null;
-          
-          return (
-            <div key={chat.id}>
-              <div 
-                onClick={() => handleSelectChat(chat.id)}
-                className={cn(
-                  "group px-4 sm:px-6 py-3 sm:py-4 flex items-center gap-3 sm:gap-4 cursor-pointer transition-colors",
-                  isSelected ? "bg-blue-50 border-r-4 border-blue-500" : "hover:bg-slate-50"
-                )}
-              >
-                <div className="w-12 h-12 bg-slate-200 rounded-full flex-shrink-0 relative shadow-sm">
-                  <img 
-                    src={info.photoURL} 
-                    alt={info.name} 
-                    className="w-full h-full object-cover rounded-full"
-                  />
-                  {chat.type === 'private' && (
-                    <StatusBullet 
-                      status={info.onlineStatus} 
-                      className="absolute bottom-0 right-0 w-3.5 h-3.5" 
-                    />
-                  )}
-                  {unread > 0 && (
-                    <div className="absolute -top-1 -right-1 min-w-[18px] h-[18px] bg-red-500 border-2 border-white rounded-full flex items-center justify-center shadow-lg z-10">
-                      <span className="text-[9px] font-black text-white leading-none px-1">{unread > 9 ? '9+' : unread}</span>
-                    </div>
-                  )}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex justify-between items-baseline">
-                    <div className="flex items-center gap-2 min-w-0">
-                      <h2 className={cn(
-                        "text-sm font-semibold truncate",
-                        isSelected ? "text-blue-600" : "text-slate-900"
-                      )}>
-                        {info.name}
-                      </h2>
-                      {chat.type === 'private' && info.onlineStatus && (
-                      <span className={cn(
-                        "text-[8px] px-1 py-0.5 font-bold uppercase tracking-tighter shrink-0",
-                        info.onlineStatus === 'online' ? "bg-green-100 text-green-600" : 
-                        info.onlineStatus === 'away' ? "bg-amber-100 text-amber-600" : "bg-red-100 text-red-600"
-                      )}>
-                          {info.onlineStatus === 'online' ? 'Çevrimiçi' : info.onlineStatus === 'away' ? 'Uzakta' : 'Meşgul'}
-                        </span>
-                      )}
-                    </div>
-                    {chat.lastMessage?.timestamp && (
-                    <span className="text-[10px] font-medium ml-2 text-slate-400">
-                         {formatDistanceToNow(chat.updatedAt.toDate(), { addSuffix: false })}
-                      </span>
-                    )}
-                  </div>
-                  <p className="text-xs text-slate-500 truncate mt-0.5">
-                    {chat.lastMessage?.senderName && chat.type === 'group' && (
-                      <span className="font-bold mr-1">{chat.lastMessage.senderName}:</span>
-                    )}
-                    {chat.lastMessage?.text || 'Henüz mesaj yok'}
-                  </p>
-                </div>
-                {/* Three-dot menu */}
-                <div className="relative shrink-0">
-                  <button 
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setChatMenuOpen(chatMenuOpen === chat.id ? null : chat.id);
-                    }}
-                    className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-full transition-all sm:opacity-0 sm:group-hover:opacity-100"
-                  >
-                    <MoreVertical size={16} />
-                  </button>
-                  {chatMenuOpen === chat.id && (
-                    <>
-                      <div className="fixed inset-0 z-40" onClick={() => setChatMenuOpen(null)} />
-                      <div className="absolute right-0 top-full mt-1 flex items-center gap-1 bg-white border border-slate-200 rounded-xl shadow-xl px-2 py-1.5 z-50">
-                        {chat.type === 'private' ? (
-                          <>
-                            <button onClick={() => { setChatMenuOpen(null); if (otherInfo) setViewProfile(otherInfo); }}
-                              className="p-2 text-slate-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all text-xs font-bold" title="Sohbet Bilgisi">
-                              ℹ️
-                            </button>
-                            <button onClick={() => { setChatMenuOpen(null); handleRemoveChat(chat.id); }}
-                              className="p-2 text-slate-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all text-xs font-bold" title="Listeden Kaldır">
-                              🗑
-                            </button>
-                          </>
-                        ) : (
-                          <>
-                            <button onClick={() => { setChatMenuOpen(null); setShowGroupInfo(chat); }}
-                              className="p-2 text-slate-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all text-xs font-bold" title="Grup Bilgisi">
-                              ℹ️
-                            </button>
-                            <button onClick={() => { setChatMenuOpen(null); handleLeaveGroup(chat.id); }}
-                              className="p-2 text-slate-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all text-xs font-bold" title="Gruptan Ayrıl">
-                              🚪
-                            </button>
-                          </>
-                        )}
-                        <button onClick={async () => {
-                          setChatMenuOpen(null);
-                          try { await updateDoc(doc(db, 'chats', chat.id), { muted: !chat.muted }); }
-                          catch(e) { console.error(e); }
-                        }}
-                          className="p-2 text-slate-500 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-all text-xs font-bold"
-                          title={chat.muted ? 'Bildirimi Aç' : 'Bildirimi Kapat'}>
-                          {chat.muted ? '🔔' : '🔕'}
-                        </button>
-                        {chat.heldBy && (
-                          <button onClick={async () => {
-                            setChatMenuOpen(null);
-                            try { await updateDoc(doc(db, 'chats', chat.id), { heldBy: null, holdExpiresAt: null }); }
-                            catch(e) { console.error(e); }
-                          }}
-                            className="p-2 text-slate-500 hover:text-green-600 hover:bg-green-50 rounded-lg transition-all text-xs font-bold"
-                            title="Beklemeyi Kaldır">
-                            ✅
-                          </button>
+        {/* === SOHBETLER TAB === */}
+        {/* === ARKADAŞLAR TAB === */}
+        {sidebarView === 'friends' && (
+          <div className="px-4 sm:px-6 py-4">
+            {friendsList.length > 0 && friendProfiles ? (
+              <div className="space-y-1">
+                {friendsList.map(uid => {
+                  const fp = friendProfiles[uid];
+                  if (!fp) return null;
+                  return (
+                    <div
+                      key={uid}
+                      onClick={() => handleFriendClick(uid)}
+                      className="flex items-center gap-4 p-4 rounded-2xl cursor-pointer transition-all border border-transparent hover:bg-slate-50 hover:border-slate-100 active:scale-[0.98]"
+                    >
+                      <div className="w-12 h-12 bg-slate-200 rounded-full flex-shrink-0 relative shadow-sm">
+                        <img src={fp.photoURL} alt={fp.displayName} className="w-full h-full object-cover rounded-full" />
+                        {fp.onlineStatus && (
+                          <StatusBullet status={fp.onlineStatus} className="absolute bottom-0 right-0 w-3.5 h-3.5" />
                         )}
                       </div>
-                    </>
-                  )}
-                </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <h3 className="text-sm font-bold text-slate-900 truncate">{fp.displayName}</h3>
+                          {fp.onlineStatus && (
+                            <span className={cn(
+                              "text-[8px] px-1 py-0.5 font-bold uppercase tracking-tighter shrink-0",
+                              fp.onlineStatus === 'online' ? "bg-green-100 text-green-600" : 
+                              fp.onlineStatus === 'away' ? "bg-amber-100 text-amber-600" : "bg-red-100 text-red-600"
+                            )}>
+                              {fp.onlineStatus === 'online' ? 'Çevrimiçi' : fp.onlineStatus === 'away' ? 'Uzakta' : 'Meşgul'}
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-[10px] text-slate-500 font-medium truncate">
+                          {fp.uin ? `#${fp.uin}` : fp.email}
+                        </p>
+                      </div>
+                      <div className="p-2 bg-blue-50 text-blue-600 rounded-xl transition-all active:scale-95">
+                        <MessageSquarePlus size={16} />
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
-            </div>
-          );
-        })}
-        {/* Groups section */}
-        {filteredChats.filter(c => c.type === 'group').length > 0 && (
-          <>
-            <div className="sticky top-0 z-20 bg-white/95 backdrop-blur-sm border-b border-slate-100 px-4 sm:px-6 py-2">
-              <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-1.5">
-                <div className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                Grup Sohbetleri
-                <span className="ml-1 text-slate-300 font-bold">({filteredChats.filter(c => c.type === 'group').length})</span>
-              </span>
-            </div>
-            {filteredChats.filter(c => c.type === 'group').map(chat => {
-              const info = getChatInfo(chat);
-              const isSelected = selectedChatId === chat.id;
-              const unread = unreadCounts[chat.id] || 0;
-              const otherId = chat.type === 'private' ? chat.participants.find(p => p !== user?.uid) : null;
-              const otherInfo = otherId ? chatDetails[otherId] : null;
-              
-              return (
-                <div key={chat.id}>
-                  <div 
-                    onClick={() => handleSelectChat(chat.id)}
-                    className={cn(
-                      "group px-4 sm:px-6 py-3 sm:py-4 flex items-center gap-3 sm:gap-4 cursor-pointer transition-colors",
-                      isSelected ? "bg-blue-50 border-r-4 border-blue-500" : "hover:bg-slate-50"
-                    )}
-                  >
-                    <div className="w-12 h-12 bg-slate-200 rounded-full flex-shrink-0 relative shadow-sm">
-                      <img 
-                        src={info.photoURL} 
-                        alt={info.name} 
-                        className="w-full h-full object-cover rounded-full"
-                      />
-                      {unread > 0 && (
-                        <div className="absolute -top-1 -right-1 min-w-[18px] h-[18px] bg-red-500 border-2 border-white rounded-full flex items-center justify-center shadow-lg z-10">
-                          <span className="text-[9px] font-black text-white leading-none px-1">{unread > 9 ? '9+' : unread}</span>
-                        </div>
-                      )}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex justify-between items-baseline">
-                        <div className="flex items-center gap-2 min-w-0">
-                          <h2 className={cn(
-                            "text-sm font-semibold truncate",
-                            isSelected ? "text-blue-600" : "text-slate-900"
-                          )}>
-                            {info.name}
-                          </h2>
-                        </div>
-                        {chat.lastMessage?.timestamp && (
-                        <span className="text-[10px] font-medium ml-2 text-slate-400">
-                             {formatDistanceToNow(chat.updatedAt.toDate(), { addSuffix: false })}
-                          </span>
-                        )}
-                      </div>
-                      <p className="text-xs text-slate-500 truncate mt-0.5">
-                        {chat.lastMessage?.senderName && chat.type === 'group' && (
-                          <span className="font-bold mr-1">{chat.lastMessage.senderName}:</span>
-                        )}
-                        {chat.lastMessage?.text || 'Henüz mesaj yok'}
-                      </p>
-                    </div>
-                    {/* Three-dot menu */}
-                    <div className="relative shrink-0">
-                      <button 
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setChatMenuOpen(chatMenuOpen === chat.id ? null : chat.id);
-                        }}
-                        className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-full transition-all sm:opacity-0 sm:group-hover:opacity-100"
-                      >
-                        <MoreVertical size={16} />
-                      </button>
-                      {chatMenuOpen === chat.id && (
-                        <>
-                          <div className="fixed inset-0 z-40" onClick={() => setChatMenuOpen(null)} />
-                          <div className="absolute right-0 top-full mt-1 flex items-center gap-1 bg-white border border-slate-200 rounded-xl shadow-xl px-2 py-1.5 z-50">
-                            <button onClick={() => { setChatMenuOpen(null); setShowGroupInfo(chat); }}
-                              className="p-2 text-slate-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all text-xs font-bold" title="Grup Bilgisi">
-                              ℹ️
-                            </button>
-                            <button onClick={() => { setChatMenuOpen(null); handleLeaveGroup(chat.id); }}
-                              className="p-2 text-slate-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all text-xs font-bold" title="Gruptan Ayrıl">
-                              🚪
-                            </button>
-                            <button onClick={async () => {
-                              setChatMenuOpen(null);
-                              try { await updateDoc(doc(db, 'chats', chat.id), { muted: !chat.muted }); }
-                              catch(e) { console.error(e); }
-                            }}
-                              className="p-2 text-slate-500 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-all text-xs font-bold"
-                              title={chat.muted ? 'Bildirimi Aç' : 'Bildirimi Kapat'}>
-                              {chat.muted ? '🔔' : '🔕'}
-                            </button>
-                          </div>
-                        </>
-                      )}
-                    </div>
-                  </div>
+            ) : (
+              <div className="flex flex-col items-center justify-center py-16 text-center">
+                <div className="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center mb-4 text-slate-400">
+                  <UserPlus size={28} />
                 </div>
-              );
-            })}
-          </>
-        )}
-        {filteredChats.length === 0 && (
-          <div className="flex flex-col items-center justify-center p-8 text-center mt-10">
-            <div className="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center mb-4 text-slate-400">
-               {searchQuery ? <Search size={32} /> : <UserIcon size={32} />}
-            </div>
-            <p className="text-sm text-slate-500">
-              {searchQuery ? 'Sonuç bulunamadı' : 'Henüz sohbet yok'}
-            </p>
-            {!searchQuery && (
-              <button 
-                onClick={onStartNewChat}
-                className="mt-4 text-xs text-blue-600 font-semibold hover:underline"
-              >
-                İlk Mesajını Gönder
-              </button>
+                <p className="text-sm font-bold text-slate-400 uppercase tracking-widest">Henüz arkadaşın yok</p>
+                <p className="text-xs text-slate-400 mt-2">Kullanıcı listesinden arkadaşlık isteği gönder</p>
+                <button onClick={onStartNewChat} className="mt-4 px-6 py-2.5 bg-blue-600 text-white rounded-xl text-[10px] font-black uppercase tracking-wider hover:bg-blue-700 transition-all active:scale-95">
+                  Kullanıcıları Gör
+                </button>
+              </div>
             )}
           </div>
+        )}
+
+        {/* === GRUPLAR TAB === */}
+        {sidebarView === 'groups' && (
+          <>
+            {filteredChats.filter(c => c.type === 'group').length > 0 ? (
+              filteredChats.filter(c => c.type === 'group').map(chat => {
+                const info = getChatInfo(chat);
+                const isSelected = selectedChatId === chat.id;
+                const unread = unreadCounts[chat.id] || 0;
+                
+                return (
+                  <div key={chat.id}>
+                    <div 
+                      onClick={() => handleSelectChat(chat.id)}
+                      className={cn(
+                        "group px-4 sm:px-6 py-3 sm:py-4 flex items-center gap-3 sm:gap-4 cursor-pointer transition-colors",
+                        isSelected ? "bg-blue-50 border-r-4 border-blue-500" : "hover:bg-slate-50"
+                      )}
+                    >
+                      <div className="w-12 h-12 bg-slate-200 rounded-full flex-shrink-0 relative shadow-sm">
+                        <img src={info.photoURL} alt={info.name} className="w-full h-full object-cover rounded-full" />
+                        {unread > 0 && (
+                          <div className="absolute -top-1 -right-1 min-w-[18px] h-[18px] bg-red-500 border-2 border-white rounded-full flex items-center justify-center shadow-lg z-10">
+                            <span className="text-[9px] font-black text-white leading-none px-1">{unread > 9 ? '9+' : unread}</span>
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex justify-between items-baseline">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <h2 className={cn("text-sm font-semibold truncate", isSelected ? "text-blue-600" : "text-slate-900")}>{info.name}</h2>
+                            <span className="text-[8px] px-1 py-0.5 bg-slate-100 text-slate-500 font-bold uppercase tracking-tighter shrink-0">
+                              {chat.participants.length} üye
+                            </span>
+                          </div>
+                          {chat.lastMessage?.timestamp && (
+                            <span className="text-[10px] font-medium ml-2 text-slate-400">{formatDistanceToNow(chat.updatedAt.toDate(), { addSuffix: false })}</span>
+                          )}
+                        </div>
+                        <p className="text-xs text-slate-500 truncate mt-0.5">
+                          {chat.lastMessage?.senderName && (
+                            <span className="font-bold mr-1">{chat.lastMessage.senderName}:</span>
+                          )}
+                          {chat.lastMessage?.text || 'Henüz mesaj yok'}
+                        </p>
+                      </div>
+                      <div className="relative shrink-0">
+                        <button onClick={(e) => { e.stopPropagation(); setChatMenuOpen(chatMenuOpen === chat.id ? null : chat.id); }}
+                          className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-full transition-all sm:opacity-0 sm:group-hover:opacity-100">
+                          <MoreVertical size={16} />
+                        </button>
+                        {chatMenuOpen === chat.id && (
+                          <>
+                            <div className="fixed inset-0 z-40" onClick={() => setChatMenuOpen(null)} />
+                            <div className="absolute right-0 top-full mt-1 flex items-center gap-1 bg-white border border-slate-200 rounded-xl shadow-xl px-2 py-1.5 z-50">
+                              <button onClick={() => { setChatMenuOpen(null); setShowGroupInfo(chat); }}
+                                className="p-2 text-slate-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all text-xs font-bold">ℹ️</button>
+                              <button onClick={() => { setChatMenuOpen(null); handleLeaveGroup(chat.id); }}
+                                className="p-2 text-slate-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all text-xs font-bold">🚪</button>
+                              <button onClick={async () => {
+                                setChatMenuOpen(null);
+                                try { await updateDoc(doc(db, 'chats', chat.id), { muted: !chat.muted }); }
+                                catch(e) { console.error(e); }
+                              }} className="p-2 text-slate-500 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-all text-xs font-bold">
+                                {chat.muted ? '🔔' : '🔕'}
+                              </button>
+                              {chat.heldBy && (
+                                <button onClick={async () => {
+                                  setChatMenuOpen(null);
+                                  try { await updateDoc(doc(db, 'chats', chat.id), { heldBy: null, holdExpiresAt: null }); }
+                                  catch(e) { console.error(e); }
+                                }} className="p-2 text-slate-500 hover:text-green-600 hover:bg-green-50 rounded-lg transition-all text-xs font-bold">✅</button>
+                              )}
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })
+            ) : (
+              <div className="flex flex-col items-center justify-center py-16 text-center">
+                <div className="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center mb-4 text-slate-400">
+                  <Users size={28} />
+                </div>
+                <p className="text-sm font-bold text-slate-400 uppercase tracking-widest">Henüz grupta değilsin</p>
+                <p className="text-xs text-slate-400 mt-2">Kullanıcı listesinden gruplara katılabilirsin</p>
+                <button onClick={onStartNewChat} className="mt-4 px-6 py-2.5 bg-blue-600 text-white rounded-xl text-[10px] font-black uppercase tracking-wider hover:bg-blue-700 transition-all active:scale-95">
+                  Grupları Gör
+                </button>
+              </div>
+            )}
+          </>
         )}
       </div>
 
@@ -701,9 +684,9 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
                     });
                     setShowAdminMsg(false);
                     setAdminMsgText('');
-                    alert('Mesajınız yöneticiye iletilmiştir.');
+                    addToast('Mesajınız yöneticiye iletilmiştir.', 'success');
                   } catch {
-                    alert('Mesaj gönderilemedi. Lütfen tekrar deneyin.');
+                    addToast('Mesaj gönderilemedi. Lütfen tekrar deneyin.', 'error');
                   }
                 }}
                 className="flex-1 py-2.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-[10px] font-black uppercase tracking-wider disabled:opacity-40"

@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
-import { collection, query, getDocs, doc, getDoc, where, orderBy, deleteDoc, updateDoc, Timestamp, serverTimestamp, onSnapshot, collectionGroup, limit } from 'firebase/firestore';
+import { collection, query, getDocs, doc, getDoc, where, orderBy, deleteDoc, updateDoc, Timestamp, serverTimestamp, onSnapshot, collectionGroup, limit, setDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
+import { useToast } from '../lib/toast';
 import { UserProfile, Message, Chat } from '../types';
 import { X, Search, Shield, UserX, UserCheck, Trash2, Clock, MessageSquare, Ban } from 'lucide-react';
 import { cn } from '../lib/utils';
@@ -8,17 +9,17 @@ import { useAuth } from './AuthProvider';
 import { motion, AnimatePresence } from 'motion/react';
 import { format } from 'date-fns';
 
-const ADMIN_PASSWORD = 'Ag1453ag!';
-
 interface AdminPanelProps {
   onClose: () => void;
 }
 
 export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
   const { user } = useAuth();
+  const { addToast } = useToast();
   const [step, setStep] = useState<'password' | 'panel'>('password');
   const [password, setPassword] = useState('');
   const [passwordError, setPasswordError] = useState('');
+  const [verifying, setVerifying] = useState(false);
 
   const [users, setUsers] = useState<UserProfile[]>([]);
   const [search, setSearch] = useState('');
@@ -29,13 +30,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
   const [loadingUsers, setLoadingUsers] = useState(false);
 
   // Tab: users, admin-msgs, deleted, encrypted
-  const [tab, setTab] = useState<'users' | 'admin-msgs' | 'deleted' | 'encrypted'>('users');
+  const [tab, setTab] = useState<'users' | 'admin-msgs' | 'deleted' | 'encrypted' | 'delete-requests'>('users');
 
-  // Ensure admin role is set in Firestore when panel opens
-  useEffect(() => {
-    if (step !== 'panel' || !user) return;
-    updateDoc(doc(db, 'users', user.uid), { role: 'admin' }).catch(() => {});
-  }, [step]);
   const [adminMessages, setAdminMessages] = useState<{ id: string; message: string; userId: string; userDisplayName: string; userNickname?: string; userUIN?: string; timestamp: any }[]>([]);
   const [deletedMessages, setDeletedMessages] = useState<any[]>([]);
   const [deleteRequests, setDeleteRequests] = useState<any[]>([]);
@@ -43,13 +39,48 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
   const [confirmRejectId, setConfirmRejectId] = useState<string | null>(null);
   const [encryptedMessages, setEncryptedMessages] = useState<any[]>([]);
 
-  const handlePasswordSubmit = () => {
-    if (password === ADMIN_PASSWORD) {
+  const sha256 = async (text: string): Promise<string> => {
+    const encoder = new TextEncoder();
+    const data = encoder.encode(text);
+    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+    return Array.from(new Uint8Array(hashBuffer)).map(b => b.toString(16).padStart(2, '0')).join('');
+  };
+
+  const verifyAdmin = async (password: string): Promise<boolean> => {
+    try {
+      if (!user) { addToast('Önce giriş yapmalısınız.', 'error'); return false; }
+      const configDoc = await getDoc(doc(db, 'config', 'admin'));
+      if (!configDoc.exists()) {
+        addToast('Admin yapılandırması bulunamadı.', 'error');
+        return false;
+      }
+      const storedHash = configDoc.data().passwordHash;
+      if (!storedHash) {
+        addToast('Admin şifre hash\'i bulunamadı.', 'error');
+        return false;
+      }
+      const enteredHash = await sha256(password);
+      if (enteredHash !== storedHash) return false;
+
+      await setDoc(doc(db, 'adminUsers', user.uid), { admin: true, verifiedAt: new Date().toISOString() }, { merge: true });
+      return true;
+    } catch (err) {
+      console.error('verifyAdmin error:', err);
+      addToast('Admin doğrulama hatası.', 'error');
+      return false;
+    }
+  };
+
+  const handlePasswordSubmit = async () => {
+    setVerifying(true);
+    setPasswordError('');
+    const ok = await verifyAdmin(password);
+    if (ok) {
       setStep('panel');
-      setPasswordError('');
     } else {
       setPasswordError('Hatalı şifre!');
     }
+    setVerifying(false);
   };
 
   // Fetch all users
@@ -193,7 +224,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
       setUserChats(chatNames);
     } catch (err) {
       console.error('loadUserMessages error:', err);
-      alert('Kullanıcı mesajları yüklenemedi. Firestore güvenlik kuralları henüz yayınlanmamış olabilir. Admin yetkilerinizi kontrol edin.');
+      addToast('Kullanıcı mesajları yüklenemedi. Admin yetkilerinizi kontrol edin.', 'error');
     }
   };
 
@@ -287,9 +318,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
           {passwordError && <p className="text-xs text-red-500 font-bold text-center mb-4">{passwordError}</p>}
           <button
             onClick={handlePasswordSubmit}
-            className="w-full py-3 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-2xl transition-all text-sm"
+            disabled={verifying}
+            className="w-full py-3 bg-slate-900 hover:bg-slate-800 disabled:bg-slate-700 text-white font-bold rounded-2xl transition-all text-sm"
           >
-            Giriş
+            {verifying ? (
+              <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin mx-auto" />
+            ) : 'Giriş'}
           </button>
         </motion.div>
       </div>
@@ -552,7 +586,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                               a.click();
                             } else if (m.text) {
                               navigator.clipboard.writeText(m.text).catch(() => {});
-                              alert('Metin panoya kopyalandı.');
+                              addToast('Metin panoya kopyalandı.', 'success');
                             }
                           }}
                           className="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-white rounded-lg text-[10px] font-bold"
@@ -663,14 +697,13 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
         {tab === 'encrypted' && (
           <div className="flex-1 overflow-y-auto custom-scrollbar p-6">
             <h2 className="text-lg font-black text-white mb-2">🔒 Şifreli Mesaj Denetimi</h2>
-            <p className="text-[10px] text-slate-500 font-bold mb-6">Tüm şifreli mesajların içeriği ve şifreleri. Şifreler base64 kodludur.</p>
+            <p className="text-[10px] text-slate-500 font-bold mb-6">Uçtan uca AES-256-GCM ile şifrelenmiş mesajlar. İçerik çözülemez.</p>
             {encryptedMessages.length === 0 ? (
               <p className="text-slate-500 text-sm font-bold">Henüz şifreli mesaj yok.</p>
             ) : (
               <div className="space-y-3">
                 {encryptedMessages.map((m) => {
                   const sender = users.find(u => u.uid === m.senderId);
-                  const decodedPwd = m.imagePassword ? atob(m.imagePassword) : '';
                   return (
                     <div key={m.id} className="bg-slate-800 rounded-2xl p-4 border border-purple-700/50">
                       <div className="flex items-center gap-2 mb-2">
@@ -682,20 +715,15 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                         </span>
                       </div>
                       <div className="mb-2">
-                        {m.type === 'text' && <p className="text-sm text-slate-200">{m.text}</p>}
-                        {m.type === 'image' && <p className="text-sm text-blue-400">📷 Şifreli Resim ({m.imageUrl?.length || 0} bytes)</p>}
-                        {m.type === 'video' && <p className="text-sm text-blue-400">🎥 Şifreli Video ({m.videoUrl?.length || 0} bytes)</p>}
-                        {m.type === 'audio' && <p className="text-sm text-blue-400">🎤 Şifreli Ses ({m.audioUrl?.length || 0} bytes)</p>}
+                        {m.type === 'text' && <p className="text-sm text-slate-400 italic">🔒 İçerik şifreli (AES-256-GCM)</p>}
+                        {m.type === 'image' && <p className="text-sm text-blue-400">📷 Şifreli Resim</p>}
+                        {m.type === 'video' && <p className="text-sm text-blue-400">🎥 Şifreli Video</p>}
+                        {m.type === 'audio' && <p className="text-sm text-blue-400">🎤 Şifreli Ses</p>}
                       </div>
                       <div className="bg-slate-900/50 rounded-xl p-3 border border-slate-700">
-                        <div className="flex items-center gap-2 mb-1">
-                          <span className="text-[9px] font-bold text-slate-500 uppercase tracking-wider">Şifre (base64):</span>
-                          <code className="text-[10px] font-mono text-amber-300 break-all">{m.imagePassword || '—'}</code>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-[9px] font-bold text-slate-500 uppercase tracking-wider">Çözülmüş:</span>
-                          <span className="text-[10px] font-mono text-green-400 break-all">{decodedPwd || '—'}</span>
-                        </div>
+                        <p className="text-[9px] text-slate-500 font-bold text-center">
+                          Sadece doğru şifreye sahip kullanıcı çözebilir
+                        </p>
                       </div>
                     </div>
                   );

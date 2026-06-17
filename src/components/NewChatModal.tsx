@@ -2,6 +2,7 @@ import React, { useEffect, useState, useRef } from 'react';
 import { collection, query, getDocs, addDoc, serverTimestamp, where, limit, orderBy, doc, getDoc, updateDoc, arrayUnion } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { useAuth } from './AuthProvider';
+import { useToast } from '../lib/toast';
 import { UserProfile, Chat } from '../types';
 import { X, Search, UserPlus, Users, ArrowRight, Check, Globe, Filter, LogIn, MessageSquarePlus } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
@@ -22,7 +23,7 @@ const COUNTRIES: { code: string; name: string }[] = [
   { code: 'IDN', name: 'Indonesia' }, { code: 'MYS', name: 'Malaysia' }, { code: 'SGP', name: 'Singapore' },
   { code: 'PHL', name: 'Philippines' }, { code: 'VNM', name: 'Vietnam' }, { code: 'THA', name: 'Thailand' },
   { code: 'PRT', name: 'Portugal' }, { code: 'ROU', name: 'Romania' }, { code: 'BGR', name: 'Bulgaria' },
-  { code: 'SRC', name: 'Serbia' }, { code: 'HRV', name: 'Croatia' }, { code: 'BIH', name: 'Bosnia and Herzegovina' },
+  { code: 'SRB', name: 'Serbia' }, { code: 'HRV', name: 'Croatia' }, { code: 'BIH', name: 'Bosnia and Herzegovina' },
   { code: 'ALB', name: 'Albania' }, { code: 'GEO', name: 'Georgia' }, { code: 'AZE', name: 'Azerbaijan' },
   { code: 'KAZ', name: 'Kazakhstan' }, { code: 'ISR', name: 'Israel' }, { code: 'MAR', name: 'Morocco' },
   { code: 'PAK', name: 'Pakistan' }, { code: 'BGD', name: 'Bangladesh' }, { code: 'NGA', name: 'Nigeria' },
@@ -41,6 +42,7 @@ interface NewChatModalProps {
 
 export const NewChatModal: React.FC<NewChatModalProps> = ({ onClose, onChatCreated }) => {
   const { user, profile } = useAuth();
+  const { addToast } = useToast();
   const [tab, setTab] = useState<'people' | 'groups'>('people');
   const [users, setUsers] = useState<UserProfile[]>([]);
   const [peopleSearch, setPeopleSearch] = useState('');
@@ -154,7 +156,7 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({ onClose, onChatCreat
       onClose();
     } catch (err) {
       console.error("startPrivateChat error:", err);
-      alert('Sohbet başlatılamadı: ' + (err instanceof Error ? err.message : 'Bilinmeyen hata'));
+      addToast('Sohbet başlatılamadı: ' + (err instanceof Error ? err.message : 'Bilinmeyen hata'), 'error');
     }
   };
 
@@ -170,10 +172,10 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({ onClose, onChatCreat
         status: 'pending', timestamp: serverTimestamp()
       });
       setFriendStatus(prev => ({ ...prev, [otherUser.uid]: 'pending_sent' }));
-      alert('Arkadaşlık isteği gönderildi!');
+      addToast('Arkadaşlık isteği gönderildi!', 'success');
     } catch (err) {
       console.error("sendFriendRequest error:", err);
-      alert('İstek gönderilemedi: ' + (err instanceof Error ? err.message : 'Bilinmeyen hata'));
+      addToast('İstek gönderilemedi: ' + (err instanceof Error ? err.message : 'Bilinmeyen hata'), 'error');
     }
   };
 
@@ -195,14 +197,14 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({ onClose, onChatCreat
       onClose();
     } catch (err) {
       console.error("createGroup error:", err);
-      alert('Grup oluşturulamadı: ' + (err instanceof Error ? err.message : 'Bilinmeyen hata'));
+      addToast('Grup oluşturulamadı: ' + (err instanceof Error ? err.message : 'Bilinmeyen hata'), 'error');
     }
   };
 
   const loadGroups = async (name: string = '') => {
     setGroupSearchLoading(true);
     try {
-      const snap = await getDocs(query(collection(db, 'chats'), where('type', '==', 'group'), limit(100)));
+      const snap = await getDocs(query(collection(db, 'chats'), where('type', '==', 'group'), limit(20)));
       console.log("loadGroups: fetched", snap.docs.length, "group docs");
       const groups = snap.docs.map(d => ({ ...d.data(), id: d.id } as Chat)).filter(g =>
         (!name || g.groupMetadata?.name?.toLowerCase().includes(name.toLowerCase())) &&
@@ -237,7 +239,7 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({ onClose, onChatCreat
       chatId: group.id, chatName: group.groupMetadata?.name || '', from: user.uid,
       fromName: user.displayName || user.email, status: 'pending', timestamp: serverTimestamp()
     });
-    alert('Gruba katılma isteği yöneticiye gönderildi!');
+    addToast('Gruba katılma isteği yöneticiye gönderildi!', 'success');
     onClose();
   };
 
@@ -245,11 +247,11 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({ onClose, onChatCreat
     if (!user || !selectedGroup) return;
     if (joinPassword.trim() === selectedGroup.groupMetadata?.password) {
       await updateDoc(doc(db, 'chats', selectedGroup.id), { participants: arrayUnion(user.uid) });
-      alert('Gruba başarıyla katıldınız!');
+      addToast('Gruba başarıyla katıldınız!', 'success');
       onChatCreated(selectedGroup.id);
       onClose();
     } else {
-      alert('Hatalı şifre!');
+      addToast('Hatalı şifre!', 'error');
     }
   };
 
@@ -312,7 +314,7 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({ onClose, onChatCreat
                           <div className="flex items-center gap-1 shrink-0">
                             {isFriend ? (
                               <button onClick={() => startPrivateChat(u)}
-                                className="px-2 sm:px-3 py-1 bg-blue-50 text-blue-600 rounded-lg sm:rounded-xl text-[8px] sm:text-[10px] font-black uppercase tracking-wider hover:bg-blue-100 transition-all active:scale-95 flex items-center gap-1"><MessageSquarePlus size={12} className="hidden sm:block" />Ark.</button>
+                                className="px-2 sm:px-3 py-1 bg-blue-50 text-blue-600 rounded-lg sm:rounded-xl text-[8px] sm:text-[10px] font-black uppercase tracking-wider hover:bg-blue-100 transition-all active:scale-95 flex items-center gap-1"><MessageSquarePlus size={12} className="hidden sm:block" />Sohbet</button>
                             ) : (
                               <button onClick={() => sendFriendRequest(u)}
                                 className={cn("px-2 sm:px-3 py-1 rounded-lg sm:rounded-xl text-[8px] sm:text-[10px] font-black uppercase tracking-wider transition-all active:scale-95 flex items-center gap-1",

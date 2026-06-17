@@ -1,6 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { doc, updateDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
+import { useToast } from '../lib/toast';
 import { UserProfile } from '../types';
 import { X, Check, User, Info, Wifi, Camera, Upload, Trash2, RefreshCw } from 'lucide-react';
 import { cn } from '../lib/utils';
@@ -11,6 +12,7 @@ interface ProfileModalProps {
 }
 
 const ProfileModal: React.FC<ProfileModalProps> = ({ user, onClose }) => {
+  const { addToast } = useToast();
   const [displayName, setDisplayName] = useState(user.displayName);
   const [nickname, setNickname] = useState(user.nickname || '');
   const [about, setAbout] = useState(user.about || '');
@@ -32,6 +34,12 @@ const ProfileModal: React.FC<ProfileModalProps> = ({ user, onClose }) => {
   const handleSave = async () => {
     setSaving(true);
     try {
+      let finalPhotoURL = photoURL;
+      if (photoURL && photoURL.startsWith('data:')) {
+        const { uploadProfilePhoto } = await import('../lib/storage');
+        finalPhotoURL = await uploadProfilePhoto(photoURL, user.uid);
+        setPhotoURL(finalPhotoURL);
+      }
       const userRef = doc(db, 'users', user.uid);
       await updateDoc(userRef, {
         uid: user.uid,
@@ -39,7 +47,7 @@ const ProfileModal: React.FC<ProfileModalProps> = ({ user, onClose }) => {
         nickname,
         about,
         onlineStatus,
-        photoURL,
+        photoURL: finalPhotoURL,
         birthDate,
         phone,
         location,
@@ -50,7 +58,7 @@ const ProfileModal: React.FC<ProfileModalProps> = ({ user, onClose }) => {
       onClose();
     } catch (error) {
       console.error("Profile update error:", error);
-      alert("Profil kaydedilirken bir hata oluştu. Lütfen tekrar deneyin.");
+      addToast("Profil kaydedilirken hata oluştu.", 'error');
     } finally {
       setSaving(false);
     }
@@ -65,7 +73,7 @@ const ProfileModal: React.FC<ProfileModalProps> = ({ user, onClose }) => {
       }
     } catch (err) {
       console.error("Camera access error:", err);
-      alert("Kameraya erişilemedi.");
+      addToast("Kameraya erişilemedi.", 'error');
     }
   };
 
@@ -100,7 +108,7 @@ const ProfileModal: React.FC<ProfileModalProps> = ({ user, onClose }) => {
     const file = e.target.files?.[0];
     if (file) {
       if (file.size > 500 * 1024) { // 500KB limit for demo simplicity
-        alert("Dosya çok büyük (maks 500KB).");
+        addToast("Dosya çok büyük (maks 500KB).", 'error');
         return;
       }
       const reader = new FileReader();
