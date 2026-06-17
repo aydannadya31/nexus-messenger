@@ -209,11 +209,9 @@ export const CallOverlay = () => {
 
   const acceptWithMedia = useCallback(async () => {
     // getUserMedia MUST be called from user gesture context (iOS Safari)
-    const stream = await initLocalMedia();
+    await initLocalMedia();
     await acceptCall();
-    if (!stream) return;
-    startMediaRecorder(stream, activeCallRef.current?.id || '');
-  }, [initLocalMedia, acceptCall, startMediaRecorder]);
+  }, [initLocalMedia, acceptCall]);
 
   useEffect(() => {
     if (!activeCall || !user) return;
