@@ -103,8 +103,8 @@ service cloud.firestore {
       }
 
       match /audio/{audioId} {
-        allow list, get: if isSignedIn() && (request.auth.uid in get(/databases/$(database)/documents/calls/$(callId)).data.participants || isAdmin());
-        allow create: if isSignedIn() && (request.auth.uid in get(/databases/$(database)/documents/calls/$(callId)).data.participants || isAdmin());
+        allow read: if isSignedIn() && (resource.data.to == request.auth.uid || resource.data.from == request.auth.uid);
+        allow create: if isSignedIn() && request.resource.data.from == request.auth.uid;
       }
     }
 

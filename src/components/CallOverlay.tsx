@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { useCall } from './CallProvider';
 import { useAuth } from './AuthProvider';
 import { db } from '../lib/firebase';
-import { doc, onSnapshot, collection, addDoc, serverTimestamp, getDoc, query, where, orderBy } from 'firebase/firestore';
+import { doc, onSnapshot, collection, addDoc, serverTimestamp, getDoc, query, where } from 'firebase/firestore';
 import { X, Phone, PhoneOff, Mic, MicOff } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
@@ -219,8 +219,7 @@ export const CallOverlay = () => {
 
       const qAudio = query(
         collection(db, 'calls', activeCall.id, 'audio'),
-        where('to', '==', user.uid),
-        orderBy('createdAt', 'asc')
+        where('to', '==', user.uid)
       );
 
       audioUnsubRef.current = onSnapshot(qAudio, (snap) => {
@@ -232,6 +231,8 @@ export const CallOverlay = () => {
           audioQueueRef.current.push({ data: d.data, seq: d.seq });
         });
         processAudioQueue();
+      }, (err) => {
+        console.error("Audio listener error:", err);
       });
     })();
 
