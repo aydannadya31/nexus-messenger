@@ -20,6 +20,7 @@ export const CallOverlay = () => {
   const [isVideoOff, setIsVideoOff] = useState(false);
   const [callerInfo, setCallerInfo] = useState<UserProfile | null>(null);
   const [isInviting, setIsInviting] = useState(false);
+  const [iceFailed, setIceFailed] = useState(false);
 
   const pcs = useRef<Record<string, RTCPeerConnection>>({});
   const activeCallRef = useRef(activeCall);
@@ -33,7 +34,8 @@ export const CallOverlay = () => {
       { urls: 'stun:stun.l.google.com:19302' },
       { urls: 'stun:stun1.l.google.com:19302' },
       { urls: 'stun:stun2.l.google.com:19302' },
-      { urls: 'turn:free.turnservers.com:3478' },
+      { urls: 'stun:stun3.l.google.com:19302' },
+      { urls: 'stun:stun4.l.google.com:19302' },
     ],
     iceCandidatePoolSize: 1,
   };
@@ -174,10 +176,12 @@ export const CallOverlay = () => {
     };
 
     let disconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let failedRetryCount = 0;
     pc.oniceconnectionstatechange = () => {
       console.log("ICE state:", pc.iceConnectionState, "peer:", pId);
-      if (pc.iceConnectionState === 'connected') {
+      if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') {
         console.log(`Peer ${pId} connected!`);
+        setIceFailed(false);
         if (disconnectTimer) { clearTimeout(disconnectTimer); disconnectTimer = null; }
       }
       if (pc.iceConnectionState === 'disconnected') {
@@ -190,7 +194,15 @@ export const CallOverlay = () => {
       }
       if (pc.iceConnectionState === 'failed') {
         if (disconnectTimer) { clearTimeout(disconnectTimer); disconnectTimer = null; }
-        cleanupPeer(pId);
+        if (failedRetryCount >= 1) {
+          console.error("ICE failed after retry for peer:", pId);
+          setIceFailed(true);
+          cleanupPeer(pId);
+          return;
+        }
+        failedRetryCount++;
+        console.log("ICE failed, restarting ICE for peer:", pId);
+        pc.restartIce();
       }
     };
 
@@ -378,6 +390,35 @@ export const CallOverlay = () => {
     return () => { cancelled = true; };
   }, [activeCall?.activeParticipants, user?.uid, getOrCreatePC, cleanupPeer]);
 
+  // Connection timeout detection: if ICE hasn't connected within 30s, show error
+  useEffect(() => {
+    if (!activeCall || !user) return;
+    const peerIds = activeCall.activeParticipants.filter(id => id !== user.uid);
+    if (peerIds.length === 0) return;
+
+    const allConnected = peerIds.every(pId => {
+      const pc = pcs.current[pId];
+      return pc && (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed');
+    });
+    if (allConnected) {
+      setIceFailed(false);
+      return;
+    }
+
+    const timeout = setTimeout(() => {
+      const stillDisconnected = peerIds.some(pId => {
+        const pc = pcs.current[pId];
+        return !pc || pc.iceConnectionState === 'failed' || pc.iceConnectionState === 'disconnected' || pc.iceConnectionState === 'new';
+      });
+      if (stillDisconnected) {
+        console.error("ICE connection timeout for peers:", peerIds);
+        setIceFailed(true);
+      }
+    }, 30000);
+
+    return () => clearTimeout(timeout);
+  }, [activeCall, user]);
+
   // Cleanup on call end
   useEffect(() => {
     if (!activeCall) {
@@ -387,6 +428,7 @@ export const CallOverlay = () => {
         localStreamRef.current = null;
         setLocalStream(null);
       }
+      setIceFailed(false);
     }
   }, [activeCall, cleanupPeer]);
 
@@ -512,10 +554,17 @@ export const CallOverlay = () => {
                       />
                     ) : (
                       <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-slate-900">
-                        <div className="w-20 h-20 rounded-full bg-slate-800 animate-pulse flex items-center justify-center">
-                           <img src={info?.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${pId}`} className="w-full h-full rounded-full opacity-50" />
+                        <div className={cn("w-20 h-20 rounded-full flex items-center justify-center", iceFailed ? "bg-red-900/50" : "bg-slate-800 animate-pulse")}>
+                           <img src={info?.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${pId}`} className={cn("w-full h-full rounded-full", iceFailed ? "opacity-30" : "opacity-50")} />
                         </div>
-                        <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Bağlanılıyor...</p>
+                        {iceFailed ? (
+                          <div className="text-center">
+                            <p className="text-[10px] font-black text-red-400 uppercase tracking-widest">Bağlantı Başarısız</p>
+                            <p className="text-[8px] font-bold text-slate-500 mt-1">Güvenlik duvarı/NAT sorunu olabilir. Tekrar deneyin.</p>
+                          </div>
+                        ) : (
+                          <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Bağlanılıyor...</p>
+                        )}
                       </div>
                     )}
                     <div className="absolute bottom-4 left-4 flex items-center gap-2 bg-black/40 backdrop-blur-md px-3 py-1.5 rounded-xl border border-white/10">
