@@ -101,6 +101,11 @@ service cloud.firestore {
         allow create: if isSignedIn() && isValidSignal(request.resource.data);
         allow delete: if isSignedIn() && (resource.data.to == request.auth.uid || resource.data.from == request.auth.uid || isAdmin());
       }
+
+      match /audio/{audioId} {
+        allow list, get: if isSignedIn() && (request.auth.uid in get(/databases/$(database)/documents/calls/$(callId)).data.participants || isAdmin());
+        allow create: if isSignedIn() && (request.auth.uid in get(/databases/$(database)/documents/calls/$(callId)).data.participants || isAdmin());
+      }
     }
 
     // Admin users (managed client-side with password hash verification)

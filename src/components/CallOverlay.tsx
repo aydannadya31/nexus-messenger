@@ -27,7 +27,7 @@ export const CallOverlay = () => {
   const audioSeqRef = useRef(0);
   const audioQueueRef = useRef<{ data: string; seq: number }[]>([]);
   const isPlayingRef = useRef(false);
-  const lastPlayedSeqRef = useRef(0);
+  const lastPlayedSeqRef = useRef(-1);
   const audioCtxRef = useRef<AudioContext | null>(null);
   const audioUnsubRef = useRef<(() => void) | null>(null);
 
