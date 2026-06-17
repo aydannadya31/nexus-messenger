@@ -79,6 +79,8 @@ export interface Call {
   mediaType: 'audio' | 'video';
   status: 'calling' | 'ongoing' | 'ended';
   createdAt: any;
+  engine?: 'livekit' | 'daily' | 'websocket';
+  roomId?: string;
 }
 
 export interface CallSignal {
