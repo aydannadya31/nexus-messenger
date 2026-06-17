@@ -191,9 +191,9 @@ function NexusApp() {
         nickname={profile?.nickname || ''}
         about={profile?.about || ''}
         country={profile?.country || ''}
-        userUid={user!.uid}
+        userUid={user.uid}
         onSave={async (data) => {
-          await updateDoc(doc(db, 'users', user!.uid), {
+          await updateDoc(doc(db, 'users', user.uid), {
             ...data,
             onlineStatus: 'online',
             profileCompleted: true

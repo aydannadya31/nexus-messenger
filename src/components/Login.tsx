@@ -271,25 +271,27 @@ export const Login: React.FC = () => {
         <AdminPanel onClose={() => setShowAdminPanel(false)} />
       )}
 
-      <ProfileSetup
-        isOpen={showProfileSetup}
-        photoURL={profile?.photoURL || user?.photoURL || ''}
-        displayName={profile?.displayName || user?.displayName || ''}
-        nickname={profile?.nickname || ''}
-        about={profile?.about || ''}
-        country={profile?.country || ''}
-        userUid={user!.uid}
-        onSave={async (data) => {
-          const { doc, updateDoc } = await import('firebase/firestore');
-          const { db } = await import('../lib/firebase');
-          await updateDoc(doc(db, 'users', user!.uid), {
-            ...data,
-            onlineStatus: 'online',
-            profileCompleted: true
-          });
-        }}
-        onComplete={() => setShowProfileSetup(false)}
-      />
+      {user && (
+        <ProfileSetup
+          isOpen={showProfileSetup}
+          photoURL={profile?.photoURL || user?.photoURL || ''}
+          displayName={profile?.displayName || user?.displayName || ''}
+          nickname={profile?.nickname || ''}
+          about={profile?.about || ''}
+          country={profile?.country || ''}
+          userUid={user.uid}
+          onSave={async (data) => {
+            const { doc, updateDoc } = await import('firebase/firestore');
+            const { db } = await import('../lib/firebase');
+            await updateDoc(doc(db, 'users', user.uid), {
+              ...data,
+              onlineStatus: 'online',
+              profileCompleted: true
+            });
+          }}
+          onComplete={() => setShowProfileSetup(false)}
+        />
+      )}
     </div>
   );
 };
