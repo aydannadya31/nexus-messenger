@@ -92,11 +92,11 @@ const DecryptContent: React.FC<{ msg: Message; onClose: () => void }> = ({ msg, 
 
   const handleSubmit = async () => {
     const payload = msg.text || msg.imageUrl || msg.videoUrl || msg.audioUrl || '';
-    if (!payload.includes(':')) {
-      // Legacy btoa-based fallback for old messages
-      if (btoa(pwd).length > 2 && msg.imagePassword && btoa(pwd) === msg.imagePassword) {
+
+    // For media messages with imagePassword: simple btoa comparison
+    if (msg.imagePassword && (msg.type === 'image' || msg.type === 'video' || msg.type === 'audio')) {
+      if (btoa(pwd) === msg.imagePassword) {
         setDecrypted(true);
-        setDecryptedText(msg.text || '');
         setDecryptedImageUrl(msg.imageUrl || '');
         setDecryptedVideoUrl(msg.videoUrl || '');
         setDecryptedAudioUrl(msg.audioUrl || '');
@@ -106,21 +106,30 @@ const DecryptContent: React.FC<{ msg: Message; onClose: () => void }> = ({ msg, 
       }
       return;
     }
-    try {
-      const { decryptMessage } = await import('../lib/crypto');
-      const decryptedPayload = await decryptMessage(payload, pwd);
-      if (msg.type === 'text') {
+
+    // For text messages encrypted with crypto.ts (AES-GCM)
+    if (payload.includes(':')) {
+      try {
+        const { decryptMessage } = await import('../lib/crypto');
+        const decryptedPayload = await decryptMessage(payload, pwd);
         setDecryptedText(decryptedPayload);
-      } else if (msg.type === 'image') {
-        setDecryptedImageUrl(decryptedPayload);
-      } else if (msg.type === 'video') {
-        setDecryptedVideoUrl(decryptedPayload);
-      } else if (msg.type === 'audio') {
-        setDecryptedAudioUrl(decryptedPayload);
+        setDecrypted(true);
+        setError('');
+      } catch {
+        setError('Hatalı şifre!');
       }
+      return;
+    }
+
+    // Legacy btoa-based fallback for very old messages
+    if (btoa(pwd).length > 2 && msg.imagePassword && btoa(pwd) === msg.imagePassword) {
       setDecrypted(true);
+      setDecryptedText(msg.text || '');
+      setDecryptedImageUrl(msg.imageUrl || '');
+      setDecryptedVideoUrl(msg.videoUrl || '');
+      setDecryptedAudioUrl(msg.audioUrl || '');
       setError('');
-    } catch {
+    } else {
       setError('Hatalı şifre!');
     }
   };
@@ -454,14 +463,9 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
         if (!pwd) { setEncryptMode(false); return; }
       }
       try {
-        let videoContent = base64Video;
-        if (encryptMode && pwd) {
-          const { encryptMessage } = await import('../lib/crypto');
-          videoContent = await encryptMessage(base64Video, pwd);
-        }
         const { uploadMedia } = await import('../lib/storage');
         const msgRef = doc(collection(db, 'chats', chatId, 'messages'));
-        const storageUrl = await uploadMedia(videoContent, chatId, msgRef.id, 'video');
+        const storageUrl = await uploadMedia(base64Video, chatId, msgRef.id, 'video');
 
         await setDoc(msgRef, {
           videoUrl: storageUrl,
@@ -469,7 +473,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
           timestamp: serverTimestamp(),
           type: 'video',
           status: 'sent',
-          ...(encryptMode && pwd ? { encrypted: true } : {})
+          ...(encryptMode && pwd ? { encrypted: true, imagePassword: btoa(pwd) } : {})
         });
 
         await updateDoc(doc(db, 'chats', chatId), {
@@ -568,14 +572,9 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
       if (!pwd) { setEncryptMode(false); return; }
     }
     try {
-      let audioContent = audioUrl;
-      if (encryptMode && pwd) {
-        const { encryptMessage } = await import('../lib/crypto');
-        audioContent = await encryptMessage(audioUrl, pwd);
-      }
       const { uploadMedia } = await import('../lib/storage');
       const msgRef = doc(collection(db, 'chats', chatId, 'messages'));
-      const storageUrl = await uploadMedia(audioContent, chatId, msgRef.id, 'audio');
+      const storageUrl = await uploadMedia(audioUrl, chatId, msgRef.id, 'audio');
 
       await setDoc(msgRef, {
         audioUrl: storageUrl,
@@ -583,7 +582,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
         timestamp: serverTimestamp(),
         type: 'audio',
         status: 'sent',
-        ...(encryptMode && pwd ? { encrypted: true } : {})
+        ...(encryptMode && pwd ? { encrypted: true, imagePassword: btoa(pwd) } : {})
       });
 
       await updateDoc(doc(db, 'chats', chatId), {
@@ -736,14 +735,9 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
       if (!pwd) { setEncryptMode(false); return; }
     }
     try {
-      let videoContent = videoUrl;
-      if (encryptMode && pwd) {
-        const { encryptMessage } = await import('../lib/crypto');
-        videoContent = await encryptMessage(videoUrl, pwd);
-      }
       const { uploadMedia } = await import('../lib/storage');
       const msgRef = doc(collection(db, 'chats', chatId, 'messages'));
-      const storageUrl = await uploadMedia(videoContent, chatId, msgRef.id, 'video');
+      const storageUrl = await uploadMedia(videoUrl, chatId, msgRef.id, 'video');
 
       await setDoc(msgRef, {
         videoUrl: storageUrl,
@@ -751,7 +745,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
         timestamp: serverTimestamp(),
         type: 'video',
         status: 'sent',
-        ...(encryptMode && pwd ? { encrypted: true } : {})
+        ...(encryptMode && pwd ? { encrypted: true, imagePassword: btoa(pwd) } : {})
       });
       await updateDoc(doc(db, 'chats', chatId), {
         lastMessage: {
@@ -790,15 +784,9 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
         if (!pwd) { setEncryptMode(false); return; }
       }
       try {
-        let imageContent = base64Image;
-        if (encryptMode && pwd) {
-          const { encryptMessage } = await import('../lib/crypto');
-          imageContent = await encryptMessage(base64Image, pwd);
-        }
-        // Upload to Storage first, then store download URL in Firestore
         const { uploadMedia } = await import('../lib/storage');
         const msgRef = doc(collection(db, 'chats', chatId, 'messages'));
-        const storageUrl = await uploadMedia(imageContent, chatId, msgRef.id, 'image');
+        const storageUrl = await uploadMedia(base64Image, chatId, msgRef.id, 'image');
 
         await setDoc(msgRef, {
           imageUrl: storageUrl,
@@ -806,7 +794,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
           timestamp: serverTimestamp(),
           type: 'image',
           status: 'sent',
-          ...(encryptMode && pwd ? { encrypted: true } : {})
+          ...(encryptMode && pwd ? { encrypted: true, imagePassword: btoa(pwd) } : {})
         });
 
         await updateDoc(doc(db, 'chats', chatId), {
@@ -1262,14 +1250,10 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
 
                       {msg.type === 'text' && (
                         msg.encrypted && !isDeleted ? (
-                          isMe ? (
-                            <p className="text-sm font-medium leading-relaxed">{msg.text}</p>
-                          ) : (
-                            <button onClick={(e) => { e.stopPropagation(); setDecryptModal(msg); }}
-                              className="text-sm font-medium leading-relaxed opacity-70 hover:opacity-100 text-left w-full">
-                              🔒 Şifreli Mesaj (dokunun)
-                            </button>
-                          )
+                          <button onClick={(e) => { e.stopPropagation(); setDecryptModal(msg); }}
+                            className="text-sm font-medium leading-relaxed opacity-70 hover:opacity-100 text-left w-full">
+                            🔒 Şifreli Mesaj (dokunun)
+                          </button>
                         ) : (
                           <p className={cn(
                             "text-sm font-medium leading-relaxed",
@@ -1280,7 +1264,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
                       
                       {msg.type === 'image' && msg.imageUrl && (
                         <div className={cn("relative rounded-lg overflow-hidden mb-1 max-w-[180px]", isDeleted && "grayscale blur-[2px] opacity-40")}>
-                          {msg.encrypted && !isDeleted && !isMe ? (
+                          {msg.encrypted && !isDeleted ? (
                             <>
                               <img src={msg.imageUrl} alt="" className="w-full h-auto object-cover blur-[12px]" />
                               <div className="absolute inset-0 flex items-center justify-center">
@@ -1298,7 +1282,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
 
                       {msg.type === 'video' && msg.videoUrl && (
                         <div className={cn("relative rounded-lg overflow-hidden mb-1 min-w-[240px] bg-black/5", isDeleted && "grayscale blur-[2px] opacity-40")}>
-                          {msg.encrypted && !isDeleted && !isMe ? (
+                          {msg.encrypted && !isDeleted ? (
                             <div className="relative">
                               <video src={msg.videoUrl} className="max-w-full h-auto blur-[12px]" playsInline />
                               <div className="absolute inset-0 flex items-center justify-center">
@@ -1338,12 +1322,8 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
                       {msg.type === 'audio' && msg.audioUrl && (
                         <div className={cn(isDeleted && "grayscale opacity-40 pointer-events-none")}>
                           {msg.encrypted && !isDeleted ? (
-                            isMe ? (
-                              <AudioPlayer url={msg.audioUrl} isMe={isMe} />
-                            ) : (
-                              <button onClick={(e) => { e.stopPropagation(); setDecryptModal(msg); }}
-                                className="text-[10px] font-bold flex items-center gap-1 text-slate-500 hover:text-slate-700">🔒 Şifreli Ses Mesajı (dokunun)</button>
-                            )
+                            <button onClick={(e) => { e.stopPropagation(); setDecryptModal(msg); }}
+                              className="text-[10px] font-bold flex items-center gap-1 text-slate-500 hover:text-slate-700">🔒 Şifreli Ses Mesajı (dokunun)</button>
                           ) : (
                             <AudioPlayer url={msg.audioUrl} isMe={isMe} />
                           )}
