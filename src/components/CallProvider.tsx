@@ -7,7 +7,7 @@ import { CallEngineManager } from '../call-engines/CallEngineManager';
 import { CallEngineOptions, CallSession } from '../call-engines/types';
 
 /** Our Node.js server on Render.com */
-const SERVER_URL = import.meta.env.VITE_SERVER_URL || 'http://localhost:3001';
+const SERVER_URL = import.meta.env.VITE_SERVER_URL || 'https://nexus-messenger-rhad.onrender.com';
 
 interface CallContextType {
   activeCall: Call | null;
