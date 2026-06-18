@@ -55,8 +55,68 @@ export class WebSocketRelayEngine implements CallEngine {
         return;
       }
 
+      // --- Audio setup (shared) ---
       const audioCtx = new AudioContext();
-      let remoteStream: MediaStream | undefined;
+      // Ensure AudioContext is running (browser autoplay policy)
+      if (audioCtx.state === 'suspended') {
+        audioCtx.resume().then(() => console.log('[WSRelay] AudioContext resumed'))
+          .catch(e => console.warn('[WSRelay] AudioContext resume failed:', e));
+      }
+
+      // --- Receive audio: queue incoming PCM chunks and play continuously ---
+      const playQueue: Float32Array[] = [];
+      let isPlaying = false;
+
+      const scheduleNext = () => {
+        if (isPlaying || playQueue.length === 0 || ended) return;
+        isPlaying = true;
+        const chunk = playQueue.shift()!;
+        const buf = audioCtx.createBuffer(1, chunk.length, audioCtx.sampleRate);
+        buf.getChannelData(0).set(chunk);
+        const source = audioCtx.createBufferSource();
+        source.buffer = buf;
+        source.connect(audioCtx.destination);
+        source.onended = () => {
+          isPlaying = false;
+          scheduleNext();
+        };
+        source.start();
+      };
+
+      // --- Send audio: capture raw PCM via ScriptProcessorNode ---
+      let recorder: MediaRecorder | null = null;
+      const startSending = () => {
+        try {
+          // Try ScriptProcessorNode for raw PCM capture
+          const micSource = audioCtx.createMediaStreamSource(stream);
+          const processor = audioCtx.createScriptProcessor(4096, 1, 1);
+          processor.onaudioprocess = (e) => {
+            if (ended || ws.readyState !== WebSocket.OPEN) return;
+            ws.send(e.inputBuffer.getChannelData(0).buffer);
+          };
+          micSource.connect(processor);
+          processor.connect(audioCtx.destination);
+          console.log('[WSRelay] sending raw PCM via ScriptProcessorNode');
+        } catch (e) {
+          // Fallback: MediaRecorder
+          console.warn('[WSRelay] ScriptProcessorNode failed, using MediaRecorder:', e);
+          try {
+            recorder = new MediaRecorder(stream, {
+              mimeType: MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+                ? 'audio/webm;codecs=opus' : 'audio/webm',
+            });
+            recorder.ondataavailable = (e) => {
+              if (e.data.size > 0 && ws.readyState === WebSocket.OPEN && !ended) {
+                e.data.arrayBuffer().then(buf => ws.send(buf));
+              }
+            };
+            recorder.start(1000);
+            console.log('[WSRelay] sending chunks via MediaRecorder');
+          } catch (e2) {
+            console.warn('[WSRelay] MediaRecorder also failed:', e2);
+          }
+        }
+      };
 
       ws.onopen = () => {
         console.log('[WSRelay] WebSocket open, sending join...');
@@ -76,24 +136,14 @@ export class WebSocketRelayEngine implements CallEngine {
               console.log('[WSRelay] room_joined received, starting audio relay');
               resolved = true;
 
-              const recorder = new MediaRecorder(stream, {
-                mimeType: MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
-                  ? 'audio/webm;codecs=opus' : 'audio/webm',
-              });
-              recorder.ondataavailable = (e) => {
-                if (e.data.size > 0 && ws.readyState === WebSocket.OPEN && !ended) {
-                  e.data.arrayBuffer().then(buf => ws.send(buf));
-                }
-              };
-              recorder.start(1000);
-
-              resolve({
+              // Build session object and start sending audio
+              const ses: CallSession = {
                 engineName: 'websocket',
                 localStream: stream,
-                remoteStream,
+                remoteStream: undefined,
                 async end() {
                   ended = true;
-                  recorder.stop();
+                  if (recorder && recorder.state !== 'inactive') recorder.stop();
                   stream.getTracks().forEach(t => t.stop());
                   ws.close();
                   audioCtx.close();
@@ -104,24 +154,38 @@ export class WebSocketRelayEngine implements CallEngine {
                 isConnected() {
                   return !ended && ws.readyState === WebSocket.OPEN;
                 },
-              });
+              };
+
+              startSending();
+              resolve(ses);
             }
           } catch { /* ignore parse errors */ }
         } else if (ev.data instanceof ArrayBuffer || ev.data instanceof Blob) {
-          const playChunk = async (buf: ArrayBuffer) => {
+          // Incoming PCM data (Float32Array raw bytes)
+          const processChunk = async (buf: ArrayBuffer) => {
             try {
-              const audioBuf = await audioCtx.decodeAudioData(buf);
-              const source = audioCtx.createBufferSource();
-              source.buffer = audioBuf;
-              source.connect(audioCtx.destination);
-              source.start();
-            } catch { /* skip unplayable chunks */ }
+              // Try raw PCM first (Float32Array)
+              const floatLen = Math.floor(buf.byteLength / 4);
+              if (floatLen > 0 && floatLen * 4 === buf.byteLength) {
+                const pcm = new Float32Array(buf);
+                playQueue.push(pcm);
+                scheduleNext();
+                return;
+              }
+              // Fallback: try decodeAudioData (for MediaRecorder WebM chunks)
+              const audioBuf = await audioCtx.decodeAudioData(buf.slice(0));
+              const pcmData = audioBuf.getChannelData(0);
+              playQueue.push(pcmData);
+              scheduleNext();
+            } catch (e) {
+              console.warn('[WSRelay] audio decode failed:', e);
+            }
           };
 
           if (ev.data instanceof Blob) {
-            ev.data.arrayBuffer().then(playChunk);
+            ev.data.arrayBuffer().then(processChunk);
           } else {
-            playChunk(ev.data);
+            processChunk(ev.data);
           }
         }
       };
