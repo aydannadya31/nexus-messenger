@@ -120,7 +120,7 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
           );
           if (myActive) {
             setActiveCall(myActive);
-            // If we're the caller and the call is ongoing, try to connect engines
+            // If we're the caller and the call is ongoing, try to connect engine
             if (myActive.callerId === user.uid && myActive.status === 'ongoing' && !engineRef.current?.session) {
               const opts: CallEngineOptions = {
                 userId: user.uid,
@@ -130,7 +130,7 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
               };
               getEngine().startCall(myActive.id, opts).then(s => {
                 if (s) setSession(s);
-              });
+              }).catch(() => {});
             }
           }
         }
@@ -173,8 +173,29 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setCallError(null);
 
     try {
-      const engine = getEngine();
       const roomId = `${chatId}_${Date.now()}`;
+
+      // Step 1: Create Firestore doc IMMEDIATELY so the other side sees the call
+      const callData = {
+        participants: [...participants],
+        activeParticipants: [user.uid],
+        chatId,
+        callerId: user.uid,
+        type,
+        mediaType,
+        status: type === 'group' ? 'ongoing' : 'calling',
+        createdAt: serverTimestamp(),
+        engine: 'pending',
+        roomId,
+      };
+
+      const docRef = await addDoc(collection(db, 'calls'), callData);
+      const newActive = { id: docRef.id, ...callData, createdAt: serverTimestamp() } as Call;
+      activeCallRef.current = newActive;
+      setActiveCall(newActive);
+
+      // Step 2: Best-effort engine connection (non-blocking)
+      const engine = getEngine();
       const opts: CallEngineOptions = {
         userId: user.uid,
         userDisplayName: user.displayName || undefined,
@@ -182,35 +203,17 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
         roomId,
       };
 
-      const ses = await engine.startCall('', opts);
-      if (ses) {
-        setSession(ses);
-        const engineName = engine.currentEngine || 'websocket';
-
-        const callData = {
-          participants: [...participants],
-          activeParticipants: [user.uid],
-          chatId,
-          callerId: user.uid,
-          type,
-          mediaType,
-          status: type === 'group' ? 'ongoing' : 'calling',
-          createdAt: serverTimestamp(),
-          engine: engineName,
-          roomId,
-        };
-
-        const docRef = await addDoc(collection(db, 'calls'), callData);
-        const newActive = { id: docRef.id, ...callData } as Call;
-        activeCallRef.current = newActive;
-        setActiveCall(newActive);
-        return;
-      }
-
-      // Error already emitted via event with detailed failure info
-      if (!callError) {
-        setCallError('Tüm arama motorları başarısız oldu. Konsola bakın: F12');
-      }
+      engine.startCall('', opts).then(ses => {
+        if (ses) {
+          setSession(ses);
+          const engineName = engine.currentEngine || 'websocket';
+          // Update Firestore doc with engine info (fire-and-forget)
+          updateDoc(doc(db, 'calls', docRef.id), { engine: engineName }).catch(() => {});
+        } else {
+          // Engine failed — show warning but KEEP the call visible
+          setCallError('Mikrofon bağlantısı kurulamadı. Karşı taraf aramayı görebilir ancak ses iletilemeyebilir.');
+        }
+      });
     } catch (error: any) {
       console.error("Start call error:", error);
       setCallError('Arama başlatılamadı: ' + (error?.message || 'Bilinmeyen hata'));
@@ -234,25 +237,8 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       setCallError(null);
       const callDoc = incomingCall;
-      const engine = getEngine();
-      const opts: CallEngineOptions = {
-        userId: user.uid,
-        userDisplayName: user.displayName || undefined,
-        serverUrl: SERVER_URL,
-        roomId: callDoc.roomId || callDoc.id,
-      };
 
-      const ses = await engine.joinCall(opts.roomId, callDoc.callerId, opts);
-      if (!ses) {
-        // Error already emitted via event with detailed failure info
-        if (!callError) {
-          setCallError('Tüm arama motorları başarısız oldu. Konsola bakın: F12');
-        }
-        return;
-      }
-      setSession(ses);
-
-      // Update Firestore
+      // Update Firestore FIRST so the caller sees 'ongoing' immediately
       const activeParts = Array.from(new Set([...(incomingCall.activeParticipants || []), user.uid]));
       await updateDoc(doc(db, 'calls', incomingCall.id), {
         status: 'ongoing',
@@ -263,6 +249,22 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
       activeCallRef.current = updatedCall;
       setActiveCall(updatedCall);
       setIncomingCall(null);
+
+      // Engine connection best-effort (non-blocking)
+      const engine = getEngine();
+      const opts: CallEngineOptions = {
+        userId: user.uid,
+        userDisplayName: user.displayName || undefined,
+        serverUrl: SERVER_URL,
+        roomId: callDoc.roomId || callDoc.id,
+      };
+      engine.joinCall(opts.roomId, callDoc.callerId, opts).then(ses => {
+        if (ses) {
+          setSession(ses);
+        } else {
+          setCallError('Mikrofon bağlantısı kurulamadı. Ses iletilemeyebilir.');
+        }
+      });
     } catch (error: any) {
       console.error("Accept call error:", error);
       setCallError('Arama kabul edilemedi: ' + (error?.message || 'Bilinmeyen hata'));
