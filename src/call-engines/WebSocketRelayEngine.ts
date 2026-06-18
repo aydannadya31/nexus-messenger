@@ -8,17 +8,18 @@ export class WebSocketRelayEngine implements CallEngine {
     return typeof WebSocket !== 'undefined' && !!navigator.mediaDevices?.getUserMedia;
   }
 
-  async createCall(calleeId: string, opts: CallEngineOptions): Promise<CallSession | null> {
+  async createCall(_calleeId: string, opts: CallEngineOptions): Promise<CallSession | null> {
     if (!this.isSupported()) return null;
-    return this.connect(calleeId, opts, 'caller');
+    return this.connect(opts, 'caller');
   }
 
-  async joinCall(_callId: string, callerId: string, opts: CallEngineOptions): Promise<CallSession | null> {
+  async joinCall(_callId: string, _callerId: string, opts: CallEngineOptions): Promise<CallSession | null> {
     if (!this.isSupported()) return null;
-    return this.connect(callerId, opts, 'callee');
+    return this.connect(opts, 'callee');
   }
 
-  private async connect(peerId: string, opts: CallEngineOptions, role: 'caller' | 'callee'): Promise<CallSession | null> {
+  private async connect(opts: CallEngineOptions, role: 'caller' | 'callee'): Promise<CallSession | null> {
+    const roomId = opts.roomId || `ws_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true }).catch(() => null);
     if (!stream) return null;
 
@@ -43,7 +44,7 @@ export class WebSocketRelayEngine implements CallEngine {
       ws.onopen = () => {
         ws.send(JSON.stringify({
           type: 'join',
-          room: peerId,
+          room: roomId,
           userId: opts.userId,
           role,
         }));

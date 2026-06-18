@@ -54,7 +54,12 @@ export class AgoraEngine implements CallEngine {
     this.client = client;
 
     try {
-      await client.join(appId, channel, token, uid);
+      // 15-second timeout for joining Agora channel
+      const joinPromise = client.join(appId, channel, token, uid);
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('Agora join timeout')), 15000)
+      );
+      await Promise.race([joinPromise, timeoutPromise]);
 
       const micTrack = await AgoraRTC.createMicrophoneAudioTrack();
       this.localTrack = micTrack;
