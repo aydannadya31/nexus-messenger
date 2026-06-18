@@ -56,7 +56,9 @@ app.post('/api/agora/token', async (req, res) => {
   }
 
   try {
-    const { RtcTokenBuilder, RtcRole } = await import('agora-access-token');
+    const m = await import('agora-access-token');
+    const RtcTokenBuilder = m.RtcTokenBuilder;
+    const RtcRole = m.default.RtcRole;
     const role = RtcRole.PUBLISHER;
     const expireTime = Math.floor(Date.now() / 1000) + 3600;
     const token = RtcTokenBuilder.buildTokenWithUid(
