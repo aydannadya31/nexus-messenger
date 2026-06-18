@@ -6,6 +6,7 @@ export interface CallEngineOptions {
   userId: string;
   userDisplayName?: string;
   serverUrl: string; // our Node.js server (token gen + WS relay)
+  roomId?: string;   // shared channel/room name for both sides
 }
 
 export interface CallSession {

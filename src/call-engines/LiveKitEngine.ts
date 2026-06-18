@@ -20,7 +20,7 @@ export class LiveKitEngine implements CallEngine {
   }
 
   async createCall(_calleeId: string, opts: CallEngineOptions): Promise<CallSession | null> {
-    const roomName = `call_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const roomName = opts.roomId || `call_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     const data = await this.requestToken(roomName, opts.userId, opts.serverUrl);
     if (!data) return null;
     return this.connectRoom(data.wsUrl, data.token, opts);

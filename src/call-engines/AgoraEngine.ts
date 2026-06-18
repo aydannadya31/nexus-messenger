@@ -27,7 +27,7 @@ export class AgoraEngine implements CallEngine {
   }
 
   async createCall(_calleeId: string, opts: CallEngineOptions): Promise<CallSession | null> {
-    const channel = `call_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const channel = opts.roomId || `call_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     const uid = Math.floor(Math.random() * 100000);
     const data = await this.requestToken(channel, uid, opts.serverUrl);
     if (!data) return null;

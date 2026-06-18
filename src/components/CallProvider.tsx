@@ -112,6 +112,7 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 userId: user.uid,
                 userDisplayName: user.displayName || undefined,
                 serverUrl: SERVER_URL,
+                roomId: myActive.roomId,
               };
               getEngine().startCall(myActive.id, opts).then(s => {
                 if (s) setSession(s);
@@ -159,10 +160,12 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     try {
       const engine = getEngine();
+      const roomId = `${chatId}_${Date.now()}`;
       const opts: CallEngineOptions = {
         userId: user.uid,
         userDisplayName: user.displayName || undefined,
         serverUrl: SERVER_URL,
+        roomId,
       };
 
       // Try each engine until one succeeds
@@ -171,13 +174,9 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const engineImpl = engine.engines.find(e => e.name === engineName);
         if (!engineImpl || !engineImpl.isSupported()) continue;
 
-        const calleeId = participants.find(p => p !== user.uid) || participants[0];
-        const ses = await engineImpl.createCall(calleeId, opts);
+        const ses = await engineImpl.createCall('', opts);
         if (ses) {
           setSession(ses);
-          const roomId = engineName === 'daily'
-            ? (await fetch(`${SERVER_URL}/api/daily/room`, { method: 'POST' }).then(r => r.json())).url
-            : `call_${Date.now()}`;
 
           const callData = {
             participants: [...participants],
@@ -229,7 +228,8 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
       };
 
       // Try the engine specified in the call first, then fallback
-      const preferredOrder = callDoc.engine ? [callDoc.engine, ...(['livekit', 'daily', 'websocket'] as const).filter(e => e !== callDoc.engine)] : ['livekit', 'daily', 'websocket'] as const;
+      const fallbackEngines = ['livekit', 'daily', 'agora', 'websocket'] as const;
+      const preferredOrder = callDoc.engine ? [callDoc.engine, ...fallbackEngines.filter(e => e !== callDoc.engine)] : fallbackEngines;
 
       let joined = false;
       for (const engineName of preferredOrder) {
@@ -238,7 +238,8 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const engineImpl = engine.engines.find(e => e.name === engineName);
         if (!engineImpl || !engineImpl.isSupported()) continue;
 
-        const ses = await engineImpl.joinCall(callDoc.roomId || callDoc.id, callDoc.callerId, opts);
+        const channel = callDoc.roomId || callDoc.id;
+        const ses = await engineImpl.joinCall(channel, callDoc.callerId, opts);
         if (ses) {
           setSession(ses);
           joined = true;
