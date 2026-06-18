@@ -67,9 +67,13 @@ export class WebSocketRelayEngine implements CallEngine {
       const playQueue: Float32Array[] = [];
       let isPlaying = false;
 
-      const scheduleNext = () => {
+      const scheduleNext = async () => {
         if (isPlaying || playQueue.length === 0 || ended) return;
         isPlaying = true;
+        // Resume AudioContext in case mobile browser suspended it (autoplay policy)
+        if (audioCtx.state !== 'running') {
+          try { await audioCtx.resume(); } catch {}
+        }
         const chunk = playQueue.shift()!;
         const buf = audioCtx.createBuffer(1, chunk.length, audioCtx.sampleRate);
         buf.getChannelData(0).set(chunk);
