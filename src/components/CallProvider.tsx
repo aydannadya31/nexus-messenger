@@ -207,7 +207,10 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return;
       }
 
-      setCallError('Tüm arama motorları başarısız oldu');
+      // Error already emitted via event with detailed failure info
+      if (!callError) {
+        setCallError('Tüm arama motorları başarısız oldu. Konsola bakın: F12');
+      }
     } catch (error: any) {
       console.error("Start call error:", error);
       setCallError('Arama başlatılamadı: ' + (error?.message || 'Bilinmeyen hata'));
@@ -241,7 +244,10 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       const ses = await engine.joinCall(opts.roomId, callDoc.callerId, opts);
       if (!ses) {
-        setCallError('Tüm arama motorları başarısız oldu');
+        // Error already emitted via event with detailed failure info
+        if (!callError) {
+          setCallError('Tüm arama motorları başarısız oldu. Konsola bakın: F12');
+        }
         return;
       }
       setSession(ses);
