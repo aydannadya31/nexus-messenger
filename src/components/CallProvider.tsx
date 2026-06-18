@@ -166,7 +166,7 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
       };
 
       // Try each engine until one succeeds
-      for (const engineName of ['livekit', 'daily', 'websocket'] as const) {
+      for (const engineName of ['livekit', 'daily', 'agora', 'websocket'] as const) {
         setCurrentEngine(engineName);
         const engineImpl = engine.engines.find(e => e.name === engineName);
         if (!engineImpl || !engineImpl.isSupported()) continue;
