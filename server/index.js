@@ -42,6 +42,37 @@ app.post('/api/livekit/token', (req, res) => {
   }
 });
 
+// ─── Agora Token ───────────────────────────────────────────
+const AGORA_APP_ID = process.env.AGORA_APP_ID || '';
+const AGORA_APP_CERTIFICATE = process.env.AGORA_APP_CERTIFICATE || '';
+
+app.post('/api/agora/token', async (req, res) => {
+  const { channel, uid } = req.body;
+  if (!channel) {
+    return res.status(400).json({ error: 'channel required' });
+  }
+  if (!AGORA_APP_ID || !AGORA_APP_CERTIFICATE) {
+    return res.status(503).json({ error: 'Agora not configured' });
+  }
+
+  try {
+    const { RtcTokenBuilder, RtcRole } = await import('agora-access-token');
+    const role = RtcRole.PUBLISHER;
+    const expireTime = Math.floor(Date.now() / 1000) + 3600;
+    const token = RtcTokenBuilder.buildTokenWithUid(
+      AGORA_APP_ID,
+      AGORA_APP_CERTIFICATE,
+      channel,
+      uid || 0,
+      role,
+      expireTime,
+    );
+    res.json({ token, appId: AGORA_APP_ID });
+  } catch (err) {
+    res.status(500).json({ error: 'Agora token generation failed' });
+  }
+});
+
 // ─── Daily.co Room ─────────────────────────────────────────
 const DAILY_API_KEY = process.env.DAILY_API_KEY || '';
 

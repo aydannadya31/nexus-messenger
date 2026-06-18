@@ -1,4 +1,5 @@
 import { LiveKitEngine } from './LiveKitEngine';
+import { AgoraEngine } from './AgoraEngine';
 import { DailyEngine } from './DailyEngine';
 import { WebSocketRelayEngine } from './WebSocketRelayEngine';
 import { CallEngine, CallEngineOptions, CallSession, EngineName } from './types';
@@ -15,7 +16,7 @@ export class CallEngineManager {
   constructor() {
     this.engines = [
       new LiveKitEngine(),
-      new DailyEngine(),
+      new AgoraEngine(),
       new WebSocketRelayEngine(),
     ];
   }

@@ -79,7 +79,7 @@ export interface Call {
   mediaType: 'audio' | 'video';
   status: 'calling' | 'ongoing' | 'ended';
   createdAt: any;
-  engine?: 'livekit' | 'daily' | 'websocket';
+  engine?: 'livekit' | 'daily' | 'websocket' | 'agora';
   roomId?: string;
 }
 

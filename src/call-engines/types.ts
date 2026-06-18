@@ -1,6 +1,6 @@
 import { UserProfile } from '../types';
 
-export type EngineName = 'livekit' | 'daily' | 'websocket' | 'firestore';
+export type EngineName = 'livekit' | 'daily' | 'websocket' | 'firestore' | 'agora';
 
 export interface CallEngineOptions {
   userId: string;
