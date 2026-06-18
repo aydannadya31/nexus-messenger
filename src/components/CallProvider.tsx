@@ -38,6 +38,7 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const activeCallRef = useRef<Call | null>(null);
   const callStartTimeRef = useRef<number>(0);
   const engineRef = useRef<CallEngineManager | null>(null);
+  const pendingRejectRef = useRef(false);
 
   // Lazy init engine manager
   const getEngine = useCallback(() => {
@@ -54,7 +55,6 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   useEffect(() => {
-    activeCallRef.current = activeCall;
     if (activeCall?.status === 'ongoing' && callStartTimeRef.current === 0) {
       callStartTimeRef.current = Date.now();
     }
@@ -75,6 +75,9 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
       try {
+        // Skip processing while a reject is in flight to prevent re-trigger loops
+        if (pendingRejectRef.current) return;
+
         const calls = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Call));
         const currentActive = activeCallRef.current;
 
@@ -92,12 +95,23 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
           const updated = calls.find(c => c.id === currentActive.id);
           if (updated) {
             if (updated.status === 'ended' || (updated.type === 'private' && updated.activeParticipants?.length < 2)) {
+              // Clean up engine session when call ends
+              if (session) {
+                session.end().catch(() => {});
+                setSession(null);
+              }
+              getEngine().endCall();
               setActiveCall(null);
+              callStartTimeRef.current = 0;
             } else {
               setActiveCall(updated);
             }
           } else {
+            // Active call was removed from Firestore — clean up engine
+            getEngine().endCall();
+            setSession(null);
             setActiveCall(null);
+            callStartTimeRef.current = 0;
           }
         } else {
           const myActive = calls.find(c =>
@@ -187,7 +201,9 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
         };
 
         const docRef = await addDoc(collection(db, 'calls'), callData);
-        setActiveCall({ id: docRef.id, ...callData } as Call);
+        const newActive = { id: docRef.id, ...callData } as Call;
+        activeCallRef.current = newActive;
+        setActiveCall(newActive);
         return;
       }
 
@@ -213,6 +229,7 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const acceptCall = async () => {
     if (!incomingCall || !user) return;
     try {
+      setCallError(null);
       const callDoc = incomingCall;
       const engine = getEngine();
       const opts: CallEngineOptions = {
@@ -223,9 +240,11 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
       };
 
       const ses = await engine.joinCall(opts.roomId, callDoc.callerId, opts);
-      if (ses) {
-        setSession(ses);
+      if (!ses) {
+        setCallError('Tüm arama motorları başarısız oldu');
+        return;
       }
+      setSession(ses);
 
       // Update Firestore
       const activeParts = Array.from(new Set([...(incomingCall.activeParticipants || []), user.uid]));
@@ -234,22 +253,31 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
         activeParticipants: activeParts
       });
       await postCallMessage(incomingCall.chatId, 0, 'answered');
+      const updatedCall = { ...incomingCall, status: 'ongoing' as const, activeParticipants: activeParts };
+      activeCallRef.current = updatedCall;
+      setActiveCall(updatedCall);
       setIncomingCall(null);
-    } catch (error) {
+    } catch (error: any) {
       console.error("Accept call error:", error);
+      setCallError('Arama kabul edilemedi: ' + (error?.message || 'Bilinmeyen hata'));
     }
   };
 
   const rejectCall = async () => {
     if (!incomingCall) return;
+    pendingRejectRef.current = true;
     try {
+      // Immediately clear incoming so the listener won't re-process it
+      setIncomingCall(null);
       if (incomingCall.type === 'private') {
         await updateDoc(doc(db, 'calls', incomingCall.id), { status: 'ended' });
         await postCallMessage(incomingCall.chatId, 0, 'rejected');
       }
-      setIncomingCall(null);
     } catch (error) {
       console.error("Reject call error:", error);
+    } finally {
+      // Small delay to let Firestore listener settle before allowing re-detection
+      setTimeout(() => { pendingRejectRef.current = false; }, 1000);
     }
   };
 
@@ -270,11 +298,13 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (activeCall.type === 'private' || activeParts.length === 0) {
         updates.status = 'ended';
       }
+      activeCallRef.current = null;
       await updateDoc(doc(db, 'calls', activeCall.id), updates);
       if (updates.status === 'ended') {
         await postCallMessage(activeCall.chatId, duration, duration > 0 ? 'completed' : 'cancelled');
       }
       setActiveCall(null);
+      callStartTimeRef.current = 0;
     } catch (error) {
       console.error("Leave call error:", error);
     }
@@ -290,8 +320,10 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
       getEngine().endCall();
 
+      activeCallRef.current = null;
       const duration = callStartTimeRef.current > 0
         ? Math.floor((Date.now() - callStartTimeRef.current) / 1000) : 0;
+      callStartTimeRef.current = 0;
       await updateDoc(doc(db, 'calls', callToEnd.id), { status: 'ended' });
       if (callToEnd.status === 'ongoing' || callToEnd.status === 'calling') {
         await postCallMessage(callToEnd.chatId, duration, callToEnd.status === 'ongoing' ? 'completed' : 'cancelled');

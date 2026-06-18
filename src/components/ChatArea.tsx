@@ -188,7 +188,7 @@ const DecryptContent: React.FC<{ msg: Message; onClose: () => void }> = ({ msg, 
 
 export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
   const { user } = useAuth();
-  const { startCall, activeCall, acceptCall, callError } = useCall();
+  const { startCall, activeCall, incomingCall, acceptCall, callError } = useCall();
   const [messages, setMessages] = useState<Message[]>([]);
   const [chat, setChat] = useState<Chat | null>(null);
 
@@ -198,7 +198,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
   const [otherUser, setOtherUser] = useState<UserProfile | null>(null);
   const [participantInfo, setParticipantInfo] = useState<Record<string, UserProfile>>({});
   const [inputText, setInputText] = useState('');
-  const [activeCallForChat, setActiveCallForChat] = useState<Call | null>(null);
+
   const [reactionMenu, setReactionMenu] = useState<{ msgId: string, x: number, y: number } | null>(null);
   const [isHeaderMenuOpen, setIsHeaderMenuOpen] = useState(false);
   const [isEmojiMenuOpen, setIsEmojiMenuOpen] = useState(false);
@@ -312,18 +312,6 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
   useEffect(() => {
     if (!chatId || !user) return;
 
-    // Listen for calls for this specific chat
-    const callsQuery = query(
-      collection(db, 'calls'),
-      where('chatId', '==', chatId),
-      where('status', 'in', ['calling', 'ongoing'])
-    );
-
-    const unsubCalls = onSnapshot(callsQuery, (snapshot) => {
-      const call = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Call))[0];
-      setActiveCallForChat(call || null);
-    });
-
     // Fetch chat metadata
     const chatRef = doc(db, 'chats', chatId);
     const profileUnsubs: (() => void)[] = [];
@@ -423,7 +411,6 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
     }
 
     return () => {
-      unsubCalls();
       unsubChat();
       unsubMsgs();
       profileUnsubs.forEach(fn => fn());
@@ -1043,7 +1030,8 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
           </div>
         </div>
         <div className="flex items-center space-x-3 sm:space-x-6 text-slate-400 relative shrink-0">
-          {activeCallForChat && !activeCall && (
+          {/* KATIL: bu sohbet için gelen arama varsa (CallProvider'daki incomingCall) */}
+          {incomingCall && incomingCall.chatId === chatId && !activeCall && (
             <button 
               onClick={() => acceptCall()}
               className="flex items-center gap-2 px-4 py-2 bg-green-500 hover:bg-green-600 text-white rounded-xl text-xs font-black uppercase tracking-widest transition-all shadow-lg shadow-green-500/20 active:scale-95 animate-pulse"
@@ -1053,10 +1041,10 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
             </button>
           )}
           
-          {!activeCallForChat && (
+          {/* Telefon: hiçbir aktif/gelen arama yoksa */}
+          {!activeCall && !(incomingCall && incomingCall.chatId === chatId) && (
             <button 
               onClick={() => {
-                if (callError) return;
                 chat && startCall(chat.id, chat.participants, chat.type, 'audio');
               }}
               className="hover:text-blue-600 transition-colors"
@@ -1066,7 +1054,8 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
             </button>
           )}
 
-          {activeCallForChat && activeCall?.id === activeCallForChat.id && (
+          {/* GÖRÜŞMEDESİN: bu sohbet için aktif arama varsa */}
+          {activeCall && activeCall.chatId === chatId && (
             <div className="flex items-center gap-2 px-3 py-1.5 bg-blue-50 text-blue-600 rounded-xl text-[10px] font-black uppercase tracking-widest">
               <div className="w-2 h-2 bg-blue-600 rounded-full animate-ping" />
               GÖRÜŞMEDESİN
