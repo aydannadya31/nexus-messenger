@@ -94,7 +94,7 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (currentActive) {
           const updated = calls.find(c => c.id === currentActive.id);
           if (updated) {
-            if (updated.status === 'ended' || (updated.type === 'private' && updated.activeParticipants?.length < 2)) {
+            if (updated.status === 'ended' || (updated.type === 'private' && updated.status === 'ongoing' && updated.activeParticipants?.length < 2)) {
               // Clean up engine session when call ends
               if (session) {
                 session.end().catch(() => {});

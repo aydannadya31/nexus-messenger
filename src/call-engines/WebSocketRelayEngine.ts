@@ -92,7 +92,10 @@ export class WebSocketRelayEngine implements CallEngine {
           const processor = audioCtx.createScriptProcessor(4096, 1, 1);
           processor.onaudioprocess = (e) => {
             if (ended || ws.readyState !== WebSocket.OPEN) return;
-            ws.send(e.inputBuffer.getChannelData(0).buffer);
+            const pcm = e.inputBuffer.getChannelData(0);
+            // Copy to avoid sending shared AudioBuffer memory
+            const copy = new Float32Array(pcm);
+            ws.send(copy.buffer);
           };
           micSource.connect(processor);
           processor.connect(audioCtx.destination);
