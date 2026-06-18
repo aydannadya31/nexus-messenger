@@ -9,21 +9,37 @@ export class WebSocketRelayEngine implements CallEngine {
   }
 
   async createCall(_calleeId: string, opts: CallEngineOptions): Promise<CallSession | null> {
-    if (!this.isSupported()) return null;
+    if (!this.isSupported()) {
+      console.warn('[WSRelay] not supported (no WebSocket or getUserMedia)');
+      return null;
+    }
     return this.connect(opts, 'caller');
   }
 
   async joinCall(_callId: string, _callerId: string, opts: CallEngineOptions): Promise<CallSession | null> {
-    if (!this.isSupported()) return null;
+    if (!this.isSupported()) {
+      console.warn('[WSRelay] not supported (no WebSocket or getUserMedia)');
+      return null;
+    }
     return this.connect(opts, 'callee');
   }
 
   private async connect(opts: CallEngineOptions, role: 'caller' | 'callee'): Promise<CallSession | null> {
     const roomId = opts.roomId || `ws_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true }).catch(() => null);
-    if (!stream) return null;
+    console.log(`[WSRelay] connecting as ${role} to room ${roomId}...`);
+
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true }).catch((e) => {
+      console.warn('[WSRelay] getUserMedia failed:', e?.message || e);
+      return null;
+    });
+    if (!stream) {
+      console.warn('[WSRelay] no audio stream available (mic permission denied or device busy)');
+      return null;
+    }
+    console.log('[WSRelay] getUserMedia OK, audio track obtained');
 
     const wsUrl = opts.serverUrl.replace(/^http/, 'ws') + '/ws';
+    console.log(`[WSRelay] connecting WebSocket to ${wsUrl}...`);
 
     return new Promise((resolve) => {
       let ws: WebSocket;
@@ -32,7 +48,8 @@ export class WebSocketRelayEngine implements CallEngine {
 
       try {
         ws = new WebSocket(wsUrl);
-      } catch {
+      } catch (e) {
+        console.warn('[WSRelay] WebSocket constructor threw:', e);
         stream.getTracks().forEach(t => t.stop());
         resolve(null);
         return;
@@ -42,6 +59,7 @@ export class WebSocketRelayEngine implements CallEngine {
       let remoteStream: MediaStream | undefined;
 
       ws.onopen = () => {
+        console.log('[WSRelay] WebSocket open, sending join...');
         ws.send(JSON.stringify({
           type: 'join',
           room: roomId,
@@ -55,9 +73,9 @@ export class WebSocketRelayEngine implements CallEngine {
           try {
             const msg = JSON.parse(ev.data);
             if (msg.type === 'room_joined' && !resolved) {
+              console.log('[WSRelay] room_joined received, starting audio relay');
               resolved = true;
 
-              // Start sending audio
               const recorder = new MediaRecorder(stream, {
                 mimeType: MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
                   ? 'audio/webm;codecs=opus' : 'audio/webm',
@@ -90,7 +108,6 @@ export class WebSocketRelayEngine implements CallEngine {
             }
           } catch { /* ignore parse errors */ }
         } else if (ev.data instanceof ArrayBuffer || ev.data instanceof Blob) {
-          // Incoming audio chunk - play it
           const playChunk = async (buf: ArrayBuffer) => {
             try {
               const audioBuf = await audioCtx.decodeAudioData(buf);
@@ -109,7 +126,8 @@ export class WebSocketRelayEngine implements CallEngine {
         }
       };
 
-      ws.onerror = () => {
+      ws.onerror = (e) => {
+        console.warn('[WSRelay] WebSocket error event:', e);
         if (!resolved) {
           resolved = true;
           stream.getTracks().forEach(t => t.stop());
@@ -117,7 +135,8 @@ export class WebSocketRelayEngine implements CallEngine {
         }
       };
 
-      ws.onclose = () => {
+      ws.onclose = (e) => {
+        console.warn(`[WSRelay] WebSocket closed (code=${e.code}, reason=${e.reason})`);
         if (!resolved) {
           resolved = true;
           stream.getTracks().forEach(t => t.stop());
@@ -125,9 +144,9 @@ export class WebSocketRelayEngine implements CallEngine {
         }
       };
 
-      // Timeout
       setTimeout(() => {
         if (!resolved) {
+          console.warn('[WSRelay] timeout waiting for room_joined (10s)');
           resolved = true;
           stream.getTracks().forEach(t => t.stop());
           ws.close();

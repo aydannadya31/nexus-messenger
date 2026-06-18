@@ -117,9 +117,13 @@ export class AgoraEngine implements CallEngine {
       client.remoteUsers.forEach(u => {
         if (u.audioTrack) u.audioTrack.stop();
       });
-      await client.leave().catch(() => {});
+      if (this.localTrack) {
+        this.localTrack.stop();
+        this.localTrack.close();
+      }
       this.client = null;
       this.localTrack = null;
+      await client.leave().catch(() => {});
       return null;
     }
   }

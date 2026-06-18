@@ -71,6 +71,8 @@ export class LiveKitEngine implements CallEngine {
       };
     } catch (err) {
       console.warn('LiveKit connect failed:', err);
+      // Stop any media tracks that may have been started
+      if (stream) stream.getTracks().forEach(t => t.stop());
       room.disconnect();
       return null;
     }

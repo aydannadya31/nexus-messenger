@@ -41,8 +41,34 @@ export class CallEngineManager {
     return this.currentSession;
   }
 
+  /** Stop all media tracks from any failed engine attempts to free the mic. */
+  private releaseMediaTracks() {
+    // Request and immediately release to flush any stale tracks
+    navigator.mediaDevices?.getUserMedia({ audio: true })
+      .then(stream => stream.getTracks().forEach(t => t.stop()))
+      .catch(() => { /* no mic available, nothing to release */ });
+  }
+
+  private async diagnoseMic() {
+    try {
+      const perm = await navigator.permissions.query({ name: 'microphone' as PermissionName });
+      console.log(`[CallEngine] Mic permission status: ${perm.state}`);
+    } catch {
+      // Permissions API not supported — try getUserMedia probe instead
+      try {
+        const probe = await navigator.mediaDevices.getUserMedia({ audio: true });
+        console.log('[CallEngine] Mic probe: OK');
+        probe.getTracks().forEach(t => t.stop());
+      } catch (err: any) {
+        console.warn('[CallEngine] Mic probe FAILED:', err?.message || err);
+      }
+    }
+  }
+
   async startCall(calleeId: string, opts: CallEngineOptions): Promise<CallSession | null> {
     const failures: { engine: string; label: string; reason: string }[] = [];
+
+    this.diagnoseMic();
 
     for (const engine of this.engines) {
       if (!engine.isSupported()) {
@@ -73,6 +99,7 @@ export class CallEngineManager {
         failures.push({ engine: engine.name, label: engine.label, reason });
         this.emit('engine_failed', { engine: engine.name, reason });
       }
+      this.releaseMediaTracks();
     }
 
     const detailMsg = failures.map(f => `${f.label}: ${f.reason}`).join(' | ');
@@ -83,6 +110,8 @@ export class CallEngineManager {
 
   async joinCall(callId: string, callerId: string, opts: CallEngineOptions): Promise<CallSession | null> {
     const failures: { engine: string; label: string; reason: string }[] = [];
+
+    this.diagnoseMic();
 
     for (const engine of this.engines) {
       if (!engine.isSupported()) {
@@ -113,6 +142,7 @@ export class CallEngineManager {
         failures.push({ engine: engine.name, label: engine.label, reason });
         this.emit('engine_failed', { engine: engine.name, reason });
       }
+      this.releaseMediaTracks();
     }
 
     const detailMsg = failures.map(f => `${f.label}: ${f.reason}`).join(' | ');
