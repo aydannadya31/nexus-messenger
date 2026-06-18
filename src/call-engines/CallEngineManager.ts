@@ -102,10 +102,23 @@ export class CallEngineManager {
       this.releaseMediaTracks();
     }
 
+    this.emit('error', this.buildErrorMessage(failures));
+    return null;
+  }
+
+  private buildErrorMessage(failures: { label: string; reason: string }[]): string {
     const detailMsg = failures.map(f => `${f.label}: ${f.reason}`).join(' | ');
     console.error(`[CallEngine] All engines failed: ${detailMsg}`);
-    this.emit('error', `Tüm arama motorları başarısız oldu — ${detailMsg}`);
-    return null;
+
+    const micFail = failures.find(f =>
+      f.reason.toLowerCase().includes('device not found') ||
+      f.reason.includes('Requested device not found') ||
+      f.reason.includes('NotFoundError')
+    );
+    if (micFail) {
+      return 'Mikrofon bulunamadı — PC\'nizde mikrofon bağlı mı? Tarayıcı ayarlarından mikrofon izni verin.';
+    }
+    return `Tüm arama motorları başarısız oldu — ${detailMsg}`;
   }
 
   async joinCall(callId: string, callerId: string, opts: CallEngineOptions): Promise<CallSession | null> {
@@ -145,9 +158,7 @@ export class CallEngineManager {
       this.releaseMediaTracks();
     }
 
-    const detailMsg = failures.map(f => `${f.label}: ${f.reason}`).join(' | ');
-    console.error(`[CallEngine] All engines failed: ${detailMsg}`);
-    this.emit('error', `Tüm arama motorları başarısız oldu — ${detailMsg}`);
+    this.emit('error', this.buildErrorMessage(failures));
     return null;
   }
 

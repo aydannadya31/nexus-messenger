@@ -36,11 +36,12 @@ export class LiveKitEngine implements CallEngine {
     if (!this.isSupported()) return null;
 
     const room = new Room({ adaptiveStream: true, dynacast: true });
+    let stream: MediaStream | undefined;
 
     try {
       await room.connect(wsUrl, token);
 
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       await room.localParticipant.publishTrack(stream.getAudioTracks()[0], {
         source: Track.Source.Microphone,
       });
