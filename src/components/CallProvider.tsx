@@ -168,33 +168,27 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
         roomId,
       };
 
-      // Try each engine until one succeeds
-      for (const engineName of ['livekit', 'daily', 'agora', 'websocket'] as const) {
-        setCurrentEngine(engineName);
-        const engineImpl = engine.engines.find(e => e.name === engineName);
-        if (!engineImpl || !engineImpl.isSupported()) continue;
+      const ses = await engine.startCall('', opts);
+      if (ses) {
+        setSession(ses);
+        const engineName = engine.currentEngine || 'websocket';
 
-        const ses = await engineImpl.createCall('', opts);
-        if (ses) {
-          setSession(ses);
+        const callData = {
+          participants: [...participants],
+          activeParticipants: [user.uid],
+          chatId,
+          callerId: user.uid,
+          type,
+          mediaType,
+          status: type === 'group' ? 'ongoing' : 'calling',
+          createdAt: serverTimestamp(),
+          engine: engineName,
+          roomId,
+        };
 
-          const callData = {
-            participants: [...participants],
-            activeParticipants: [user.uid],
-            chatId,
-            callerId: user.uid,
-            type,
-            mediaType,
-            status: type === 'group' ? 'ongoing' : 'calling',
-            createdAt: serverTimestamp(),
-            engine: engineName,
-            roomId,
-          };
-
-          const docRef = await addDoc(collection(db, 'calls'), callData);
-          setActiveCall({ id: docRef.id, ...callData } as Call);
-          return;
-        }
+        const docRef = await addDoc(collection(db, 'calls'), callData);
+        setActiveCall({ id: docRef.id, ...callData } as Call);
+        return;
       }
 
       setCallError('Tüm arama motorları başarısız oldu');
@@ -225,25 +219,12 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
         userId: user.uid,
         userDisplayName: user.displayName || undefined,
         serverUrl: SERVER_URL,
+        roomId: callDoc.roomId || callDoc.id,
       };
 
-      // Try the engine specified in the call first, then fallback
-      const fallbackEngines = ['livekit', 'daily', 'agora', 'websocket'] as const;
-      const preferredOrder = callDoc.engine ? [callDoc.engine, ...fallbackEngines.filter(e => e !== callDoc.engine)] : fallbackEngines;
-
-      let joined = false;
-      for (const engineName of preferredOrder) {
-        if (joined) break;
-        setCurrentEngine(engineName);
-        const engineImpl = engine.engines.find(e => e.name === engineName);
-        if (!engineImpl || !engineImpl.isSupported()) continue;
-
-        const channel = callDoc.roomId || callDoc.id;
-        const ses = await engineImpl.joinCall(channel, callDoc.callerId, opts);
-        if (ses) {
-          setSession(ses);
-          joined = true;
-        }
+      const ses = await engine.joinCall(opts.roomId, callDoc.callerId, opts);
+      if (ses) {
+        setSession(ses);
       }
 
       // Update Firestore
