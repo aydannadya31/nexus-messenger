@@ -5,7 +5,7 @@ import { useAuth } from './AuthProvider';
 import { useCall } from './CallProvider';
 import { Chat, Message, UserProfile, Call } from '../types';
 import { cn } from '../lib/utils';
-import { Image, MoreVertical, Send, Smile, Phone, Video, MessageSquarePlus, Clock, Play, Mic, Square, Pause, Trash2 } from 'lucide-react';
+import { Image, MoreVertical, Send, Smile, Phone, Video, MessageSquarePlus, Clock, Play, Mic, Square, Pause, Trash2, ListChecks, X } from 'lucide-react';
 import { format } from 'date-fns';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -26,6 +26,11 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
   const [isHeaderMenuOpen, setIsHeaderMenuOpen] = useState(false);
   const [isEmojiMenuOpen, setIsEmojiMenuOpen] = useState(false);
   const [showDeletedMessages, setShowDeletedMessages] = useState(false);
+  const [batchMode, setBatchMode] = useState(false);
+  const [selectedMsgs, setSelectedMsgs] = useState<Set<string>>(new Set());
+  const [showChatSearch, setShowChatSearch] = useState(false);
+  const [chatSearchQuery, setChatSearchQuery] = useState('');
+  const [mutedUsers, setMutedUsers] = useState<Record<string, boolean>>({});
   const [customDialog, setCustomDialog] = useState<{
     isOpen: boolean;
     title: string;
@@ -86,6 +91,22 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
   const onContextMenu = (e: React.MouseEvent, msgId: string) => {
     e.preventDefault();
     setReactionMenu({ msgId, x: e.clientX, y: e.clientY });
+  };
+
+  const amIHolding = chat?.heldBy === user?.uid;
+  const isBeingHeld = !!chat?.heldBy && !amIHolding;
+
+  const handleHoldToggle = async () => {
+    if (!chatId || !user || !chat) return;
+    try {
+      if (amIHolding) {
+        await updateDoc(doc(db, 'chats', chatId), { heldBy: null, holdExpiresAt: null });
+      } else {
+        await updateDoc(doc(db, 'chats', chatId), { heldBy: user.uid, holdExpiresAt: new Date(Date.now() + 24*60*60*1000) });
+      }
+    } catch (err) {
+      console.error("Hold toggle error:", err);
+    }
   };
 
   useEffect(() => {
@@ -598,6 +619,37 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
             </div>
           )}
           
+          {/* Ara */}
+          <button 
+            onClick={() => setShowChatSearch(!showChatSearch)}
+            className={cn("hover:text-blue-600 transition-colors", showChatSearch && "text-blue-600")}
+            title="Sohbet İçi Ara"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+          </button>
+
+          {/* Toplu Seç */}
+          <button 
+            onClick={() => { setBatchMode(!batchMode); setSelectedMsgs(new Set()); }}
+            className={cn("hover:text-slate-900 transition-colors p-1 rounded-full hover:bg-slate-100", batchMode && "text-blue-600")}
+            title="Toplu Mesaj Seç"
+          >
+            <ListChecks size={20} />
+          </button>
+
+          {/* Beklemeye Al */}
+          {(chat?.type === 'private' || chat?.groupMetadata?.adminId === user?.uid) && (
+            <button 
+              onClick={handleHoldToggle}
+              className={cn("transition-colors relative", amIHolding ? "text-amber-500" : "hover:text-amber-500")}
+              title={amIHolding ? 'Beklemeden Çıkar' : 'Beklemeye Al'}
+            >
+              {amIHolding ? <Play size={20} /> : <Pause size={20} />}
+            </button>
+          )}
+
+          {/* User Info - already inside MoreVertical dropdown */}
+
           <div className="relative">
             <button 
               onClick={() => setIsHeaderMenuOpen(!isHeaderMenuOpen)}
@@ -653,6 +705,36 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
         </div>
       </header>
 
+      {/* Search Bar */}
+      {showChatSearch && (
+        <div className="p-3 bg-white border-b border-slate-200 shrink-0 z-10">
+          <div className="relative">
+            <input type="text" value={chatSearchQuery} onChange={e => setChatSearchQuery(e.target.value)}
+              placeholder="Mesajlarda ara..."
+              className="w-full bg-slate-100 border-none rounded-xl py-2.5 pl-10 pr-4 text-sm outline-none"
+              autoFocus
+            />
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+            {chatSearchQuery && (
+              <button onClick={() => setChatSearchQuery('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-red-500">
+                <X size={16} />
+              </button>
+            )}
+          </div>
+          <div className="mt-1 text-[9px] text-slate-400 font-bold">
+            {messages.filter(m => m.text?.toLowerCase().includes(chatSearchQuery.toLowerCase())).length} sonuç
+          </div>
+        </div>
+      )}
+
+      {/* Hold Banner */}
+      {isBeingHeld && (
+        <div className="px-4 py-2 bg-amber-50 border-b border-amber-200 flex items-center gap-2 shrink-0">
+          <Pause size={14} className="text-amber-600" />
+          <span className="text-[10px] font-bold text-amber-700">Bu sohbet beklemeye alındı. Mesaj gönderemezsiniz.</span>
+        </div>
+      )}
+
       {/* Messages */}
       <div 
         ref={scrollRef}
@@ -665,22 +747,35 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
         <AnimatePresence>
           {messages
             .filter(msg => !msg.isDeleted || (showDeletedMessages && msg.senderId === user?.uid))
+            .filter(msg => !chatSearchQuery || msg.text?.toLowerCase().includes(chatSearchQuery.toLowerCase()))
             .map((msg, idx) => {
               const isMe = msg.senderId === user?.uid;
               const sender = participantInfo[msg.senderId];
               const isDeleted = msg.isDeleted === true;
 
               return (
-                <motion.div 
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  key={msg.id || idx}
-                  className={cn(
-                    "flex items-end space-x-3 max-w-[80%] sm:max-w-[70%]",
-                    isMe ? "self-end flex-row-reverse space-x-reverse" : "self-start"
-                  )}
-                >
-                  {!isMe && (
+              <motion.div 
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                key={msg.id || idx}
+                className={cn(
+                  "flex items-end space-x-3 max-w-[80%] sm:max-w-[70%] group",
+                  isMe ? "self-end flex-row-reverse space-x-reverse" : "self-start"
+                )}
+              >
+                {batchMode && msg.id && (
+                  <input type="checkbox"
+                    checked={selectedMsgs.has(msg.id)}
+                    onChange={() => {
+                      const next = new Set(selectedMsgs);
+                      if (next.has(msg.id!)) next.delete(msg.id!);
+                      else next.add(msg.id!);
+                      setSelectedMsgs(next);
+                    }}
+                    className="w-4 h-4 accent-blue-600 cursor-pointer"
+                  />
+                )}
+                {!isMe && (
                     <div className="w-8 h-8 rounded-full bg-slate-200 shrink-0 border border-white shadow-sm overflow-hidden">
                       <img src={sender?.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${msg.senderId}`} alt="" className="w-full h-full object-cover" />
                     </div>
@@ -836,6 +931,44 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
         </AnimatePresence>
       </div>
 
+      {/* Batch Action Bar */}
+      {batchMode && (
+        <div className="p-3 bg-white border-t border-b border-slate-200 flex items-center justify-between shrink-0 z-10">
+          <span className="text-xs font-bold text-slate-500">{selectedMsgs.size} mesaj seçildi</span>
+          <div className="flex gap-2">
+            <button onClick={() => { setBatchMode(false); setSelectedMsgs(new Set()); }}
+              className="px-4 py-2 bg-slate-100 text-slate-600 rounded-xl text-[10px] font-black uppercase tracking-wider">
+              İptal
+            </button>
+            <button onClick={() => {
+                if (selectedMsgs.size === 0) return;
+                showCustomConfirm('Mesajları Sil', `${selectedMsgs.size} mesajı silmek istediğinize emin misiniz?`, async () => {
+                  if (!chat) return;
+                  for (const msgId of selectedMsgs) {
+                    try {
+                      await updateDoc(doc(db, 'chats', chatId, 'messages', msgId), { isDeleted: true });
+                    } catch(err) { console.error(err); }
+                  }
+                  setBatchMode(false);
+                  setSelectedMsgs(new Set());
+                });
+              }}
+              disabled={selectedMsgs.size === 0}
+              className="px-4 py-2 bg-red-500 text-white rounded-xl text-[10px] font-black uppercase tracking-wider disabled:opacity-40">
+              Seçilenleri Sil
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Hold Banner (bottom) */}
+      {isBeingHeld && (
+        <div className="p-3 bg-amber-50 border-t border-amber-200 flex items-center gap-2 shrink-0">
+          <Pause size={14} className="text-amber-600" />
+          <span className="text-[10px] font-bold text-amber-700">Bu sohbet beklemeye alındı. Mesaj gönderemezsiniz.</span>
+        </div>
+      )}
+
       {/* Input Area */}
       <footer className="p-6 bg-white border-t border-slate-200 shrink-0 z-10">
         <div className="max-w-4xl mx-auto flex items-center bg-slate-100 rounded-2xl p-2 focus-within:ring-2 focus-within:ring-blue-500 transition-all relative">
@@ -926,7 +1059,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
               type="text" 
               value={inputText}
               onChange={(e) => setInputText(e.target.value)}
-              placeholder="Mesaj yaz..."
+              placeholder={isBeingHeld ? "Sohbet beklemeye alındı..." : "Mesaj yaz..."}
               className="flex-1 bg-transparent border-none focus:ring-0 text-sm py-2 px-4 text-slate-900 placeholder:text-slate-400"
             />
             <button 
