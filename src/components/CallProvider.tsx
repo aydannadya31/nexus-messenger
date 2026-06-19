@@ -77,7 +77,7 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
         callerId: user.uid,
         type,
         mediaType,
-        status: participants.length > 1 ? 'ongoing' : 'calling',
+        status: type === 'group' ? 'ongoing' : 'calling',
         createdAt: serverTimestamp(),
       };
       

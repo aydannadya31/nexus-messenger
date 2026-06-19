@@ -903,10 +903,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
                           : "bg-white text-slate-800 border-slate-100 rounded-bl-none"
                       )}
                     >
-                      {isMe && msg.encrypted && (
-                        <span className="absolute -top-1.5 -left-1.5 text-[10px] opacity-60" title="Şifreli">🔒</span>
-                      )}
-
+                      
                       {msg.type === 'text' && (
                         msg.encrypted && !isMe ? (
                           <button onClick={() => setDecryptModal(msg)}
@@ -975,6 +972,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
                         "flex items-center justify-end mt-1.5 space-x-1",
                         isMe ? "text-blue-100" : "text-slate-400"
                       )}>
+                        {msg.encrypted && <span className="text-[10px]" title="Şifreli">🔒</span>}
                         <span className="text-[10px] font-medium">
                           {msg.timestamp ? format(msg.timestamp.toDate(), 'HH:mm') : ''}
                         </span>
