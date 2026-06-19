@@ -305,28 +305,24 @@ export const CallOverlay = () => {
             <div className={cn("flex-1 p-4 grid gap-4 transition-all duration-500", gridCols, gridRows)}>
               {/* Local Participant */}
               <div className="relative bg-slate-900 rounded-[2rem] overflow-hidden shadow-inner group">
-                {activeCall.mediaType === 'video' && !isVideoOff ? (
-                  <video 
-                    ref={localVideoRef} 
-                    autoPlay 
-                    playsInline 
-                    muted 
-                    className="w-full h-full object-cover mirror"
-                  />
-                ) : (
-                  <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-900 gap-3">
-                    <div className="w-16 h-16 rounded-full bg-slate-800 flex items-center justify-center text-slate-500">
-                      {!isVideoOff ? <Phone size={32} /> : <VideoOff size={32} />}
-                    </div>
-                    {activeCall.mediaType === 'audio' && (
-                      <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Sesli Arama</p>
-                    )}
-                  </div>
-                )}
+                <video 
+                  ref={localVideoRef} 
+                  autoPlay 
+                  playsInline 
+                  muted 
+                  className={cn("w-full h-full object-cover", !isVideoOff && "mirror")}
+                />
                 <div className="absolute bottom-4 left-4 flex items-center gap-2 bg-black/40 backdrop-blur-md px-3 py-1.5 rounded-xl border border-white/10">
                   <span className="text-[10px] font-black text-white uppercase tracking-widest">Sen (Ben)</span>
                   {isMuted && <MicOff size={10} className="text-red-400" />}
                 </div>
+                {(isVideoOff || activeCall.mediaType === 'audio') && (
+                  <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-900 gap-3">
+                    <div className="w-16 h-16 rounded-full bg-slate-800 flex items-center justify-center text-slate-500">
+                      {activeCall.mediaType === 'audio' ? <Phone size={32} /> : <VideoOff size={32} />}
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Remote Participants */}
@@ -395,17 +391,15 @@ export const CallOverlay = () => {
                     {isMuted ? <MicOff size={24} /> : <Mic size={24} />}
                   </button>
 
-                  {activeCall.mediaType === 'video' && (
-                    <button 
-                      onClick={toggleVideo}
-                      className={cn(
-                        "w-12 h-12 sm:w-14 sm:h-14 rounded-3xl flex items-center justify-center transition-all shadow-lg active:scale-95",
-                        isVideoOff ? "bg-red-500 text-white" : "bg-slate-800 text-slate-300 hover:bg-slate-700"
-                      )}
-                    >
-                      {isVideoOff ? <VideoOff size={24} /> : <Video size={24} />}
-                    </button>
-                  )}
+                  <button 
+                    onClick={toggleVideo}
+                    className={cn(
+                      "w-12 h-12 sm:w-14 sm:h-14 rounded-3xl flex items-center justify-center transition-all shadow-lg active:scale-95",
+                      isVideoOff ? "bg-red-500 text-white" : "bg-slate-800 text-slate-300 hover:bg-slate-700"
+                    )}
+                  >
+                    {isVideoOff ? <VideoOff size={24} /> : <Video size={24} />}
+                  </button>
 
                   {activeCall.type === 'group' && (
                     <button 
