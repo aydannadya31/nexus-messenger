@@ -6,9 +6,70 @@ import { useCall } from './CallProvider';
 import { Chat, Message, UserProfile, Call } from '../types';
 import { cn } from '../lib/utils';
 import ProfileModal from './ProfileModal';
-import { Image, MoreVertical, Send, Smile, Phone, Video, MessageSquarePlus, Clock, Play, Mic, Square, Pause, Trash2, ListChecks, X, Info, Eye, EyeOff } from 'lucide-react';
+import { Image, MoreVertical, Send, Smile, Phone, Video, MessageSquarePlus, Clock, Play, Mic, Square, Pause, Trash2, ListChecks, X, Info, Eye, EyeOff, Lock } from 'lucide-react';
 import { format } from 'date-fns';
 import { motion, AnimatePresence } from 'motion/react';
+import { encryptMessage, decryptMessage } from '../lib/crypto';
+
+const DecryptContent: React.FC<{ msg: Message; onClose: () => void }> = ({ msg, onClose }) => {
+  const [pwd, setPwd] = useState('');
+  const [decrypted, setDecrypted] = useState<{ text?: string; imageUrl?: string; videoUrl?: string; audioUrl?: string } | null>(null);
+  const [error, setError] = useState('');
+
+  const handleSubmit = () => {
+    if (!msg.imagePassword) return;
+    if (btoa(pwd) === msg.imagePassword) {
+      setDecrypted({ text: msg.text, imageUrl: msg.imageUrl, videoUrl: msg.videoUrl, audioUrl: msg.audioUrl });
+      setError('');
+    } else {
+      setError('Hatalı şifre!');
+    }
+  };
+
+  if (decrypted) {
+    return (
+      <div className="space-y-4">
+        {decrypted.text && (
+          <p className="text-sm font-bold leading-relaxed text-slate-800">{decrypted.text}</p>
+        )}
+        {decrypted.imageUrl && (
+          <img src={decrypted.imageUrl} alt="" className="max-w-full h-auto rounded-xl" />
+        )}
+        {decrypted.videoUrl && (
+          <video src={decrypted.videoUrl} className="max-w-full h-auto rounded-xl" controls playsInline />
+        )}
+        {decrypted.audioUrl && (
+          <audio src={decrypted.audioUrl} controls className="w-full" />
+        )}
+        <button onClick={onClose}
+          className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition-all">
+          Kapat
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <p className="text-xs text-slate-500 font-bold text-center">Bu mesajı görüntülemek için şifreyi girin</p>
+      <input type="text" value={pwd} onChange={e => setPwd(e.target.value)} autoFocus
+        placeholder="Şifre..."
+        onKeyDown={e => e.key === 'Enter' && handleSubmit()}
+        className="w-full bg-slate-100 border-2 border-slate-200 rounded-2xl px-4 py-3 text-sm font-bold text-center outline-none focus:border-blue-500 transition-all" />
+      {error && <p className="text-xs font-bold text-red-500 text-center">{error}</p>}
+      <div className="flex gap-2">
+        <button onClick={onClose}
+          className="flex-1 py-2.5 rounded-xl text-xs font-bold text-slate-500 hover:bg-slate-50 border border-slate-200 transition-all">
+          İptal
+        </button>
+        <button onClick={handleSubmit}
+          className="flex-1 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition-all shadow-lg shadow-blue-600/10">
+          Çöz
+        </button>
+      </div>
+    </div>
+  );
+};
 
 interface ChatAreaProps {
   chatId: string;
@@ -40,6 +101,8 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
     type: 'alert' | 'confirm';
     onConfirm?: () => void;
   } | null>(null);
+  const [encryptMode, setEncryptMode] = useState(false);
+  const [decryptModal, setDecryptModal] = useState<Message | null>(null);
 
   const showCustomAlert = (title: string, message: string) => {
     setCustomDialog({
@@ -456,7 +519,13 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
     const text = inputText;
     setInputText('');
 
-    const messageData = {
+    let pwd = '';
+    if (encryptMode) {
+      pwd = prompt('Şifreli mesaj şifresini girin:') || '';
+      if (!pwd) { setEncryptMode(false); return; }
+    }
+
+    const messageData: any = {
       text,
       senderId: user.uid,
       timestamp: serverTimestamp(),
@@ -464,13 +533,18 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
       status: 'sent'
     };
 
+    if (encryptMode && pwd) {
+      messageData.encrypted = true;
+      messageData.imagePassword = btoa(pwd);
+    }
+
     try {
       await addDoc(collection(db, 'chats', chatId, 'messages'), messageData);
       
       // Update chat last message
       await updateDoc(doc(db, 'chats', chatId), {
         lastMessage: {
-          text,
+          text: encryptMode && pwd ? '🔒 Şifreli Mesaj' : text,
           senderId: user.uid,
           senderName: user.displayName,
           timestamp: serverTimestamp()
@@ -480,6 +554,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
     } catch (error) {
       console.error("Error sending message:", error);
     }
+    setEncryptMode(false);
   };
 
   const getChatHeaderInfo = () => {
@@ -549,28 +624,29 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
       </div>
 
       {/* Chat Header */}
-      <header className="h-20 bg-white border-b border-slate-200 flex items-center justify-between px-8 shrink-0 relative z-10">
+      <header className="bg-white border-b border-slate-200 px-8 py-3 shrink-0 relative z-10">
+        {/* Row 1: Avatar + Name */}
         <div className="flex items-center">
-          <div className="w-10 h-10 bg-gradient-to-br from-blue-400 to-indigo-500 rounded-full mr-4 shadow-sm overflow-hidden border-2 border-white">
+          <div className="w-10 h-10 bg-gradient-to-br from-blue-400 to-indigo-500 rounded-full mr-4 shadow-sm overflow-hidden border-2 border-white shrink-0">
             <img 
               src={headerInfo.photoURL} 
               alt={headerInfo.name} 
               className="w-full h-full object-cover"
             />
           </div>
-          <div className="flex flex-col">
+          <div className="flex flex-col min-w-0">
             <div className="flex items-center gap-2">
-              <h3 className="text-base font-bold text-slate-900 leading-none">{headerInfo.name}</h3>
+              <h3 className="text-base font-bold text-slate-900 leading-none truncate">{headerInfo.name}</h3>
               {headerInfo.status && (
                 <span className={cn(
-                  "text-[9px] font-black uppercase px-2 py-0.5 rounded-full shadow-sm",
+                  "text-[9px] font-black uppercase px-2 py-0.5 rounded-full shadow-sm shrink-0",
                   headerInfo.status === 'online' ? "bg-green-500 text-white" : 
                   headerInfo.status === 'away' ? "bg-amber-500 text-white" : "bg-red-500 text-white"
                 )}>
                   {headerInfo.status === 'online' ? 'Çevrimiçi' : headerInfo.status === 'away' ? 'Uzakta' : 'Meşgul'}
                 </span>
               )}
-              {headerInfo.uin && <span className="text-[10px] font-black text-blue-500 bg-blue-50 px-1.5 py-0.5 rounded tracking-tighter">#{headerInfo.uin}</span>}
+              {headerInfo.uin && <span className="text-[10px] font-black text-blue-500 bg-blue-50 px-1.5 py-0.5 rounded tracking-tighter shrink-0">#{headerInfo.uin}</span>}
             </div>
             <span className={cn(
               "text-[11px] font-bold uppercase tracking-wider flex items-center gap-1 mt-1",
@@ -584,14 +660,16 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
             </span>
           </div>
         </div>
-        <div className="flex items-center space-x-6 text-slate-400 relative">
+
+        {/* Row 2: Action Buttons */}
+        <div className="flex items-center gap-2 sm:gap-4 text-slate-400 relative mt-2 pl-14">
           {activeCallForChat && !activeCall && (
             <button 
               onClick={() => acceptCall()}
               className="flex items-center gap-2 px-4 py-2 bg-green-500 hover:bg-green-600 text-white rounded-xl text-xs font-black uppercase tracking-widest transition-all shadow-lg shadow-green-500/20 active:scale-95 animate-pulse"
             >
               <Video size={16} />
-              KATIL
+              <span className="hidden sm:inline">KATIL</span>
             </button>
           )}
           
@@ -599,17 +677,17 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
             <>
               <button 
                 onClick={() => chat && startCall(chat.id, chat.participants, chat.type, 'audio')}
-                className="w-9 h-9 flex items-center justify-center rounded-full hover:bg-blue-50 hover:text-blue-600 transition-all active:scale-90"
+                className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-blue-50 hover:text-blue-600 transition-all active:scale-90"
                 title="Sesli Arama Başlat"
               >
-                <Phone size={18} />
+                <Phone size={16} />
               </button>
               <button 
                 onClick={() => chat && startCall(chat.id, chat.participants, chat.type, 'video')}
-                className="w-9 h-9 flex items-center justify-center rounded-full bg-blue-500 text-white hover:bg-blue-600 transition-all active:scale-90 shadow-md shadow-blue-500/20"
+                className="w-8 h-8 flex items-center justify-center rounded-full bg-blue-500 text-white hover:bg-blue-600 transition-all active:scale-90 shadow-md shadow-blue-500/20"
                 title="Görüntülü Arama Başlat"
               >
-                <Video size={18} />
+                <Video size={16} />
               </button>
             </>
           )}
@@ -624,29 +702,29 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
           {/* Ara */}
           <button 
             onClick={() => setShowChatSearch(!showChatSearch)}
-            className={cn("hover:text-blue-600 transition-colors", showChatSearch && "text-blue-600")}
+            className={cn("hover:text-blue-600 transition-colors p-1 rounded-full hover:bg-blue-50", showChatSearch && "text-blue-600 bg-blue-50")}
             title="Sohbet İçi Ara"
           >
-            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
           </button>
 
           {/* Toplu Seç */}
           <button 
             onClick={() => { setBatchMode(!batchMode); setSelectedMsgs(new Set()); }}
-            className={cn("hover:text-slate-900 transition-colors p-1 rounded-full hover:bg-slate-100", batchMode && "text-blue-600")}
+            className={cn("hover:text-slate-900 transition-colors p-1 rounded-full hover:bg-slate-100", batchMode && "text-blue-600 bg-blue-50")}
             title="Toplu Mesaj Seç"
           >
-            <ListChecks size={20} />
+            <ListChecks size={18} />
           </button>
 
           {/* Beklemeye Al */}
           {(chat?.type === 'private' || chat?.groupMetadata?.adminId === user?.uid) && (
             <button 
               onClick={handleHoldToggle}
-              className={cn("transition-colors relative", amIHolding ? "text-amber-500" : "hover:text-amber-500")}
+              className={cn("transition-colors p-1 rounded-full hover:bg-amber-50 relative", amIHolding ? "text-amber-500 bg-amber-50" : "hover:text-amber-500")}
               title={amIHolding ? 'Beklemeden Çıkar' : 'Beklemeye Al'}
             >
-              {amIHolding ? <Play size={20} /> : <Pause size={20} />}
+              {amIHolding ? <Play size={18} /> : <Pause size={18} />}
             </button>
           )}
 
@@ -660,18 +738,18 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
                 setShowProfile(true);
               }
             }}
-            className="hover:text-blue-600 transition-colors"
+            className="hover:text-blue-600 transition-colors p-1 rounded-full hover:bg-blue-50"
             title="Kullanıcı Bilgisi"
           >
-            <Info size={20} />
+            <Info size={18} />
           </button>
 
-          <div className="relative">
+          <div className="relative ml-auto">
             <button 
               onClick={() => setIsHeaderMenuOpen(!isHeaderMenuOpen)}
               className="hover:text-slate-900 transition-colors p-1 rounded-full hover:bg-slate-100"
             >
-              <MoreVertical size={20} />
+              <MoreVertical size={18} />
             </button>
 
             {isHeaderMenuOpen && (
@@ -812,10 +890,17 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
                       )}
 
                       {msg.type === 'text' && (
-                        <p className={cn(
-                          "text-sm font-medium leading-relaxed",
-                          isDeleted && "line-through text-slate-400 font-normal italic"
-                        )}>{msg.text}</p>
+                        msg.encrypted && !isMe ? (
+                          <button onClick={() => setDecryptModal(msg)}
+                            className="text-sm font-medium leading-relaxed opacity-70 hover:opacity-100 text-left w-full">
+                            🔒 Şifreli Mesaj (dokunun)
+                          </button>
+                        ) : (
+                          <p className={cn(
+                            "text-sm font-medium leading-relaxed",
+                            isDeleted && "line-through text-slate-400 font-normal italic"
+                          )}>{msg.text}</p>
+                        )
                       )}
                       
                       {msg.type === 'image' && msg.imageUrl && (
@@ -823,12 +908,22 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
                           "relative rounded-lg overflow-hidden mb-1 min-w-[200px]",
                           isDeleted && "grayscale blur-[2px] opacity-40"
                         )}>
-                          <img 
-                            src={msg.imageUrl} 
-                            alt="Paylaşılan görsel" 
-                            className="max-w-full h-auto object-cover hover:scale-105 transition-transform duration-500 cursor-pointer"
-                            onClick={() => !isDeleted && window.open(msg.imageUrl, '_blank')}
-                          />
+                          {msg.encrypted && !isMe ? (
+                            <>
+                              <img src={msg.imageUrl} alt="" className="w-full h-auto object-cover blur-[12px]" />
+                              <div className="absolute inset-0 flex items-center justify-center">
+                                <button onClick={() => setDecryptModal(msg)}
+                                  className="bg-black/50 text-white text-[10px] font-bold px-3 py-1.5 rounded-full backdrop-blur-sm hover:bg-black/70 cursor-pointer">🔒 Şifreli</button>
+                              </div>
+                            </>
+                          ) : (
+                            <img 
+                              src={msg.imageUrl} 
+                              alt="Paylaşılan görsel" 
+                              className="max-w-full h-auto object-cover hover:scale-105 transition-transform duration-500 cursor-pointer"
+                              onClick={() => !isDeleted && window.open(msg.imageUrl, '_blank')}
+                            />
+                          )}
                         </div>
                       )}
 
@@ -837,18 +932,33 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
                           "relative rounded-lg overflow-hidden mb-1 min-w-[240px] bg-black/5",
                           isDeleted && "grayscale blur-[2px] opacity-40"
                         )}>
-                          <video 
-                            src={msg.videoUrl} 
-                            className="max-w-full h-auto" 
-                            controls={!isDeleted}
-                            playsInline
-                          />
+                          {msg.encrypted && !isMe ? (
+                            <>
+                              <video src={msg.videoUrl} className="max-w-full h-auto blur-[12px]" playsInline />
+                              <div className="absolute inset-0 flex items-center justify-center">
+                                <button onClick={() => setDecryptModal(msg)}
+                                  className="bg-black/50 text-white text-[10px] font-bold px-3 py-1.5 rounded-full backdrop-blur-sm hover:bg-black/70 cursor-pointer">🔒 Şifreli</button>
+                              </div>
+                            </>
+                          ) : (
+                            <video 
+                              src={msg.videoUrl} 
+                              className="max-w-full h-auto" 
+                              controls={!isDeleted}
+                              playsInline
+                            />
+                          )}
                         </div>
                       )}
 
                       {msg.type === 'audio' && msg.audioUrl && (
                         <div className={cn(isDeleted && "grayscale opacity-40 pointer-events-none")}>
-                          <AudioPlayer url={msg.audioUrl} isMe={isMe} />
+                          {msg.encrypted && !isMe ? (
+                            <button onClick={() => setDecryptModal(msg)}
+                              className="text-[10px] font-bold flex items-center gap-1 text-slate-500 hover:text-slate-700">🔒 Şifreli Ses Mesajı (dokunun)</button>
+                          ) : (
+                            <AudioPlayer url={msg.audioUrl} isMe={isMe} />
+                          )}
                         </div>
                       )}
 
@@ -1059,6 +1169,19 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
             </button>
           )}
 
+          {/* Şifreli Mesaj Butonu */}
+          <button 
+            type="button" 
+            onClick={() => setEncryptMode(!encryptMode)}
+            className={cn(
+              "p-1.5 sm:p-2 transition-colors shrink-0",
+              encryptMode ? "text-amber-500 bg-amber-50 rounded-lg" : "text-slate-400 hover:text-slate-600"
+            )}
+            title={encryptMode ? 'Şifreli Gönder: AÇIK' : 'Şifreli Gönder: KAPALI'}
+          >
+            <Lock size={18} />
+          </button>
+
           <form onSubmit={handleSend} className="flex-1 flex items-center">
             <input 
               type="text" 
@@ -1149,6 +1272,22 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
                   Tamam
                 </button>
               </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Decrypt Modal */}
+      <AnimatePresence>
+        {decryptModal && (
+          <div className="fixed inset-0 z-[9998] flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-md" onClick={() => setDecryptModal(null)}>
+            <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.9 }}
+              className="bg-white rounded-3xl p-6 shadow-2xl max-w-md w-full border border-slate-100" onClick={e => e.stopPropagation()}>
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-sm font-black text-slate-900 flex items-center gap-2">🔒 Şifreli Mesaj</h3>
+                <button onClick={() => setDecryptModal(null)} className="p-1 hover:bg-slate-100 rounded-full text-slate-400"><X size={18} /></button>
+              </div>
+              <DecryptContent msg={decryptModal} onClose={() => setDecryptModal(null)} />
             </motion.div>
           </div>
         )}

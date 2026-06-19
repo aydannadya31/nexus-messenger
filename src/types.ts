@@ -41,6 +41,8 @@ export interface Message {
   reactions?: Record<string, string>; // userId -> emoji
   isDeleted?: boolean;
   deletedAt?: any;
+  encrypted?: boolean;
+  imagePassword?: string;
 }
 
 export interface Call {
