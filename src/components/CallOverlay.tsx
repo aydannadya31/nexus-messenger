@@ -3,7 +3,7 @@ import { useCall } from './CallProvider';
 import { useAuth } from './AuthProvider';
 import { db } from '../lib/firebase';
 import { doc, onSnapshot, updateDoc, collection, addDoc, serverTimestamp, getDoc, query, where, deleteDoc, getDocs } from 'firebase/firestore';
-import { X, PhoneOff, Mic, MicOff, Video, VideoOff, Users, UserPlus } from 'lucide-react';
+import { X, Phone, PhoneOff, Mic, MicOff, Video, VideoOff, Users, UserPlus } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import { UserProfile, CallSignal } from '../types';
@@ -106,7 +106,7 @@ export const CallOverlay = () => {
     }
 
     if (isInitiator) {
-      const offer = await pc.createOffer();
+      const offer = await pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: activeCall.mediaType === 'video' });
       await pc.setLocalDescription(offer);
       await addDoc(collection(db, 'calls', activeCall.id, 'signals'), {
         from: user.uid,
@@ -125,10 +125,13 @@ export const CallOverlay = () => {
     if (activeCall && !localStream) {
       const startMedia = async () => {
         try {
-          const stream = await navigator.mediaDevices.getUserMedia({ 
-            video: { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } }, 
-            audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } 
-          });
+          const constraints: MediaStreamConstraints = {
+            audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+          };
+          if (activeCall.mediaType === 'video') {
+            constraints.video = { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } };
+          }
+          const stream = await navigator.mediaDevices.getUserMedia(constraints);
           setLocalStream(stream);
         } catch (err) {
           console.error("Media access error:", err);
@@ -136,7 +139,7 @@ export const CallOverlay = () => {
       };
       startMedia();
     }
-  }, [activeCall?.id]);
+  }, [activeCall?.id, activeCall?.mediaType]);
 
   // Global Signaling Listener
   useEffect(() => {
@@ -246,7 +249,7 @@ export const CallOverlay = () => {
 
   const participantsCount = activeCall?.activeParticipants?.length || 1;
   const gridCols = participantsCount <= 1 ? 'grid-cols-1' : 
-                   participantsCount <= 2 ? 'grid-cols-2' : 
+                   participantsCount <= 2 ? 'grid-cols-1 sm:grid-cols-2' : 
                    participantsCount <= 4 ? 'grid-cols-2' : 'grid-cols-3';
   const gridRows = participantsCount <= 2 ? 'grid-rows-1' : 
                    participantsCount <= 6 ? 'grid-rows-2' : 'grid-rows-3';
@@ -265,14 +268,14 @@ export const CallOverlay = () => {
               <div className="w-24 h-24 rounded-full bg-blue-100 overflow-hidden border-4 border-white shadow-lg">
                 <img src={callerInfo?.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${incomingCall.callerId}`} className="w-full h-full object-cover" />
               </div>
-              <div className="absolute -bottom-2 -right-2 bg-green-500 p-2 rounded-full border-4 border-white">
-                <Video size={16} className="text-white" />
+              <div className={cn("absolute -bottom-2 -right-2 p-2 rounded-full border-4 border-white", incomingCall.mediaType === 'video' ? "bg-green-500" : "bg-blue-500")}>
+                {incomingCall.mediaType === 'video' ? <Video size={16} className="text-white" /> : <Phone size={16} className="text-white" />}
               </div>
             </div>
             
             <div className="text-center">
               <h3 className="text-xl font-black text-slate-900 tracking-tight">{callerInfo?.displayName || 'Bilinmeyen'}</h3>
-              <p className="text-[10px] font-black text-blue-500 uppercase tracking-[0.2em] mt-1">Gelen Görüntülü Arama</p>
+              <p className="text-[10px] font-black text-blue-500 uppercase tracking-[0.2em] mt-1">{incomingCall.mediaType === 'video' ? 'Gelen Görüntülü Arama' : 'Gelen Sesli Arama'}</p>
             </div>
 
             <div className="flex gap-4">
@@ -286,7 +289,7 @@ export const CallOverlay = () => {
                 onClick={acceptCall}
                 className="w-14 h-14 bg-green-600 text-white rounded-full flex items-center justify-center hover:bg-green-700 transition-colors animate-bounce active:scale-95 shadow-xl shadow-green-600/20"
               >
-                <Video size={24} />
+                {incomingCall.mediaType === 'video' ? <Video size={24} /> : <Phone size={24} />}
               </button>
             </div>
           </motion.div>
@@ -296,30 +299,34 @@ export const CallOverlay = () => {
           <motion.div 
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
-            className="w-full h-full max-w-6xl bg-slate-950 rounded-[3rem] overflow-hidden shadow-2xl flex flex-col pointer-events-auto relative"
+            className="w-full sm:max-w-5xl h-full sm:max-h-[90vh] bg-slate-950 rounded-none sm:rounded-[3rem] overflow-hidden shadow-2xl flex flex-col pointer-events-auto relative"
           >
             {/* Main Video Area */}
             <div className={cn("flex-1 p-4 grid gap-4 transition-all duration-500", gridCols, gridRows)}>
               {/* Local Participant */}
               <div className="relative bg-slate-900 rounded-[2rem] overflow-hidden shadow-inner group">
-                <video 
-                  ref={localVideoRef} 
-                  autoPlay 
-                  playsInline 
-                  muted 
-                  className={cn("w-full h-full object-cover", !isVideoOff && "mirror")}
-                />
+                {activeCall.mediaType === 'video' && !isVideoOff ? (
+                  <video 
+                    ref={localVideoRef} 
+                    autoPlay 
+                    playsInline 
+                    muted 
+                    className="w-full h-full object-cover mirror"
+                  />
+                ) : (
+                  <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-900 gap-3">
+                    <div className="w-16 h-16 rounded-full bg-slate-800 flex items-center justify-center text-slate-500">
+                      {!isVideoOff ? <Phone size={32} /> : <VideoOff size={32} />}
+                    </div>
+                    {activeCall.mediaType === 'audio' && (
+                      <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Sesli Arama</p>
+                    )}
+                  </div>
+                )}
                 <div className="absolute bottom-4 left-4 flex items-center gap-2 bg-black/40 backdrop-blur-md px-3 py-1.5 rounded-xl border border-white/10">
                   <span className="text-[10px] font-black text-white uppercase tracking-widest">Sen (Ben)</span>
                   {isMuted && <MicOff size={10} className="text-red-400" />}
                 </div>
-                {isVideoOff && (
-                  <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-900 gap-3">
-                    <div className="w-16 h-16 rounded-full bg-slate-800 flex items-center justify-center text-slate-500">
-                      <VideoOff size={32} />
-                    </div>
-                  </div>
-                )}
               </div>
 
               {/* Remote Participants */}
@@ -371,7 +378,7 @@ export const CallOverlay = () => {
             {/* Controls */}
             <div className="h-28 bg-slate-900 border-t border-white/5 px-6 sm:px-10 flex items-center justify-between shrink-0">
                <div className="hidden sm:flex flex-col">
-                  <h4 className="text-sm font-black text-white tracking-tight">Nexus Video Call</h4>
+                   <h4 className="text-sm font-black text-white tracking-tight">Nexus {activeCall.mediaType === 'video' ? 'Görüntülü' : 'Sesli'} Arama</h4>
                   <p className="text-[10px] font-bold text-blue-500 uppercase tracking-widest">
                     {activeCall.type === 'private' ? 'BİREBİR GÖRÜŞME' : `GRUP SOHBETİ (${activeCall.activeParticipants.length}/${activeCall.participants.length})`}
                   </p>
@@ -388,15 +395,17 @@ export const CallOverlay = () => {
                     {isMuted ? <MicOff size={24} /> : <Mic size={24} />}
                   </button>
 
-                  <button 
-                    onClick={toggleVideo}
-                    className={cn(
-                      "w-12 h-12 sm:w-14 sm:h-14 rounded-3xl flex items-center justify-center transition-all shadow-lg active:scale-95",
-                      isVideoOff ? "bg-red-500 text-white" : "bg-slate-800 text-slate-300 hover:bg-slate-700"
-                    )}
-                  >
-                    {isVideoOff ? <VideoOff size={24} /> : <Video size={24} />}
-                  </button>
+                  {activeCall.mediaType === 'video' && (
+                    <button 
+                      onClick={toggleVideo}
+                      className={cn(
+                        "w-12 h-12 sm:w-14 sm:h-14 rounded-3xl flex items-center justify-center transition-all shadow-lg active:scale-95",
+                        isVideoOff ? "bg-red-500 text-white" : "bg-slate-800 text-slate-300 hover:bg-slate-700"
+                      )}
+                    >
+                      {isVideoOff ? <VideoOff size={24} /> : <Video size={24} />}
+                    </button>
+                  )}
 
                   {activeCall.type === 'group' && (
                     <button 

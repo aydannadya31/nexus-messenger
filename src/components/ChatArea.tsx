@@ -1,212 +1,31 @@
-import React, { useEffect, useState, useRef, useCallback } from 'react';
-import { collection, query, onSnapshot, orderBy, addDoc, serverTimestamp, doc, setDoc, updateDoc, where, getDocs, Timestamp, arrayUnion } from 'firebase/firestore';
+import React, { useEffect, useState, useRef } from 'react';
+import { collection, query, onSnapshot, orderBy, addDoc, serverTimestamp, doc, updateDoc, setDoc, getDoc, where, deleteDoc, getDocs } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { useAuth } from './AuthProvider';
 import { useCall } from './CallProvider';
 import { Chat, Message, UserProfile, Call } from '../types';
 import { cn } from '../lib/utils';
-import { Image, Send, Smile, Phone, Video, MessageSquarePlus, Clock, Play, Mic, Pause, Trash2, ArrowLeft, X, ListChecks, ZoomIn } from 'lucide-react';
+import { Image, MoreVertical, Send, Smile, Phone, Video, MessageSquarePlus, Clock, Play, Mic, Square, Pause, Trash2 } from 'lucide-react';
 import { format } from 'date-fns';
 import { motion, AnimatePresence } from 'motion/react';
 
 interface ChatAreaProps {
   chatId: string;
-  onBack?: () => void;
 }
 
-const AudioPlayer: React.FC<{ url: string; isMe: boolean }> = ({ url, isMe }) => {
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [progress, setProgress] = useState(0);
-  const [duration, setDuration] = useState(0);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-
-  const togglePlay = useCallback(() => {
-    if (!audioRef.current) return;
-    if (isPlaying) {
-      audioRef.current.pause();
-    } else {
-      audioRef.current.play();
-    }
-    setIsPlaying(!isPlaying);
-  }, [isPlaying]);
-
-  const formatTime = (s: number) => {
-    const m = Math.floor(s / 60);
-    const sec = Math.floor(s % 60);
-    return `${m}:${sec.toString().padStart(2, '0')}`;
-  };
-
-  return (
-    <div className={cn(
-      "flex items-center gap-3 min-w-[180px] py-1",
-      isMe ? "text-white" : "text-slate-800"
-    )}>
-      <button 
-        onClick={togglePlay}
-        className={cn(
-          "w-9 h-9 rounded-full flex items-center justify-center transition-all shrink-0",
-          isMe ? "bg-white/20 hover:bg-white/30" : "bg-blue-50 hover:bg-blue-100 text-blue-600 shadow-sm"
-        )}
-      >
-        {isPlaying ? <Pause size={16} fill="currentColor" /> : <Play size={16} fill="currentColor" className="ml-0.5" />}
-      </button>
-      <div className="flex-1 flex items-center gap-2">
-        <div className="flex-1 h-1.5 bg-current opacity-20 rounded-full relative overflow-hidden">
-          <div
-            className="absolute inset-y-0 left-0 bg-current rounded-full transition-all duration-200"
-            style={{ width: `${duration > 0 ? (progress / duration) * 100 : 0}%` }}
-          />
-        </div>
-        <span className="text-[10px] font-bold opacity-60 tabular-nums shrink-0">
-          {isPlaying || progress > 0 ? formatTime(duration - progress) : formatTime(duration)}
-        </span>
-      </div>
-      <audio
-        ref={audioRef}
-        src={url}
-        preload="metadata"
-        onLoadedMetadata={() => {
-          if (audioRef.current) setDuration(audioRef.current.duration);
-        }}
-        onTimeUpdate={() => {
-          if (audioRef.current) setProgress(audioRef.current.currentTime);
-        }}
-        onEnded={() => {
-          setIsPlaying(false);
-          setProgress(0);
-        }}
-        className="hidden"
-      />
-    </div>
-  );
-};
-
-const DecryptContent: React.FC<{ msg: Message; onClose: () => void }> = ({ msg, onClose }) => {
-  const [pwd, setPwd] = useState('');
-  const [decrypted, setDecrypted] = useState(false);
-  const [error, setError] = useState('');
-  const [decryptedText, setDecryptedText] = useState('');
-  const [decryptedImageUrl, setDecryptedImageUrl] = useState('');
-  const [decryptedVideoUrl, setDecryptedVideoUrl] = useState('');
-  const [decryptedAudioUrl, setDecryptedAudioUrl] = useState('');
-
-  const handleSubmit = async () => {
-    const payload = msg.text || msg.imageUrl || msg.videoUrl || msg.audioUrl || '';
-
-    // For media messages with imagePassword: simple btoa comparison
-    if (msg.imagePassword && (msg.type === 'image' || msg.type === 'video' || msg.type === 'audio')) {
-      if (btoa(pwd) === msg.imagePassword) {
-        setDecrypted(true);
-        setDecryptedImageUrl(msg.imageUrl || '');
-        setDecryptedVideoUrl(msg.videoUrl || '');
-        setDecryptedAudioUrl(msg.audioUrl || '');
-        setError('');
-      } else {
-        setError('Hatalı şifre!');
-      }
-      return;
-    }
-
-    // For text messages encrypted with crypto.ts (AES-GCM)
-    if (payload.includes(':')) {
-      try {
-        const { decryptMessage } = await import('../lib/crypto');
-        const decryptedPayload = await decryptMessage(payload, pwd);
-        setDecryptedText(decryptedPayload);
-        setDecrypted(true);
-        setError('');
-      } catch {
-        setError('Hatalı şifre!');
-      }
-      return;
-    }
-
-    // Legacy btoa-based fallback for very old messages
-    if (btoa(pwd).length > 2 && msg.imagePassword && btoa(pwd) === msg.imagePassword) {
-      setDecrypted(true);
-      setDecryptedText(msg.text || '');
-      setDecryptedImageUrl(msg.imageUrl || '');
-      setDecryptedVideoUrl(msg.videoUrl || '');
-      setDecryptedAudioUrl(msg.audioUrl || '');
-      setError('');
-    } else {
-      setError('Hatalı şifre!');
-    }
-  };
-
-  if (decrypted) {
-    return (
-      <div className="space-y-4">
-        {msg.type === 'text' && (
-          <p className="text-sm font-medium leading-relaxed text-slate-900 whitespace-pre-wrap">{decryptedText || msg.text}</p>
-        )}
-        {msg.type === 'image' && (decryptedImageUrl || msg.imageUrl) && (
-          <img src={decryptedImageUrl || msg.imageUrl} alt="" className="w-full max-h-80 object-contain rounded-2xl bg-slate-50" />
-        )}
-        {msg.type === 'video' && (decryptedVideoUrl || msg.videoUrl) && (
-          <video src={decryptedVideoUrl || msg.videoUrl} className="w-full max-h-80 rounded-2xl" controls playsInline />
-        )}
-        {msg.type === 'audio' && (decryptedAudioUrl || msg.audioUrl) && (
-          <audio src={decryptedAudioUrl || msg.audioUrl} className="w-full" controls />
-        )}
-        {(msg.type === 'image' || msg.type === 'video') && (
-          <button onClick={() => {
-            const url = msg.type === 'image' ? (decryptedImageUrl || msg.imageUrl) : (decryptedVideoUrl || msg.videoUrl);
-            if (!url) return;
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = msg.type === 'image' ? 'image.png' : 'video.webm';
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-          }} className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all mb-2">
-            📥 İndir
-          </button>
-        )}
-        <button onClick={onClose} className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition-all">
-          Kapat
-        </button>
-      </div>
-    );
-  }
-
-  return (
-    <div className="space-y-4">
-      <p className="text-xs text-slate-500 font-bold text-center">Bu mesajı görüntülemek için şifreyi girin</p>
-      <input type="text" value={pwd} onChange={e => setPwd(e.target.value)} autoFocus
-        placeholder="Şifre..."
-        onKeyDown={e => e.key === 'Enter' && handleSubmit()}
-        className="w-full bg-slate-100 border-2 border-slate-200 rounded-2xl px-4 py-3 text-sm font-bold text-center outline-none focus:border-blue-500 transition-all" />
-      {error && <p className="text-xs text-red-500 font-bold text-center">{error}</p>}
-      <div className="flex gap-3">
-        <button onClick={onClose} className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl text-xs font-bold transition-all">İptal</button>
-        <button onClick={handleSubmit} className="flex-1 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition-all">Çöz</button>
-      </div>
-    </div>
-  );
-};
-
-export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
+export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
   const { user } = useAuth();
-  const { startCall, activeCall, incomingCall, acceptCall, callError } = useCall();
+  const { startCall, activeCall, acceptCall } = useCall();
   const [messages, setMessages] = useState<Message[]>([]);
   const [chat, setChat] = useState<Chat | null>(null);
-
-  useEffect(() => {
-    if (callError) showCustomAlert('Arama Hatası', callError);
-  }, [callError]);
   const [otherUser, setOtherUser] = useState<UserProfile | null>(null);
   const [participantInfo, setParticipantInfo] = useState<Record<string, UserProfile>>({});
   const [inputText, setInputText] = useState('');
-
+  const [activeCallForChat, setActiveCallForChat] = useState<Call | null>(null);
   const [reactionMenu, setReactionMenu] = useState<{ msgId: string, x: number, y: number } | null>(null);
   const [isHeaderMenuOpen, setIsHeaderMenuOpen] = useState(false);
   const [isEmojiMenuOpen, setIsEmojiMenuOpen] = useState(false);
-  const [viewProfile, setViewProfile] = useState<UserProfile | null>(null);
-  const [fullScreenImage, setFullScreenImage] = useState<string | null>(null);
-  const [decryptModal, setDecryptModal] = useState<Message | null>(null);
-  const [encryptMode, setEncryptMode] = useState(false);
-  const [selectedActionMsg, setSelectedActionMsg] = useState<string | null>(null);
+  const [showDeletedMessages, setShowDeletedMessages] = useState(false);
   const [customDialog, setCustomDialog] = useState<{
     isOpen: boolean;
     title: string;
@@ -214,18 +33,6 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
     type: 'alert' | 'confirm';
     onConfirm?: () => void;
   } | null>(null);
-
-  const [zoomScale, setZoomScale] = useState(1);
-  const [zoomPos, setZoomPos] = useState({ x: 0, y: 0 });
-  const [isDraggingZoom, setIsDraggingZoom] = useState(false);
-  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
-
-  const [batchMode, setBatchMode] = useState(false);
-  const [selectedMsgs, setSelectedMsgs] = useState<Set<string>>(new Set());
-  const [chatSearchQuery, setChatSearchQuery] = useState('');
-  const [showChatSearch, setShowChatSearch] = useState(false);
-  const [mutedUsers, setMutedUsers] = useState<Record<string, boolean>>({});
-  const [showGroupInfo, setShowGroupInfo] = useState(false);
 
   const showCustomAlert = (title: string, message: string) => {
     setCustomDialog({
@@ -244,32 +51,6 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
       type: 'confirm',
       onConfirm
     });
-  };
-
-  const confirmDeleteMsg = (msgId: string) => {
-    showCustomConfirm('Mesajı Sil', 'Bu mesajı silmek istediğinize emin misiniz? Admin onayına gönderilecektir.', () => handleDeleteMsg(msgId));
-  };
-
-  const handleDeleteMsg = async (msgId: string) => {
-    if (!chatId || !user || !chat) return;
-    try {
-      const msgRef = doc(db, 'chats', chatId, 'messages', msgId);
-      // Only mark as deleted by this user (message stays visible for others until admin decides)
-      await updateDoc(msgRef, {
-        deletedBy: arrayUnion(user.uid)
-      });
-      // Send delete request to admin
-      await addDoc(collection(db, 'adminDeleteRequests'), {
-        chatId,
-        msgId,
-        requestedBy: user.uid,
-        participants: chat.participants,
-        timestamp: serverTimestamp(),
-        status: 'pending'
-      });
-    } catch (error) {
-      console.error("Delete message error:", error);
-    }
   };
 
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -307,52 +88,45 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
     setReactionMenu({ msgId, x: e.clientX, y: e.clientY });
   };
 
-  const participantInfoRef = useRef<Record<string, UserProfile>>({});
-
   useEffect(() => {
     if (!chatId || !user) return;
 
+    // Listen for calls for this specific chat
+    const callsQuery = query(
+      collection(db, 'calls'),
+      where('chatId', '==', chatId),
+      where('status', 'in', ['calling', 'ongoing'])
+    );
+
+    const unsubCalls = onSnapshot(callsQuery, (snapshot) => {
+      const call = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Call))[0];
+      setActiveCallForChat(call || null);
+    });
+
     // Fetch chat metadata
     const chatRef = doc(db, 'chats', chatId);
-    const profileUnsubs: (() => void)[] = [];
-
     const unsubChat = onSnapshot(chatRef, async (d) => {
       if (d.exists()) {
         const chatData = d.data() as Chat;
         chatData.id = d.id;
         setChat(chatData);
-
-        // Clean old profile listeners
-        profileUnsubs.forEach(fn => fn());
-        profileUnsubs.length = 0;
-
+        
         if (chatData.type === 'private') {
           const otherId = chatData.participants.find(p => p !== user.uid);
           if (otherId) {
-            profileUnsubs.push(
-              onSnapshot(doc(db, 'users', otherId), (snap) => {
-                if (snap.exists()) {
-                  const otherProfile = snap.data() as UserProfile;
-                  setOtherUser(otherProfile);
-                  participantInfoRef.current = { ...participantInfoRef.current, [otherId]: otherProfile };
-                  setParticipantInfo({ ...participantInfoRef.current });
-                }
-              })
-            );
+            const userDoc = await getDoc(doc(db, 'users', otherId));
+            if (userDoc.exists()) setOtherUser(userDoc.data() as UserProfile);
           }
         } else {
+          // Group: Fetch all participant names for message display
+          const newParticipantInfo = { ...participantInfo };
           for (const pId of chatData.participants) {
-            if (!participantInfoRef.current[pId]) {
-              profileUnsubs.push(
-                onSnapshot(doc(db, 'users', pId), (snap) => {
-                  if (snap.exists()) {
-                    participantInfoRef.current[pId] = snap.data() as UserProfile;
-                    setParticipantInfo({ ...participantInfoRef.current });
-                  }
-                })
-              );
+            if (!newParticipantInfo[pId]) {
+              const userDoc = await getDoc(doc(db, 'users', pId));
+              if (userDoc.exists()) newParticipantInfo[pId] = userDoc.data() as UserProfile;
             }
           }
+          setParticipantInfo(newParticipantInfo);
         }
       }
     });
@@ -363,62 +137,33 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
       orderBy('timestamp', 'asc')
     );
 
-    const readProcessedRef = new Set<string>();
-
     const unsubMsgs = onSnapshot(q, (snapshot) => {
-      const msgs = snapshot.docs
-        .map(d => ({ id: d.id, ...d.data() } as Message))
-        .filter(m => !m.deletedBy || !m.deletedBy.includes(user.uid));
+      const msgs = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Message));
       setMessages(msgs);
 
-      for (const msg of msgs) {
-        if (
-          msg.senderId !== user.uid &&
-          msg.status !== 'read' &&
-          !readProcessedRef.has(msg.id)
-        ) {
-          readProcessedRef.add(msg.id);
-          updateDoc(doc(db, 'chats', chatId, 'messages', msg.id), {
-            status: 'read'
-          }).catch(() => {});
+      // Mark incoming messages as read
+      msgs.forEach(async (msg) => {
+        if (msg.senderId !== user.uid && msg.status !== 'read') {
+          try {
+            await updateDoc(doc(db, 'chats', chatId, 'messages', msg.id), {
+              status: 'read'
+            });
+          } catch (error) {
+            // Silently fail if rules prevent it (e.g. if we are not a participant anymore)
+            console.warn("Could not mark message as read", error);
+          }
         }
-      }
+      });
     });
 
-    const handleClickOutside = () => {
-      setReactionMenu(null);
-      setSelectedActionMsg(null);
-    };
+    const handleClickOutside = () => setReactionMenu(null);
     window.addEventListener('click', handleClickOutside);
 
-    // VisualViewport for mobile keyboard
-    let originalHeight = window.innerHeight;
-    const handleViewport = () => {
-      const inputFooter = document.getElementById('chat-input-footer');
-      if (!inputFooter) return;
-      if (window.visualViewport) {
-        const diff = originalHeight - window.visualViewport.height;
-        if (diff > 100) {
-          inputFooter.style.paddingBottom = `${diff}px`;
-        } else {
-          inputFooter.style.paddingBottom = '';
-        }
-      }
-    };
-    if (window.visualViewport) {
-      window.visualViewport.addEventListener('resize', handleViewport);
-      window.visualViewport.addEventListener('scroll', handleViewport);
-    }
-
     return () => {
+      unsubCalls();
       unsubChat();
       unsubMsgs();
-      profileUnsubs.forEach(fn => fn());
       window.removeEventListener('click', handleClickOutside);
-      if (window.visualViewport) {
-        window.visualViewport.removeEventListener('resize', handleViewport);
-        window.visualViewport.removeEventListener('scroll', handleViewport);
-      }
     };
   }, [chatId, user]);
 
@@ -444,28 +189,18 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
     const reader = new FileReader();
     reader.onloadend = async () => {
       const base64Video = reader.result as string;
-      let pwd = '';
-      if (encryptMode) {
-        pwd = prompt('Şifreli video şifresini girin:') || '';
-        if (!pwd) { setEncryptMode(false); return; }
-      }
       try {
-        const { uploadMedia } = await import('../lib/storage');
-        const msgRef = doc(collection(db, 'chats', chatId, 'messages'));
-        const storageUrl = await uploadMedia(base64Video, chatId, msgRef.id, 'video');
-
-        await setDoc(msgRef, {
-          videoUrl: storageUrl,
+        await addDoc(collection(db, 'chats', chatId, 'messages'), {
+          videoUrl: base64Video,
           senderId: user.uid,
           timestamp: serverTimestamp(),
           type: 'video',
-          status: 'sent',
-          ...(encryptMode && pwd ? { encrypted: true, imagePassword: btoa(pwd) } : {})
+          status: 'sent'
         });
 
         await updateDoc(doc(db, 'chats', chatId), {
           lastMessage: {
-            text: encryptMode && pwd ? '🔒 Şifreli Video' : '🎥 Video Mesajı',
+            text: '🎥 Video Mesajı',
             senderId: user.uid,
             senderName: user.displayName,
             timestamp: serverTimestamp()
@@ -476,7 +211,6 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
         console.error("Video gönderme hatası:", error);
       }
     };
-
     reader.readAsDataURL(file);
     e.target.value = '';
   };
@@ -487,23 +221,10 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
   const audioChunksRef = useRef<Blob[]>([]);
   const timerRef = useRef<any>(null);
 
-  const [showVideoDialog, setShowVideoDialog] = useState(false);
-  const [videoDialogState, setVideoDialogState] = useState<'preview' | 'recording' | 'result'>('preview');
-  const [videoRecordingTime, setVideoRecordingTime] = useState(0);
-  const videoRecorderRef = useRef<MediaRecorder | null>(null);
-  const videoChunksRef = useRef<Blob[]>([]);
-  const videoTimerRef = useRef<any>(null);
-  const videoStreamRef = useRef<MediaStream | null>(null);
-  const videoPreviewRef = useRef<HTMLVideoElement | null>(null);
-  const [useFrontCamera, setUseFrontCamera] = useState(true);
-  const [recordedVideoUrl, setRecordedVideoUrl] = useState<string | null>(null);
-
-  const MAX_RECORDING_SECONDS = 30;
-
   const startRecording = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm;codecs=opus' });
+      const mediaRecorder = new MediaRecorder(stream);
       mediaRecorderRef.current = mediaRecorder;
       audioChunksRef.current = [];
 
@@ -517,8 +238,8 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
         reader.readAsDataURL(audioBlob);
         reader.onloadend = async () => {
           const base64Audio = reader.result as string;
-          if (base64Audio.length > 900000) {
-            showCustomAlert("Ses Kaydı Sınırı", "Ses mesajı çok uzun, lütfen daha kısa bir kayıt yapın (maks. 30 saniye).");
+          if (base64Audio.length > 800000) {
+            showCustomAlert("Ses Kaydı Sınırı", "Ses mesajı çok uzun, lütfen daha kısa bir kayıt yapın.");
             return;
           }
           await sendAudioMessage(base64Audio);
@@ -530,13 +251,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
       setIsRecording(true);
       setRecordingTime(0);
       timerRef.current = setInterval(() => {
-        setRecordingTime(prev => {
-          if (prev >= MAX_RECORDING_SECONDS - 1) {
-            stopRecording();
-            return prev;
-          }
-          return prev + 1;
-        });
+        setRecordingTime(prev => prev + 1);
       }, 1000);
     } catch (error) {
       console.error("Microphone access error:", error);
@@ -553,28 +268,18 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
 
   const sendAudioMessage = async (audioUrl: string) => {
     if (!user || !chatId) return;
-    let pwd = '';
-    if (encryptMode) {
-      pwd = prompt('Şifreli ses mesajı şifresini girin:') || '';
-      if (!pwd) { setEncryptMode(false); return; }
-    }
     try {
-      const { uploadMedia } = await import('../lib/storage');
-      const msgRef = doc(collection(db, 'chats', chatId, 'messages'));
-      const storageUrl = await uploadMedia(audioUrl, chatId, msgRef.id, 'audio');
-
-      await setDoc(msgRef, {
-        audioUrl: storageUrl,
+      await addDoc(collection(db, 'chats', chatId, 'messages'), {
+        audioUrl,
         senderId: user.uid,
         timestamp: serverTimestamp(),
         type: 'audio',
-        status: 'sent',
-        ...(encryptMode && pwd ? { encrypted: true, imagePassword: btoa(pwd) } : {})
+        status: 'sent'
       });
 
       await updateDoc(doc(db, 'chats', chatId), {
         lastMessage: {
-          text: encryptMode && pwd ? '🔒 Şifreli Ses' : '🎤 Ses Mesajı',
+          text: '🎤 Ses Mesajı',
           senderId: user.uid,
           senderName: user.displayName,
           timestamp: serverTimestamp()
@@ -586,167 +291,48 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
     }
   };
 
-  const MAX_VIDEO_RECORDING_SECONDS = 10;
+  const AudioPlayer: React.FC<{ url: string; isMe: boolean }> = ({ url, isMe }) => {
+    const [isPlaying, setIsPlaying] = useState(false);
+    const audioRef = useRef<HTMLAudioElement | null>(null);
 
-  const startVideoStream = async (facing: 'user' | 'environment') => {
-    try {
-      if (videoStreamRef.current) {
-        videoStreamRef.current.getTracks().forEach(t => t.stop());
-        videoStreamRef.current = null;
+    const togglePlay = () => {
+      if (!audioRef.current) return;
+      if (isPlaying) {
+        audioRef.current.pause();
+      } else {
+        audioRef.current.play();
       }
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { width: { ideal: 320 }, height: { ideal: 240 }, frameRate: { ideal: 10 }, facingMode: facing },
-        audio: { echoCancellation: true, noiseSuppression: true }
-      });
-      videoStreamRef.current = stream;
-      if (videoPreviewRef.current) {
-        videoPreviewRef.current.srcObject = stream;
-      }
-    } catch (error) {
-      console.error("Camera access error:", error);
-      showCustomAlert("Kamera Erişim Hatası", "Kameraya erişilemedi. İzinleri kontrol edin.");
-      setShowVideoDialog(false);
-    }
-  };
-
-  const stopVideoStream = () => {
-    clearInterval(videoTimerRef.current);
-    if (videoStreamRef.current) {
-      videoStreamRef.current.getTracks().forEach(t => t.stop());
-      videoStreamRef.current = null;
-    }
-    if (videoPreviewRef.current) {
-      videoPreviewRef.current.srcObject = null;
-    }
-  };
-
-  const openVideoDialog = () => {
-    setShowVideoDialog(true);
-    setVideoDialogState('preview');
-    setRecordedVideoUrl(null);
-    setVideoRecordingTime(0);
-    setTimeout(() => {
-      startVideoStream(useFrontCamera ? 'user' : 'environment');
-    }, 500);
-  };
-
-  const toggleCamera = () => {
-    stopVideoStream();
-    const newFacing = useFrontCamera ? 'environment' : 'user';
-    setUseFrontCamera(prev => !prev);
-    setTimeout(() => {
-      startVideoStream(newFacing);
-    }, 300);
-  };
-
-  const startVideoRecording = () => {
-    if (!videoStreamRef.current) return;
-    videoChunksRef.current = [];
-    setVideoRecordingTime(0);
-
-    const mimeType = MediaRecorder.isTypeSupported('video/webm;codecs=vp9,opus')
-      ? 'video/webm;codecs=vp9,opus'
-      : MediaRecorder.isTypeSupported('video/webm;codecs=vp8,opus')
-      ? 'video/webm;codecs=vp8,opus'
-      : 'video/webm';
-    const mediaRecorder = new MediaRecorder(videoStreamRef.current, { mimeType, videoBitsPerSecond: 250000 });
-    videoRecorderRef.current = mediaRecorder;
-
-    mediaRecorder.ondataavailable = (e) => {
-      if (e.data.size > 0) videoChunksRef.current.push(e.data);
+      setIsPlaying(!isPlaying);
     };
 
-    mediaRecorder.onstop = () => {
-      const videoBlob = new Blob(videoChunksRef.current, { type: 'video/webm' });
-      const reader = new FileReader();
-      reader.readAsDataURL(videoBlob);
-      reader.onloadend = () => {
-        setRecordedVideoUrl(reader.result as string);
-        setVideoDialogState('result');
-        stopVideoStream();
-      };
-    };
-
-    mediaRecorder.start(100);
-    setVideoDialogState('recording');
-    videoTimerRef.current = setInterval(() => {
-      setVideoRecordingTime(prev => {
-        if (prev >= MAX_VIDEO_RECORDING_SECONDS - 1) {
-          stopVideoRecording();
-          return prev;
-        }
-        return prev + 1;
-      });
-    }, 1000);
-  };
-
-  const stopVideoRecording = () => {
-    if (videoRecorderRef.current && videoRecorderRef.current.state === 'recording') {
-      videoRecorderRef.current.stop();
-      clearInterval(videoTimerRef.current);
-    }
-  };
-
-  const discardVideo = () => {
-    setRecordedVideoUrl(null);
-    setShowVideoDialog(false);
-    setVideoDialogState('preview');
-    stopVideoStream();
-  };
-
-  const sendRecordedVideo = async () => {
-    if (!recordedVideoUrl) return;
-    await sendVideoMessage(recordedVideoUrl);
-    setRecordedVideoUrl(null);
-    setShowVideoDialog(false);
-    setVideoDialogState('preview');
-    clearInterval(videoTimerRef.current);
-  };
-
-  const closeVideoDialog = () => {
-    setShowVideoDialog(false);
-    setRecordedVideoUrl(null);
-    setVideoDialogState('preview');
-    stopVideoStream();
-  };
-
-  const sendVideoMessage = async (videoUrl: string) => {
-    if (!user || !chatId) return;
-    if (videoUrl.length > 2000000) {
-      showCustomAlert("Video Çok Büyük", "Video dosyası çok büyük. Lütfen daha kısa bir kayıt yapın.");
-      return;
-    }
-    let pwd = '';
-    if (encryptMode) {
-      pwd = prompt('Şifreli video şifresini girin:') || '';
-      if (!pwd) { setEncryptMode(false); return; }
-    }
-    try {
-      const { uploadMedia } = await import('../lib/storage');
-      const msgRef = doc(collection(db, 'chats', chatId, 'messages'));
-      const storageUrl = await uploadMedia(videoUrl, chatId, msgRef.id, 'video');
-
-      await setDoc(msgRef, {
-        videoUrl: storageUrl,
-        senderId: user.uid,
-        timestamp: serverTimestamp(),
-        type: 'video',
-        status: 'sent',
-        ...(encryptMode && pwd ? { encrypted: true, imagePassword: btoa(pwd) } : {})
-      });
-      await updateDoc(doc(db, 'chats', chatId), {
-        lastMessage: {
-          text: encryptMode && pwd ? '🔒 Şifreli Video' : '🎥 Video Mesajı',
-          senderId: user.uid,
-          senderName: user.displayName,
-          timestamp: serverTimestamp()
-        },
-        updatedAt: serverTimestamp()
-      });
-    } catch (error) {
-      console.error("Video send error:", error);
-      showCustomAlert("Video Hatası", "Video gönderilirken bir hata oluştu. Lütfen tekrar deneyin.");
-    }
+    return (
+      <div className={cn(
+        "flex items-center gap-3 min-w-[200px] py-1",
+        isMe ? "text-white" : "text-slate-800"
+      )}>
+        <button 
+          onClick={togglePlay}
+          className={cn(
+            "w-9 h-9 rounded-full flex items-center justify-center transition-all",
+            isMe ? "bg-white/20 hover:bg-white/30" : "bg-blue-50 hover:bg-blue-100 text-blue-600 shadow-sm"
+          )}
+        >
+          {isPlaying ? <Pause size={18} fill="currentColor" /> : <Play size={18} fill="currentColor" className="ml-0.5" />}
+        </button>
+        <div className="flex-1 flex flex-col gap-1">
+          <div className="h-1 bg-current opacity-20 rounded-full relative overflow-hidden">
+             <div className="absolute inset-0 bg-current rounded-full" style={{ width: '40%' }} />
+          </div>
+          <span className="text-[10px] font-bold opacity-60">Ses Mesajı</span>
+        </div>
+        <audio 
+          ref={audioRef} 
+          src={url} 
+          onEnded={() => setIsPlaying(false)}
+          className="hidden" 
+        />
+      </div>
+    );
   };
 
   const handleImageSend = () => {
@@ -765,35 +351,24 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
     const reader = new FileReader();
     reader.onloadend = async () => {
       const base64Image = reader.result as string;
-      let pwd = '';
-      if (encryptMode) {
-        pwd = prompt('Şifreli görsel şifresini girin:') || '';
-        if (!pwd) { setEncryptMode(false); return; }
-      }
       try {
-        const { uploadMedia } = await import('../lib/storage');
-        const msgRef = doc(collection(db, 'chats', chatId, 'messages'));
-        const storageUrl = await uploadMedia(base64Image, chatId, msgRef.id, 'image');
-
-        await setDoc(msgRef, {
-          imageUrl: storageUrl,
+        await addDoc(collection(db, 'chats', chatId, 'messages'), {
+          imageUrl: base64Image,
           senderId: user.uid,
           timestamp: serverTimestamp(),
           type: 'image',
-          status: 'sent',
-          ...(encryptMode && pwd ? { encrypted: true, imagePassword: btoa(pwd) } : {})
+          status: 'sent'
         });
 
         await updateDoc(doc(db, 'chats', chatId), {
           lastMessage: {
-            text: encryptMode && pwd ? '🔒 Şifreli Fotoğraf' : '📷 Fotoğraf',
+            text: '📷 Fotoğraf',
             senderId: user.uid,
             senderName: user.displayName,
             timestamp: serverTimestamp()
           },
           updatedAt: serverTimestamp()
         });
-        setEncryptMode(false);
       } catch (error) {
         console.error("Resim gönderme hatası:", error);
       }
@@ -802,30 +377,44 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
     e.target.value = '';
   };
 
+  const handleDeleteMessage = async (msgId: string) => {
+    if (!chatId) return;
+    showCustomConfirm(
+      "Mesajı Sil",
+      "Bu mesajı silmek istediğinizden emin misiniz? Silinen bu mesaj sadece sizin 'Sildiğim Mesajları Göster' seçeneğiniz açıkken görüntülenebilir.",
+      async () => {
+        try {
+          await updateDoc(doc(db, 'chats', chatId, 'messages', msgId), {
+            isDeleted: true,
+            deletedAt: serverTimestamp()
+          });
+        } catch (error) {
+          console.error("Delete message error:", error);
+        }
+      }
+    );
+  };
+
   const handleClearChat = async () => {
-    if (!chatId || !user) return;
+    if (!chatId) return;
     setIsHeaderMenuOpen(false);
     showCustomConfirm(
       "Sohbeti Temizle",
-      "Bu sohbetteki tüm mesajları görünümden kaldırmak istediğinizden emin misiniz?",
+      "Bu sohbetteki tüm mesajları silmek istediğinizden emin misiniz? Bu işlem geri alınamaz.",
       async () => {
         try {
           const messagesRef = collection(db, 'chats', chatId, 'messages');
           const q = query(messagesRef);
           const querySnapshot = await getDocs(q);
-          const updatePromises = querySnapshot.docs.map(d =>
-            updateDoc(doc(db, 'chats', chatId, 'messages', d.id), {
-              deletedBy: arrayUnion(user.uid)
-            }).catch(() => {})
-          );
-          await Promise.all(updatePromises);
+          const deletePromises = querySnapshot.docs.map(d => deleteDoc(doc(db, 'chats', chatId, 'messages', d.id)));
+          await Promise.all(deletePromises);
           
           // Update lastMessage
           await updateDoc(doc(db, 'chats', chatId), {
             lastMessage: {
               text: 'Sohbet geçmişi temizlendi.',
-              senderId: user.uid,
-              senderName: user.displayName || '',
+              senderId: user?.uid || '',
+              senderName: user?.displayName || '',
               timestamp: serverTimestamp()
             },
             updatedAt: serverTimestamp()
@@ -839,36 +428,26 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
 
   const handleSend = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!inputText.trim() || !user || !chatId || isBeingHeld) return;
+    if (!inputText.trim() || !user || !chatId) return;
 
-    const text = inputText.trim();
+    const text = inputText;
     setInputText('');
 
-    let pwd = '';
-    if (encryptMode) {
-      pwd = prompt('Şifreli mesaj şifresini girin:') || '';
-      if (!pwd) { setEncryptMode(false); return; }
-    }
-
-    const messageData: any = {
+    const messageData = {
       text,
       senderId: user.uid,
       timestamp: serverTimestamp(),
       type: 'text',
       status: 'sent'
     };
-    if (encryptMode && pwd) {
-      const { encryptMessage } = await import('../lib/crypto');
-      messageData.text = await encryptMessage(text, pwd);
-      messageData.encrypted = true;
-    }
 
     try {
       await addDoc(collection(db, 'chats', chatId, 'messages'), messageData);
       
+      // Update chat last message
       await updateDoc(doc(db, 'chats', chatId), {
         lastMessage: {
-          text: encryptMode && pwd ? '🔒 Şifreli Mesaj' : text,
+          text,
           senderId: user.uid,
           senderName: user.displayName,
           timestamp: serverTimestamp()
@@ -925,61 +504,13 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
     }
   };
 
-  const isBeingHeld = !!(chat?.heldBy && chat.heldBy !== user?.uid);
-  const amIHolding = chat?.heldBy === user?.uid;
-
-  const handleHoldToggle = async () => {
-    if (!chatId || !user || !chat) return;
-    if (chat.type === 'group' && chat.groupMetadata?.adminId !== user.uid) return;
-    if (chat.type === 'private') {
-      const today = new Date().toISOString().slice(0, 10);
-      const count = chat.holdDate === today ? (chat.holdDailyCount || 0) : 0;
-      if (amIHolding) {
-        await updateDoc(doc(db, 'chats', chatId), { heldBy: null, holdExpiresAt: null });
-      } else if (count >= 10) {
-        showCustomAlert('Limit', 'Bugün bu kişi için beklemeye alma limitine ulaştınız (10/10).');
-        return;
-      } else {
-        const expires = new Date(Date.now() + 15 * 60 * 1000);
-        await updateDoc(doc(db, 'chats', chatId), {
-          heldBy: user.uid,
-          holdExpiresAt: Timestamp.fromDate(expires),
-          holdDailyCount: count + 1,
-          holdDate: today
-        });
-      }
-    } else {
-      if (amIHolding) {
-        await updateDoc(doc(db, 'chats', chatId), { heldBy: null, holdExpiresAt: null });
-      } else {
-        const expires = new Date(Date.now() + 15 * 60 * 1000);
-        await updateDoc(doc(db, 'chats', chatId), { heldBy: user.uid, holdExpiresAt: Timestamp.fromDate(expires) });
-      }
-    }
-  };
-
-  // Auto-release hold when expired
-  useEffect(() => {
-    if (!chat?.holdExpiresAt || !chatId) return;
-    const expires = chat.holdExpiresAt.toDate();
-    const now = new Date();
-    if (expires <= now) {
-      updateDoc(doc(db, 'chats', chatId), { heldBy: null, holdExpiresAt: null }).catch(() => {});
-      return;
-    }
-    const timeout = setTimeout(() => {
-      updateDoc(doc(db, 'chats', chatId), { heldBy: null, holdExpiresAt: null }).catch(() => {});
-    }, expires.getTime() - now.getTime());
-    return () => clearTimeout(timeout);
-  }, [chat?.holdExpiresAt, chatId]);
-
   if (!chatId) {
     return (
-      <div className="hidden sm:flex flex-1 flex-col items-center justify-center bg-slate-50 text-slate-400">
+      <div className="flex-1 flex flex-col items-center justify-center bg-slate-50 text-slate-400">
         <div className="w-24 h-24 bg-white rounded-full flex items-center justify-center mb-6 shadow-xl shadow-slate-200/50 border border-slate-100">
           <MessageSquarePlus size={44} className="text-blue-500/40" />
         </div>
-        <h2 className="text-3xl font-black text-slate-900 tracking-tight">A+F/C.B Messenger</h2>
+        <h2 className="text-3xl font-black text-slate-900 tracking-tight">Sync Platform</h2>
         <p className="max-w-xs text-center mt-3 text-sm font-medium text-slate-500">
           Uçtan uca şifreli, gerçek zamanlı iletişim protokolü. Bir sohbet seçerek başlayın.
         </p>
@@ -989,36 +520,37 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
 
   return (
     <div className="flex-1 flex flex-col bg-slate-50 relative overflow-hidden">
+      {/* Background Decoration */}
+      <div className="absolute inset-0 pointer-events-none">
+         <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-blue-100/30 blur-[100px] rounded-full" />
+      </div>
 
       {/* Chat Header */}
-      <header className="min-h-14 sm:h-20 bg-white border-b border-slate-200 flex items-center justify-between px-3 sm:px-8 shrink-0 relative z-10">
-        <div className="flex items-center min-w-0 flex-1">
-          <button onClick={onBack} className="p-1.5 mr-1.5 sm:hidden text-slate-500 hover:bg-slate-100 rounded-lg shrink-0">
-            <ArrowLeft size={20} />
-          </button>
-          <div className="w-8 h-8 sm:w-10 sm:h-10 bg-gradient-to-br from-blue-400 to-indigo-500 rounded-full mr-2 sm:mr-4 shadow-sm overflow-hidden border-2 border-white shrink-0">
+      <header className="h-20 bg-white border-b border-slate-200 flex items-center justify-between px-8 shrink-0 relative z-10">
+        <div className="flex items-center">
+          <div className="w-10 h-10 bg-gradient-to-br from-blue-400 to-indigo-500 rounded-full mr-4 shadow-sm overflow-hidden border-2 border-white">
             <img 
               src={headerInfo.photoURL} 
               alt={headerInfo.name} 
               className="w-full h-full object-cover"
             />
           </div>
-          <div className="flex flex-col min-w-0">
-            <div className="flex items-center gap-1 sm:gap-2 flex-wrap">
-              <h3 className="text-sm sm:text-base font-bold text-slate-900 leading-none truncate max-w-[120px] sm:max-w-none">{headerInfo.name}</h3>
+          <div className="flex flex-col">
+            <div className="flex items-center gap-2">
+              <h3 className="text-base font-bold text-slate-900 leading-none">{headerInfo.name}</h3>
               {headerInfo.status && (
                 <span className={cn(
-                  "text-[8px] sm:text-[9px] font-black uppercase px-1.5 sm:px-2 py-0.5 rounded-full shadow-sm",
+                  "text-[9px] font-black uppercase px-2 py-0.5 rounded-full shadow-sm",
                   headerInfo.status === 'online' ? "bg-green-500 text-white" : 
                   headerInfo.status === 'away' ? "bg-amber-500 text-white" : "bg-red-500 text-white"
                 )}>
                   {headerInfo.status === 'online' ? 'Çevrimiçi' : headerInfo.status === 'away' ? 'Uzakta' : 'Meşgul'}
                 </span>
               )}
-              {headerInfo.uin && <span className="text-[9px] sm:text-[10px] font-black text-blue-500 bg-blue-50 px-1 sm:px-1.5 py-0.5 rounded tracking-tighter hidden sm:inline">#{headerInfo.uin}</span>}
+              {headerInfo.uin && <span className="text-[10px] font-black text-blue-500 bg-blue-50 px-1.5 py-0.5 rounded tracking-tighter">#{headerInfo.uin}</span>}
             </div>
             <span className={cn(
-              "text-[10px] sm:text-[11px] font-bold uppercase tracking-wider flex items-center gap-1 mt-0.5",
+              "text-[11px] font-bold uppercase tracking-wider flex items-center gap-1 mt-1",
               headerInfo.status === 'online' ? "text-green-500" : headerInfo.status === 'away' ? "text-amber-500" : "text-red-500"
             )}>
               <span className={cn(
@@ -1029,9 +561,8 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
             </span>
           </div>
         </div>
-        <div className="flex items-center space-x-3 sm:space-x-6 text-slate-400 relative shrink-0">
-          {/* KATIL: bu sohbet için gelen arama varsa (CallProvider'daki incomingCall) */}
-          {incomingCall && incomingCall.chatId === chatId && !activeCall && (
+        <div className="flex items-center space-x-6 text-slate-400 relative">
+          {activeCallForChat && !activeCall && (
             <button 
               onClick={() => acceptCall()}
               className="flex items-center gap-2 px-4 py-2 bg-green-500 hover:bg-green-600 text-white rounded-xl text-xs font-black uppercase tracking-widest transition-all shadow-lg shadow-green-500/20 active:scale-95 animate-pulse"
@@ -1041,127 +572,103 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
             </button>
           )}
           
-          {/* Telefon: hiçbir aktif/gelen arama yoksa */}
-          {!activeCall && !(incomingCall && incomingCall.chatId === chatId) && (
-            <button 
-              onClick={() => {
-                chat && startCall(chat.id, chat.participants, chat.type, 'audio');
-              }}
-              className="hover:text-blue-600 transition-colors"
-              title="Sesli Arama Başlat"
-            >
-              <Phone size={20} />
-            </button>
+          {!activeCallForChat && (
+            <>
+              <button 
+                onClick={() => chat && startCall(chat.id, chat.participants, chat.type, 'audio')}
+                className="w-9 h-9 flex items-center justify-center rounded-full hover:bg-blue-50 hover:text-blue-600 transition-all active:scale-90"
+                title="Sesli Arama Başlat"
+              >
+                <Phone size={18} />
+              </button>
+              <button 
+                onClick={() => chat && startCall(chat.id, chat.participants, chat.type, 'video')}
+                className="w-9 h-9 flex items-center justify-center rounded-full bg-blue-500 text-white hover:bg-blue-600 transition-all active:scale-90 shadow-md shadow-blue-500/20"
+                title="Görüntülü Arama Başlat"
+              >
+                <Video size={18} />
+              </button>
+            </>
           )}
 
-          {/* GÖRÜŞMEDESİN: bu sohbet için aktif arama varsa */}
-          {activeCall && activeCall.chatId === chatId && (
+          {activeCallForChat && activeCall?.id === activeCallForChat.id && (
             <div className="flex items-center gap-2 px-3 py-1.5 bg-blue-50 text-blue-600 rounded-xl text-[10px] font-black uppercase tracking-widest">
               <div className="w-2 h-2 bg-blue-600 rounded-full animate-ping" />
               GÖRÜŞMEDESİN
             </div>
           )}
-
-          {(chat?.type === 'private' || chat?.groupMetadata?.adminId === user?.uid) && (
+          
+          <div className="relative">
             <button 
-              onClick={handleHoldToggle}
-              className={cn("transition-colors relative", amIHolding ? "text-amber-500" : "hover:text-amber-500")}
-              title={amIHolding ? 'Beklemeden Çıkar' : 'Beklemeye Al'}
+              onClick={() => setIsHeaderMenuOpen(!isHeaderMenuOpen)}
+              className="hover:text-slate-900 transition-colors p-1 rounded-full hover:bg-slate-100"
             >
-              {amIHolding ? <Play size={20} /> : <Pause size={20} />}
-              {chat?.type === 'private' && !amIHolding && chat.holdDate === new Date().toISOString().slice(0, 10) && (chat.holdDailyCount || 0) > 0 && (
-                <div className="absolute -top-2 -right-2 min-w-[16px] h-4 bg-red-500 border-2 border-white rounded-full flex items-center justify-center">
-                  <span className="text-[7px] font-black text-white leading-none px-1">{10 - (chat.holdDailyCount || 0)}</span>
+              <MoreVertical size={20} />
+            </button>
+
+            {isHeaderMenuOpen && (
+              <>
+                <div 
+                  className="fixed inset-0 z-40" 
+                  onClick={() => setIsHeaderMenuOpen(false)} 
+                />
+                <div className="absolute right-0 mt-2 w-56 bg-white border border-slate-150 rounded-2xl shadow-xl py-2 z-50 animate-in fade-in slide-in-from-top-1 duration-100">
+                  <div className="px-4 py-2 border-b border-slate-100">
+                    <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">Sohbet İşlemleri</p>
+                  </div>
+                  <button 
+                    onClick={handleClearChat}
+                    className="w-full text-left px-4 py-3 text-xs font-bold text-red-600 hover:bg-red-50 transition-colors flex items-center gap-2"
+                  >
+                    🗑️ Sohbet Geçmişini Temizle
+                  </button>
+                  <button 
+                    onClick={() => {
+                      setShowDeletedMessages(!showDeletedMessages);
+                      setIsHeaderMenuOpen(false);
+                    }}
+                    className={cn(
+                      "w-full text-left px-4 py-3 text-xs font-bold transition-colors flex items-center gap-2",
+                      showDeletedMessages ? "text-amber-600 hover:bg-amber-50" : "text-blue-600 hover:bg-blue-50"
+                    )}
+                  >
+                    {showDeletedMessages ? '🙈 Sildiğim Mesajları Gizle' : '👁️ Sildiğim Mesajları Göster'}
+                  </button>
+                  <button 
+                    onClick={() => {
+                      const uinList = chat?.type === 'group' 
+                        ? chat.participants.map(pId => `👤 ${participantInfo[pId]?.displayName || 'Katılımcı'} (UIN: #${participantInfo[pId]?.uin || 'Yok'})`).join('\n')
+                        : `👤 ${headerInfo.name} (UIN: #${headerInfo.uin || 'Yok'})`;
+                      showCustomAlert("Sohbet / Katılımcı Bilgileri", uinList);
+                      setIsHeaderMenuOpen(false);
+                    }}
+                    className="w-full text-left px-4 py-3 text-xs font-bold text-slate-700 hover:bg-slate-50 transition-colors flex items-center gap-2"
+                  >
+                    ℹ️ Sohbet / Katılımcı Bilgileri
+                  </button>
                 </div>
-              )}
-            </button>
-          )}
-          <button 
-            onClick={() => setShowChatSearch(!showChatSearch)}
-            className="hover:text-blue-600 transition-colors"
-            title="Sohbet İçi Ara"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
-          </button>
-          
-          <div className="relative">
-            <button 
-              onClick={() => { setBatchMode(!batchMode); setSelectedMsgs(new Set()); }}
-              className={`hover:text-slate-900 transition-colors p-1 rounded-full hover:bg-slate-100 ${batchMode ? 'text-blue-600' : ''}`}
-              title="Toplu Mesaj Seç"
-            >
-              <ListChecks size={20} />
-            </button>
-          </div>
-          
-          <button 
-            onClick={() => { 
-              if (chat?.type === 'group') {
-                setShowGroupInfo(true); 
-              } else if (otherUser) {
-                setViewProfile(otherUser);
-              } else if (chat?.type === 'private') {
-                const otherId = chat.participants.find(p => p !== user?.uid);
-                if (otherId && participantInfo[otherId]) {
-                  setViewProfile(participantInfo[otherId]);
-                }
-              }
-            }}
-            className="hover:text-blue-600 transition-colors p-1.5 rounded-full hover:bg-blue-50"
-            title={chat?.type === 'group' ? 'Grup Bilgileri' : 'Kişi Bilgileri'}
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
-          </button>
-        </div>
-      </header>
-
-      {showChatSearch && (
-        <div className="p-3 bg-white border-b border-slate-200 shrink-0 z-10">
-          <div className="relative">
-            <input type="text" value={chatSearchQuery} onChange={e => setChatSearchQuery(e.target.value)}
-              placeholder="Mesajlarda ara..."
-              className="w-full bg-slate-100 border-none rounded-xl py-2.5 pl-10 pr-4 text-sm outline-none"
-              autoFocus
-            />
-            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
-            {chatSearchQuery && (
-              <button onClick={() => setChatSearchQuery('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-red-500">
-                <X size={16} />
-              </button>
+              </>
             )}
           </div>
-          <div className="mt-1 text-[9px] text-slate-400 font-bold">
-            {messages.filter(m => m.text?.toLowerCase().includes(chatSearchQuery.toLowerCase())).length} sonuç
-          </div>
         </div>
-      )}
-
-      {isBeingHeld && (
-        <div className="bg-amber-50 border-b border-amber-200 px-4 py-2 flex items-center justify-between shrink-0 z-10">
-          <div className="flex items-center gap-2">
-            <Pause size={14} className="text-amber-600" />
-            <span className="text-[10px] font-black text-amber-700 uppercase tracking-wider">Sohbet Beklemeye Alındı</span>
-          </div>
-        </div>
-      )}
+      </header>
 
       {/* Messages */}
       <div 
         ref={scrollRef}
-        className="flex-1 overflow-y-auto p-3 sm:p-10 space-y-4 sm:space-y-6 custom-scrollbar z-10"
+        className="flex-1 overflow-y-auto p-10 space-y-6 custom-scrollbar z-10"
       >
-        <div className="flex justify-center mb-4 sm:mb-8">
+        <div className="flex justify-center mb-8">
           <span className="px-3 py-1 bg-slate-200 text-slate-500 rounded-full text-[10px] font-bold uppercase tracking-widest shadow-sm">BUGÜN</span>
         </div>
 
         <AnimatePresence>
           {messages
-            .filter(msg => !msg.deletedBy?.includes(user?.uid || ''))
-            .filter(msg => !chatSearchQuery || msg.text?.toLowerCase().includes(chatSearchQuery.toLowerCase()))
+            .filter(msg => !msg.isDeleted || (showDeletedMessages && msg.senderId === user?.uid))
             .map((msg, idx) => {
               const isMe = msg.senderId === user?.uid;
               const sender = participantInfo[msg.senderId];
-              const isDeleted = (msg.deletedBy?.length || 0) > 0;
+              const isDeleted = msg.isDeleted === true;
 
               return (
                 <motion.div 
@@ -1169,26 +676,12 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
                   animate={{ opacity: 1, y: 0 }}
                   key={msg.id || idx}
                   className={cn(
-                    "flex items-end space-x-2 sm:space-x-3 max-w-[90%] sm:max-w-[70%]",
+                    "flex items-end space-x-3 max-w-[80%] sm:max-w-[70%]",
                     isMe ? "self-end flex-row-reverse space-x-reverse" : "self-start"
                   )}
                 >
-                  {batchMode && !isDeleted && msg.id && (
-                    <div className="flex items-center pb-4">
-                      <input type="checkbox"
-                        checked={selectedMsgs.has(msg.id)}
-                        onChange={() => {
-                          const next = new Set(selectedMsgs);
-                          if (next.has(msg.id!)) next.delete(msg.id!);
-                          else next.add(msg.id!);
-                          setSelectedMsgs(next);
-                        }}
-                        className="w-4 h-4 accent-blue-600 cursor-pointer shrink-0"
-                      />
-                    </div>
-                  )}
                   {!isMe && (
-                    <div className="w-8 h-8 rounded-full bg-slate-200 shrink-0 border border-white shadow-sm overflow-hidden cursor-pointer" onClick={() => sender && setViewProfile(sender)}>
+                    <div className="w-8 h-8 rounded-full bg-slate-200 shrink-0 border border-white shadow-sm overflow-hidden">
                       <img src={sender?.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${msg.senderId}`} alt="" className="w-full h-full object-cover" />
                     </div>
                   )}
@@ -1196,126 +689,66 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
                      "flex flex-col relative group",
                      isMe ? "items-end" : "items-start"
                   )}>
-                    {!isMe && (
-                      <div className="flex flex-col mb-1 ml-1 cursor-pointer" onClick={() => sender && setViewProfile(sender)}>
-                        <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider hover:text-blue-500 transition-colors">
-                          {sender?.nickname || sender?.displayName || 'Bilinmeyen'}
-                        </span>
-                        {sender?.uin && (
-                          <span className="text-[8px] font-bold text-slate-300 uppercase tracking-tight">
-                            #{sender.uin}
-                          </span>
-                        )}
-                      </div>
+                    {!isMe && chat?.type === 'group' && (
+                      <span className="text-[10px] font-black text-slate-400 mb-1 ml-1 uppercase tracking-wider">
+                        {sender?.displayName || 'Bilinmeyen'}
+                      </span>
                     )}
                     <div 
                       onContextMenu={(e) => msg.id && !isDeleted && onContextMenu(e, msg.id)}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        if (batchMode && msg.id && !isDeleted) {
-                          const next = new Set(selectedMsgs);
-                          if (next.has(msg.id)) next.delete(msg.id);
-                          else next.add(msg.id);
-                          setSelectedMsgs(next);
-                        } else if (msg.id && !isDeleted) {
-                          setSelectedActionMsg(prev => prev === msg.id ? null : msg.id);
-                        }
-                      }}
                       className={cn(
-                        "px-5 py-3 rounded-2xl shadow-sm border overflow-hidden transition-all duration-300",
+                        "px-5 py-3 rounded-2xl shadow-sm border overflow-hidden relative group/bubble transition-all duration-300",
                         isDeleted
-                          ? "bg-slate-100 text-slate-400 border-slate-200/60 opacity-60"
+                          ? "bg-slate-100 text-slate-400 border-slate-200/60 opacity-60 rounded-br-none"
                           : isMe 
                             ? "bg-blue-600 text-white border-blue-500 rounded-br-none shadow-blue-100" 
-                            : "bg-white text-slate-800 border-slate-100 rounded-bl-none",
-                        !isDeleted && msg.id && "cursor-pointer"
+                            : "bg-white text-slate-800 border-slate-100 rounded-bl-none"
                       )}
                     >
                       {isDeleted && (
                         <div className="text-[9px] font-black uppercase tracking-wider text-rose-500 flex items-center gap-1 mb-1.5 bg-rose-50 border border-rose-100 px-1.5 py-0.5 rounded w-max select-none">
-                          <Trash2 size={10} /> SİLİNMİŞ MESAJ
+                          <Trash2 size={10} /> SİLDİĞİNİZ MESAJ
                         </div>
                       )}
 
                       {msg.type === 'text' && (
-                        msg.encrypted && !isDeleted ? (
-                          <button onClick={(e) => { e.stopPropagation(); setDecryptModal(msg); }}
-                            className="text-sm font-medium leading-relaxed opacity-70 hover:opacity-100 text-left w-full">
-                            🔒 Şifreli Mesaj (dokunun)
-                          </button>
-                        ) : (
-                          <p className={cn(
-                            "text-sm font-medium leading-relaxed",
-                            isDeleted && "line-through text-slate-400 font-normal italic"
-                          )}>{msg.text}</p>
-                        )
+                        <p className={cn(
+                          "text-sm font-medium leading-relaxed",
+                          isDeleted && "line-through text-slate-400 font-normal italic"
+                        )}>{msg.text}</p>
                       )}
                       
                       {msg.type === 'image' && msg.imageUrl && (
-                        <div className={cn("relative rounded-lg overflow-hidden mb-1 max-w-[180px]", isDeleted && "grayscale blur-[2px] opacity-40")}>
-                          {msg.encrypted && !isDeleted ? (
-                            <>
-                              <img src={msg.imageUrl} alt="" className="w-full h-auto object-cover blur-[12px]" />
-                              <div className="absolute inset-0 flex items-center justify-center">
-                                <button onClick={(e) => { e.stopPropagation(); setDecryptModal(msg); }}
-                                  className="bg-black/50 text-white text-[10px] font-bold px-3 py-1.5 rounded-full backdrop-blur-sm hover:bg-black/70 cursor-pointer">🔒 Şifreli</button>
-                              </div>
-                            </>
-                          ) : (
-                            <img src={msg.imageUrl} alt=""
-                              className={cn("w-full h-auto object-cover cursor-pointer transition-all duration-300", !msg.encrypted && "hover:scale-105")}
-                              onClick={() => { if (!isDeleted) setFullScreenImage(msg.imageUrl!); }} />
-                          )}
+                        <div className={cn(
+                          "relative rounded-lg overflow-hidden mb-1 min-w-[200px]",
+                          isDeleted && "grayscale blur-[2px] opacity-40"
+                        )}>
+                          <img 
+                            src={msg.imageUrl} 
+                            alt="Paylaşılan görsel" 
+                            className="max-w-full h-auto object-cover hover:scale-105 transition-transform duration-500 cursor-pointer"
+                            onClick={() => !isDeleted && window.open(msg.imageUrl, '_blank')}
+                          />
                         </div>
                       )}
 
                       {msg.type === 'video' && msg.videoUrl && (
-                        <div className={cn("relative rounded-lg overflow-hidden mb-1 min-w-[240px] bg-black/5", isDeleted && "grayscale blur-[2px] opacity-40")}>
-                          {msg.encrypted && !isDeleted ? (
-                            <div className="relative">
-                              <video src={msg.videoUrl} className="max-w-full h-auto blur-[12px]" playsInline />
-                              <div className="absolute inset-0 flex items-center justify-center">
-                                <button onClick={(e) => { e.stopPropagation(); setDecryptModal(msg); }}
-                                  className="bg-black/50 text-white text-[10px] font-bold px-3 py-1.5 rounded-full backdrop-blur-sm hover:bg-black/70 cursor-pointer">🔒 Şifreli</button>
-                              </div>
-                            </div>
-                          ) : (
-                            <video src={msg.videoUrl} className="max-w-full h-auto" controls={!isDeleted} playsInline />
-                          )}
-                        </div>
-                      )}
-
-                      {msg.type === 'call' && (
-                        <div className={cn("flex items-center gap-2 py-2 px-3 rounded-xl", 
-                          msg.callStatus === 'answered' ? "bg-green-100 text-green-800" :
-                          msg.callStatus === 'rejected' || msg.callStatus === 'missed' ? "bg-red-100 text-red-800" :
-                          msg.callStatus === 'completed' ? "bg-blue-50 text-blue-800" : "bg-slate-50 text-slate-600")}>
-                          <span className="text-lg">
-                            {msg.callStatus === 'completed' ? '✅' : 
-                             msg.callStatus === 'answered' ? '✅' :
-                             msg.callStatus === 'missed' ? '❌' : 
-                             msg.callStatus === 'rejected' ? '❌' : '📞'}
-                          </span>
-                          <div>
-                            <p className="text-xs font-bold">
-                              {msg.callStatus === 'completed' 
-                                ? `Görüşme ${Math.floor((msg.callDuration || 0) / 60)}:${String((msg.callDuration || 0) % 60).padStart(2, '0')}`
-                                : msg.callStatus === 'answered' ? 'Gelen Arama Yanıtlandı'
-                                : msg.callStatus === 'rejected' ? 'Gelen Arama Reddedildi'
-                                : msg.callStatus === 'missed' ? 'Cevaplanmadı' : 'Çağrı'}
-                            </p>
-                          </div>
+                        <div className={cn(
+                          "relative rounded-lg overflow-hidden mb-1 min-w-[240px] bg-black/5",
+                          isDeleted && "grayscale blur-[2px] opacity-40"
+                        )}>
+                          <video 
+                            src={msg.videoUrl} 
+                            className="max-w-full h-auto" 
+                            controls={!isDeleted}
+                            playsInline
+                          />
                         </div>
                       )}
 
                       {msg.type === 'audio' && msg.audioUrl && (
                         <div className={cn(isDeleted && "grayscale opacity-40 pointer-events-none")}>
-                          {msg.encrypted && !isDeleted ? (
-                            <button onClick={(e) => { e.stopPropagation(); setDecryptModal(msg); }}
-                              className="text-[10px] font-bold flex items-center gap-1 text-slate-500 hover:text-slate-700">🔒 Şifreli Ses Mesajı (dokunun)</button>
-                          ) : (
-                            <AudioPlayer url={msg.audioUrl} isMe={isMe} />
-                          )}
+                          <AudioPlayer url={msg.audioUrl} isMe={isMe} />
                         </div>
                       )}
 
@@ -1330,61 +763,41 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
                       </div>
                     </div>
 
-                    {/* Click-to-show Actions: Reaction & Delete */}
-                    {!isDeleted && msg.id && selectedActionMsg === msg.id && (
+                    {/* Hover Actions: Reaction & Delete */}
+                    {!isDeleted && msg.id && (
                       <div className={cn(
-                        "flex items-center gap-1 animate-in fade-in zoom-in-95 duration-150",
-                        isMe ? "justify-end mt-1.5" : "justify-start mt-1.5"
+                        "absolute flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-200 bg-white border border-slate-200 p-1 rounded-full shadow-lg z-20",
+                        isMe ? "right-full mr-3 top-1/2 -translate-y-1/2" : "left-full ml-3 top-1/2 -translate-y-1/2"
                       )}>
-                        <div className="inline-flex items-center gap-1 bg-white border border-slate-200 p-1 rounded-full shadow-lg">
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (msg.id) {
                               setReactionMenu({ msgId: msg.id, x: e.clientX, y: e.clientY });
-                            }}
-                            className="p-1.5 px-2 text-slate-500 hover:text-slate-700 hover:bg-slate-100 active:scale-110 transition-all rounded-full cursor-pointer"
-                            title="Tepki Bırak"
-                          >
-                            <Smile size={14} />
-                          </button>
+                            }
+                          }}
+                          className="p-1 px-1.5 text-slate-400 hover:text-slate-600 active:scale-110 transition-all rounded-full flex items-center justify-center cursor-pointer"
+                          title="Tepki Bırak"
+                        >
+                          <Smile size={14} />
+                        </button>
+                        
+                        {isMe && (
                           <button
                             type="button"
                             onClick={(e) => {
                               e.stopPropagation();
-                              setSelectedActionMsg(null);
-                              confirmDeleteMsg(msg.id);
+                              if (msg.id) {
+                                handleDeleteMessage(msg.id);
+                              }
                             }}
-                            className="p-1.5 px-2 text-slate-500 hover:text-red-500 hover:bg-red-50 active:scale-110 transition-all rounded-full cursor-pointer"
-                            title={isMe ? 'Mesajı Sil' : 'Benden Sil'}
+                            className="p-1 px-1.5 text-slate-400 hover:text-red-500 active:scale-110 transition-all rounded-full flex items-center justify-center cursor-pointer"
+                            title="Mesajı Sil"
                           >
                             <Trash2 size={13} />
                           </button>
-                          {(msg.imageUrl || msg.videoUrl) && (
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setSelectedActionMsg(null);
-                                if (msg.encrypted && !isMe) {
-                                  setDecryptModal(msg);
-                                  return;
-                                }
-                                const url = msg.imageUrl || msg.videoUrl || '';
-                                const a = document.createElement('a');
-                                a.href = url;
-                                a.download = msg.type === 'image' ? 'image.png' : 'video.webm';
-                                document.body.appendChild(a);
-                                a.click();
-                                document.body.removeChild(a);
-                              }}
-                              className="p-1.5 px-2 text-slate-500 hover:text-blue-500 hover:bg-blue-50 active:scale-110 transition-all rounded-full cursor-pointer"
-                              title="İndir"
-                            >
-                              <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-                            </button>
-                          )}
-                        </div>
+                        )}
                       </div>
                     )}
 
@@ -1421,60 +834,11 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
             );
           })}
         </AnimatePresence>
-
-        {/* Persistent Admin Message Button */}
-        </div>
-
-      {/* Batch Action Bar */}
-      {batchMode && (
-        <div className="p-3 bg-white border-t border-b border-slate-200 flex items-center justify-between shrink-0 z-10">
-          <span className="text-xs font-bold text-slate-500">{selectedMsgs.size} mesaj seçildi</span>
-          <div className="flex gap-2">
-            <button onClick={() => { setBatchMode(false); setSelectedMsgs(new Set()); }}
-              className="px-4 py-2 bg-slate-100 text-slate-600 rounded-xl text-[10px] font-black uppercase tracking-wider">
-              İptal
-            </button>
-            <button disabled={selectedMsgs.size === 0}
-              onClick={() => {
-                const count = selectedMsgs.size;
-                showCustomConfirm('Mesajları Sil', `${count} mesajı silmek istediğinize emin misiniz? Admin onayına gönderilecektir.`, async () => {
-                  if (!chat) return;
-                  for (const msgId of selectedMsgs) {
-                    try {
-                      const msgRef = doc(db, 'chats', chatId, 'messages', msgId);
-                      await updateDoc(msgRef, {
-                        deletedBy: arrayUnion(user!.uid)
-                      });
-                      await addDoc(collection(db, 'adminDeleteRequests'), {
-                        chatId,
-                        msgId,
-                        requestedBy: user!.uid,
-                        participants: chat.participants,
-                        timestamp: serverTimestamp(),
-                        status: 'pending'
-                      });
-                    } catch (err) { console.error(err); }
-                  }
-                  setBatchMode(false);
-                  setSelectedMsgs(new Set());
-                });
-              }}
-              className="px-4 py-2 bg-red-500 text-white rounded-xl text-[10px] font-black uppercase tracking-wider disabled:opacity-40">
-              Seçilenleri Sil
-            </button>
-          </div>
-        </div>
-      )}
+      </div>
 
       {/* Input Area */}
-      <footer id="chat-input-footer" className="p-2 sm:p-6 bg-white border-t border-slate-200 shrink-0 z-10 transition-all duration-200 safe-area-bottom">
-        {isBeingHeld && (
-          <div className="px-4 py-2 bg-amber-50 border-b border-amber-200 rounded-t-xl flex items-center gap-2 shrink-0">
-            <Pause size={14} className="text-amber-600" />
-            <span className="text-[10px] font-bold text-amber-700">Bu sohbet beklemeye alındı. Mesaj gönderemezsiniz.</span>
-          </div>
-        )}
-        <div className="max-w-4xl mx-auto flex items-center bg-slate-100 rounded-xl sm:rounded-2xl p-1 sm:p-2 focus-within:ring-2 focus-within:ring-blue-500 transition-all relative gap-0.5 sm:gap-0">
+      <footer className="p-6 bg-white border-t border-slate-200 shrink-0 z-10">
+        <div className="max-w-4xl mx-auto flex items-center bg-slate-100 rounded-2xl p-2 focus-within:ring-2 focus-within:ring-blue-500 transition-all relative">
           
           {/* Hidden inputs for real uploads */}
           <input 
@@ -1492,22 +856,22 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
             className="hidden"
           />
 
-          <div className="relative shrink-0">
+          <div className="relative">
             <button 
               type="button" 
               onClick={() => setIsEmojiMenuOpen(!isEmojiMenuOpen)}
               className={cn(
-                "p-1.5 sm:p-2 text-slate-400 hover:text-slate-600 transition-colors rounded-lg sm:rounded-xl",
+                "p-2 text-slate-400 hover:text-slate-600 transition-colors rounded-xl",
                 isEmojiMenuOpen && "bg-slate-200 text-slate-700"
               )}
             >
-              <Smile size={18} className="sm:size-[20px]" />
+              <Smile size={20} />
             </button>
 
             {isEmojiMenuOpen && (
               <>
                 <div className="fixed inset-0 z-30" onClick={() => setIsEmojiMenuOpen(false)} />
-                <div className="absolute bottom-full mb-2 left-0 sm:bottom-12 sm:left-0 w-56 sm:w-64 bg-white border border-slate-150 rounded-2xl shadow-xl p-2 sm:p-3 z-40 grid grid-cols-5 gap-1 animate-in fade-in slide-in-from-bottom-2 duration-150">
+                <div className="absolute bottom-12 left-0 w-64 bg-white border border-slate-150 rounded-2xl shadow-xl p-3 z-40 grid grid-cols-5 gap-1.5 animate-in fade-in slide-in-from-bottom-2 duration-155">
                   {['😀', '😂', '😍', '👍', '🔥', '🎉', '❤️', '🤔', '😎', '👏', '🙏', '😭', '😡', '😮', '🚀'].map(emoji => (
                     <button
                       type="button"
@@ -1529,67 +893,53 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
           <button 
             type="button" 
             onClick={handleImageSend}
-            className="p-1.5 sm:p-2 text-slate-400 hover:text-slate-600 transition-colors shrink-0"
-            title="Görsel Gönder"
+            className="p-2 text-slate-400 hover:text-slate-600 transition-colors"
           >
-            <Image size={18} className="sm:size-[20px]" />
-          </button>
-          <button 
-            type="button"
-            onClick={() => setEncryptMode(!encryptMode)}
-            className={cn(
-              "p-1.5 sm:p-2 transition-colors shrink-0",
-              encryptMode ? "text-amber-500 bg-amber-50 rounded-lg" : "text-slate-400 hover:text-slate-600"
-            )}
-            title={encryptMode ? 'Şifreli Gönder: AÇIK' : 'Şifreli Gönder: KAPALI'}
-          >
-            <span className="text-sm">🔒</span>
+            <Image size={20} />
           </button>
           <button 
             type="button" 
-            onClick={openVideoDialog}
-            className="p-1.5 sm:p-2 text-slate-400 hover:text-slate-600 transition-colors shrink-0"
-            title="Video Kaydı (10sn)"
+            onClick={handleVideoSend}
+            className="p-2 text-slate-400 hover:text-slate-600 transition-colors"
           >
-            <Video size={18} className="sm:size-[20px]" />
+            <Video size={20} />
           </button>
 
           {isRecording ? (
-            <div className="flex items-center gap-1.5 sm:gap-3 px-2 sm:px-4 py-1 bg-red-50 text-red-600 rounded-lg sm:rounded-xl animate-in fade-in zoom-in-95 duration-200 shrink-0">
-               <div className="w-2 h-2 bg-red-600 rounded-full animate-ping shrink-0" />
-               <span className="text-[10px] sm:text-xs font-black tabular-nums">{Math.floor(recordingTime / 60)}:{String(recordingTime % 60).padStart(2, '0')}</span>
-               <button onClick={stopRecording} className="p-1 px-1.5 sm:px-2 bg-red-600 text-white rounded-lg text-[9px] sm:text-[10px] font-bold uppercase tracking-wider whitespace-nowrap">Gönder</button>
+            <div className="flex items-center gap-3 px-4 py-1 bg-red-50 text-red-600 rounded-xl animate-in fade-in zoom-in-95 duration-200">
+               <div className="w-2 h-2 bg-red-600 rounded-full animate-ping" />
+               <span className="text-xs font-black tabular-nums">{Math.floor(recordingTime / 60)}:{String(recordingTime % 60).padStart(2, '0')}</span>
+               <button onClick={stopRecording} className="p-1 px-2 bg-red-600 text-white rounded-lg text-[10px] font-bold uppercase tracking-wider">Durur ve Gönder</button>
             </div>
           ) : (
             <button 
               type="button" 
               onClick={startRecording}
-              className="p-1.5 sm:p-2 text-slate-400 hover:text-red-500 transition-colors shrink-0"
+              className="p-2 text-slate-400 hover:text-red-500 transition-colors"
             >
-              <Mic size={18} className="sm:size-[20px]" />
+              <Mic size={20} />
             </button>
           )}
 
-          <form onSubmit={handleSend} className="flex-1 flex items-center min-w-0">
+          <form onSubmit={handleSend} className="flex-1 flex items-center">
             <input 
               type="text" 
               value={inputText}
               onChange={(e) => setInputText(e.target.value)}
-              placeholder={isBeingHeld ? "Sohbet beklemeye alındı..." : "Mesaj yaz..."}
-              disabled={isBeingHeld}
-              className="flex-1 bg-transparent border-none focus:ring-0 text-sm py-1.5 sm:py-2 px-2 sm:px-4 text-slate-900 placeholder:text-slate-400 min-w-0 w-0"
+              placeholder="Mesaj yaz..."
+              className="flex-1 bg-transparent border-none focus:ring-0 text-sm py-2 px-4 text-slate-900 placeholder:text-slate-400"
             />
             <button 
               type="submit"
-              disabled={!inputText.trim() || isBeingHeld}
+              disabled={!inputText.trim()}
               className={cn(
-                "p-1.5 sm:p-2 rounded-lg sm:rounded-xl transition-all flex items-center justify-center shadow-lg shrink-0",
-                inputText.trim() && !isBeingHeld
+                "p-2 rounded-xl transition-all flex items-center justify-center shadow-lg",
+                inputText.trim() 
                   ? "bg-blue-600 text-white shadow-blue-200 hover:bg-blue-700" 
                   : "bg-slate-200 text-slate-400 cursor-not-allowed shadow-none"
               )}
             >
-              <Send size={16} className="sm:size-[18px]" />
+              <Send size={18} />
             </button>
           </form>
         </div>
@@ -1604,8 +954,8 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
             exit={{ opacity: 0, scale: 0.9, y: 10 }}
             className="fixed z-[100] bg-white/80 backdrop-blur-xl border border-slate-200 shadow-2xl rounded-2xl p-2 flex gap-1 items-center"
             style={{ 
-              top: Math.min(reactionMenu.y, window.innerHeight - 100), 
-              left: Math.max(8, Math.min(reactionMenu.x, window.innerWidth - 320))
+              top: Math.min(reactionMenu.y, window.innerHeight - 80), 
+              left: Math.min(reactionMenu.x, window.innerWidth - 300) 
             }}
             onClick={(e) => e.stopPropagation()}
           >
@@ -1613,7 +963,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
               <button
                 key={emoji}
                 onClick={() => handleReaction(reactionMenu.msgId, emoji)}
-                className="w-9 h-9 sm:w-10 sm:h-10 flex items-center justify-center text-lg sm:text-xl hover:bg-slate-100 rounded-xl transition-all active:scale-125"
+                className="w-10 h-10 flex items-center justify-center text-xl hover:bg-slate-100 rounded-xl transition-all active:scale-125"
               >
                 {emoji}
               </button>
@@ -1665,349 +1015,6 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
           </div>
         )}
       </AnimatePresence>
-
-        {/* Profile View Modal */}
-        <AnimatePresence>
-          {viewProfile && (
-            <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm" onClick={() => setViewProfile(null)}>
-              <motion.div
-                initial={{ opacity: 0, scale: 0.9 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.9 }}
-                className="bg-white rounded-3xl p-8 shadow-2xl max-w-sm w-full flex flex-col items-center gap-4"
-                onClick={e => e.stopPropagation()}
-              >
-                <div className="w-24 h-24 rounded-2xl overflow-hidden bg-slate-100 border-4 border-white shadow-xl">
-                  <img src={viewProfile.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${viewProfile.uid}`} className="w-full h-full object-cover" />
-                </div>
-                <div className="text-center">
-                  <h3 className="text-lg font-black text-slate-900">{viewProfile.nickname || viewProfile.displayName}</h3>
-                  <p className="text-xs font-bold text-blue-500">#{viewProfile.uin}</p>
-                  {viewProfile.nickname && (
-                    <p className="text-xs text-slate-400 mt-1">@{viewProfile.displayName}</p>
-                  )}
-                </div>
-                {viewProfile.about && (
-                  <div className="w-full bg-slate-50 rounded-2xl p-4 border border-slate-100">
-                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Hakkında</p>
-                    <p className="text-sm font-bold text-slate-700">{viewProfile.about}</p>
-                  </div>
-                )}
-                {viewProfile.showBirthDate !== false && viewProfile.birthDate && (
-                  <div className="w-full bg-slate-50 rounded-2xl p-4 border border-slate-100">
-                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">🎂 Doğum Tarihi</p>
-                    <p className="text-sm font-bold text-slate-700">{viewProfile.birthDate}</p>
-                  </div>
-                )}
-                {viewProfile.showPhone !== false && viewProfile.phone && (
-                  <div className="w-full bg-slate-50 rounded-2xl p-4 border border-slate-100">
-                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">📞 Telefon</p>
-                    <p className="text-sm font-bold text-slate-700">{viewProfile.phone}</p>
-                  </div>
-                )}
-                {viewProfile.showLocation !== false && viewProfile.location && (
-                  <div className="w-full bg-slate-50 rounded-2xl p-4 border border-slate-100">
-                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">📍 Konum</p>
-                    <p className="text-sm font-bold text-slate-700">{viewProfile.location}</p>
-                  </div>
-                )}
-                <div className="flex items-center gap-2">
-                  <div className={cn("w-2 h-2 rounded-full", viewProfile.onlineStatus === 'online' ? 'bg-green-500' : viewProfile.onlineStatus === 'away' ? 'bg-amber-500' : viewProfile.onlineStatus === 'busy' ? 'bg-red-500' : 'bg-slate-300')} />
-                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-                    {viewProfile.onlineStatus === 'online' ? 'Çevrimiçi' : viewProfile.onlineStatus === 'away' ? 'Uzakta' : viewProfile.onlineStatus === 'busy' ? 'Meşgul' : 'Çevrimdışı'}
-                  </span>
-                </div>
-                <button onClick={() => setViewProfile(null)} className="mt-2 px-6 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl text-xs font-bold transition-all">
-                  Kapat
-                </button>
-              </motion.div>
-            </div>
-          )}
-        </AnimatePresence>
-
-        {/* Video Recording Dialog */}
-        {showVideoDialog && (
-          <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/70" onClick={closeVideoDialog}>
-            <div className="bg-slate-950 rounded-2xl overflow-hidden shadow-2xl w-full max-w-sm mx-3" onClick={e => e.stopPropagation()}>
-              {/* Camera Preview */}
-              <div className="relative bg-black aspect-[3/4] flex items-center justify-center">
-                {videoDialogState !== 'result' ? (
-                    <video ref={el => { videoPreviewRef.current = el; }} autoPlay playsInline muted className="w-full h-full object-cover" />
-                ) : (
-                  <video src={recordedVideoUrl || ''} controls playsInline className="w-full h-full object-cover" />
-                )}
-
-                {/* Close button */}
-                <button onClick={closeVideoDialog} className="absolute top-3 right-3 p-1.5 bg-slate-900/60 hover:bg-slate-900/80 rounded-full text-white transition-all z-10">
-                  <X size={18} />
-                </button>
-
-                {/* Timer */}
-                {videoDialogState === 'recording' && (
-                  <div className="absolute top-3 left-3 flex items-center gap-1.5 bg-black/60 px-2.5 py-1 rounded-full">
-                    <div className="w-2 h-2 bg-red-500 rounded-full animate-ping" />
-                    <span className="text-white text-xs font-black tabular-nums">{Math.floor(videoRecordingTime / 60)}:{String(videoRecordingTime % 60).padStart(2, '0')}</span>
-                  </div>
-                )}
-              </div>
-
-              {/* Controls */}
-              <div className="p-5 flex items-center justify-center gap-5 bg-slate-900">
-                {videoDialogState === 'preview' && (
-                  <>
-                    <button onClick={toggleCamera} className="p-3 bg-slate-800 hover:bg-slate-700 rounded-full text-white transition-all" title="Kamera Değiştir">
-                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
-                    </button>
-                    <button onClick={startVideoRecording} className="w-14 h-14 bg-red-600 hover:bg-red-700 rounded-full flex items-center justify-center text-white shadow-lg active:scale-95 transition-all">
-                      <div className="w-6 h-6 rounded-full bg-white" />
-                    </button>
-                    <div className="w-[52px]" />
-                  </>
-                )}
-                {videoDialogState === 'recording' && (
-                  <>
-                    <button onClick={stopVideoRecording} className="w-14 h-14 bg-red-600 hover:bg-red-700 rounded-full flex items-center justify-center text-white shadow-lg active:scale-95 transition-all">
-                      <div className="w-5 h-5 rounded-sm bg-white" />
-                    </button>
-                    <span className="text-xs text-slate-400 font-bold">Kaydediliyor...</span>
-                  </>
-                )}
-                {videoDialogState === 'result' && (
-                  <>
-                    <button onClick={discardVideo} className="p-3 bg-slate-800 hover:bg-slate-700 rounded-full text-red-400 transition-all">
-                      <Trash2 size={20} />
-                    </button>
-                    <button onClick={sendRecordedVideo} className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-black text-xs shadow-lg transition-all active:scale-95">
-                      Gönder
-                    </button>
-                  </>
-                )}
-              </div>
-            </div>
-          </div>
-        )}
-
-      {/* Group Info Modal */}
-      <AnimatePresence>
-      {showGroupInfo && chat?.type === 'group' && (
-        <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm" onClick={() => setShowGroupInfo(false)}>
-          <motion.div
-            initial={{ opacity: 0, scale: 0.9 }}
-            animate={{ opacity: 1, scale: 0.9 }}
-            exit={{ opacity: 0, scale: 0.9 }}
-            className="bg-white rounded-3xl p-5 shadow-2xl max-w-sm w-full border border-slate-100"
-            onClick={e => e.stopPropagation()}
-          >
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-sm font-black text-slate-900">Grup Bilgileri</h3>
-              <button onClick={() => setShowGroupInfo(false)} className="p-1 hover:bg-slate-100 rounded text-slate-400">
-                <X size={16} />
-              </button>
-            </div>
-            <div className="flex flex-col items-center gap-2 mb-4">
-              <div className="w-16 h-16 rounded overflow-hidden bg-slate-100 border-2 border-slate-100">
-                <img src={chat.groupMetadata?.photoURL || `https://api.dicebear.com/7.x/initials/svg?seed=${chat.id}`} className="w-full h-full object-cover" />
-              </div>
-              <h4 className="text-base font-bold text-slate-900">{chat.groupMetadata?.name}</h4>
-              <span className="text-[9px] font-bold text-amber-600 bg-amber-50 px-1.5 py-0.5">🔒 {chat.groupMetadata?.password ? 'Şifreli' : 'Açık'}</span>
-            </div>
-
-            {/* Participants */}
-            <div className="space-y-1 max-h-48 overflow-y-auto mb-3 border border-slate-200 p-2 bg-slate-50">
-              <p className="text-[9px] font-bold text-slate-500 uppercase mb-1">Katılımcılar ({chat.participants.length})</p>
-              {chat.participants.map(pId => {
-                const p = participantInfo[pId];
-                const isAdmin = pId === chat.groupMetadata?.adminId || pId === chat.groupMetadata?.createdBy;
-                const isMe = pId === user?.uid;
-                return (
-                  <div key={pId} className="flex items-center gap-2 p-2 bg-white border border-slate-200">
-                    <div className="w-7 h-7 rounded overflow-hidden bg-slate-200">
-                      <img src={p?.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${pId}`} className="w-full h-full object-cover" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs font-bold text-slate-900 truncate">
-                        {p?.displayName || 'Yükleniyor...'} {isMe && '(sen)'}
-                      </p>
-                      <p className="text-[8px] text-slate-400 font-bold">#{p?.uin || ''}</p>
-                    </div>
-                    {isAdmin && <span className="text-[7px] font-bold text-amber-600 bg-amber-50 px-1 py-0.5">YÖNETİCİ</span>}
-                  </div>
-                );
-              })}
-            </div>
-
-            {/* Admin Controls - only visible to group admin */}
-            {(user?.uid === chat.groupMetadata?.adminId || user?.uid === chat.groupMetadata?.createdBy) && (
-              <div className="space-y-2 border-t border-slate-200 pt-3">
-                <p className="text-[9px] font-bold text-blue-600 uppercase">Yönetici Kontrolleri</p>
-
-                {/* Transfer admin */}
-                <div className="flex items-center gap-2">
-                  <select id="newAdminSelect"
-                    className="flex-1 bg-white border border-slate-200 rounded px-2 py-1.5 text-xs font-bold text-slate-700 outline-none">
-                    <option value="">Yöneticiliği devret...</option>
-                    {chat.participants.filter(p => p !== user?.uid).map(pId => {
-                      const p = participantInfo[pId];
-                      return (
-                        <option key={pId} value={pId}>{p?.displayName || 'Bilinmeyen'} #{p?.uin || ''}</option>
-                      );
-                    })}
-                  </select>
-                  <button onClick={async () => {
-                    const select = document.getElementById('newAdminSelect') as HTMLSelectElement;
-                    const newAdminId = select?.value;
-                    if (!newAdminId || !chatId) return;
-                    try {
-                      await updateDoc(doc(db, 'chats', chatId), {
-                        'groupMetadata.adminId': newAdminId
-                      });
-                      showCustomAlert('Başarılı', 'Yöneticilik devredildi.');
-                    } catch (err) { console.error(err); }
-                  }} className="px-3 py-1.5 bg-blue-600 text-white rounded text-[10px] font-bold">
-                    Devret
-                  </button>
-                </div>
-
-                {/* Change password */}
-                <div className="flex items-center gap-2">
-                  <input type="text" id="newGroupPassword"
-                    placeholder="Yeni şifre (boş = şifre kaldır)"
-                    className="flex-1 bg-white border border-slate-200 rounded px-2 py-1.5 text-xs outline-none" />
-                  <button onClick={async () => {
-                    const input = document.getElementById('newGroupPassword') as HTMLInputElement;
-                    const newPwd = input?.value?.trim() || '';
-                    if (!chatId) return;
-                    try {
-                      if (newPwd) {
-                        await updateDoc(doc(db, 'chats', chatId), {
-                          'groupMetadata.password': newPwd
-                        });
-                      } else {
-                        await updateDoc(doc(db, 'chats', chatId), {
-                          'groupMetadata.password': ''
-                        });
-                      }
-                      input.value = '';
-                      showCustomAlert('Başarılı', newPwd ? 'Şifre güncellendi.' : 'Şifre kaldırıldı.');
-                    } catch (err) { console.error(err); }
-                  }} className="px-3 py-1.5 bg-blue-600 text-white rounded text-[10px] font-bold">
-                    Değiştir
-                  </button>
-                </div>
-
-                {/* Kick/Ban user */}
-                <div className="flex items-center gap-2">
-                  <select id="kickUserSelect"
-                    className="flex-1 bg-white border border-slate-200 rounded px-2 py-1.5 text-xs font-bold text-slate-700 outline-none">
-                    <option value="">Kullanıcı seç...</option>
-                    {chat.participants.filter(p => p !== user?.uid && p !== chat.groupMetadata?.adminId && p !== chat.groupMetadata?.createdBy).map(pId => {
-                      const p = participantInfo[pId];
-                      return (
-                        <option key={pId} value={pId}>{p?.displayName || 'Bilinmeyen'} #{p?.uin || ''}</option>
-                      );
-                    })}
-                  </select>
-                  <button onClick={async () => {
-                    const select = document.getElementById('kickUserSelect') as HTMLSelectElement;
-                    const kickedId = select?.value;
-                    if (!kickedId || !chatId) return;
-                    try {
-                      const updatedParticipants = chat.participants.filter(p => p !== kickedId);
-                      await updateDoc(doc(db, 'chats', chatId), {
-                        participants: updatedParticipants
-                      });
-                      showCustomAlert('Başarılı', 'Kullanıcı gruptan çıkarıldı.');
-                    } catch (err) { console.error(err); }
-                  }} className="px-3 py-1.5 bg-red-600 text-white rounded text-[10px] font-bold">
-                    At
-                  </button>
-                  <button onClick={async () => {
-                    const select = document.getElementById('kickUserSelect') as HTMLSelectElement;
-                    const bannedId = select?.value;
-                    if (!bannedId || !chatId) return;
-                    const banHours = prompt('Ban süresi (saat):', '24');
-                    if (!banHours) return;
-                    const hours = parseInt(banHours);
-                    if (isNaN(hours) || hours < 1) { showCustomAlert('Hata', 'Geçerli bir saat girin.'); return; }
-                    try {
-                      const banUntil = new Date(Date.now() + hours * 60 * 60 * 1000);
-                      const existingBans = chat.groupMetadata?.bannedUsers || [];
-                      await updateDoc(doc(db, 'chats', chatId), {
-                        'groupMetadata.bannedUsers': [...existingBans, { userId: bannedId, until: banUntil }]
-                      });
-                      showCustomAlert('Başarılı', `${hours} saat süreyle banlandı.`);
-                    } catch (err) { console.error(err); }
-                  }} className="px-3 py-1.5 bg-red-800 text-white rounded text-[10px] font-bold">
-                    Banla
-                  </button>
-                </div>
-              </div>
-            )}
-
-            <button onClick={() => setShowGroupInfo(false)}
-              className="w-full mt-4 py-2 bg-blue-600 text-white text-xs font-bold hover:bg-blue-700 transition-colors">
-              Kapat
-            </button>
-          </motion.div>
-        </div>
-      )}
-      </AnimatePresence>
-
-      {/* Decrypt Modal */}
-      <AnimatePresence>
-        {decryptModal && (
-          <div className="fixed inset-0 z-[9998] flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-md" onClick={() => setDecryptModal(null)}>
-            <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.9 }}
-              className="bg-white rounded-3xl p-6 shadow-2xl max-w-md w-full border border-slate-100" onClick={e => e.stopPropagation()}>
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-sm font-black text-slate-900 flex items-center gap-2">🔒 Şifreli Mesaj</h3>
-                <button onClick={() => setDecryptModal(null)} className="p-1 hover:bg-slate-100 rounded-full text-slate-400"><X size={18} /></button>
-              </div>
-              <DecryptContent msg={decryptModal} onClose={() => setDecryptModal(null)} />
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
-
-      {/* Full Screen Image Viewer with Zoom */}
-      {fullScreenImage && (
-        <div className="fixed inset-0 z-[9999] bg-black/90 flex items-center justify-center overflow-hidden"
-          onClick={() => { setFullScreenImage(null); setZoomScale(1); setZoomPos({ x: 0, y: 0 }); }}>
-          <div
-            onWheel={(e) => { e.preventDefault(); e.stopPropagation(); setZoomScale(prev => Math.max(0.5, Math.min(5, prev + (e.deltaY > 0 ? -0.1 : 0.1)))); }}
-            onMouseDown={(e) => { if (zoomScale > 1) { setIsDraggingZoom(true); setDragStart({ x: e.clientX - zoomPos.x, y: e.clientY - zoomPos.y }); } }}
-            onMouseMove={(e) => { if (isDraggingZoom && zoomScale > 1) setZoomPos({ x: e.clientX - dragStart.x, y: e.clientY - dragStart.y }); }}
-            onMouseUp={() => setIsDraggingZoom(false)}
-            onMouseLeave={() => setIsDraggingZoom(false)}
-            onTouchStart={(e) => { if (zoomScale > 1 && e.touches.length === 1) { const t = e.touches[0]; setIsDraggingZoom(true); setDragStart({ x: t.clientX - zoomPos.x, y: t.clientY - zoomPos.y }); } }}
-            onTouchMove={(e) => { if (isDraggingZoom && zoomScale > 1 && e.touches.length === 1) { const t = e.touches[0]; setZoomPos({ x: t.clientX - dragStart.x, y: t.clientY - dragStart.y }); } }}
-            onTouchEnd={() => setIsDraggingZoom(false)}
-            onClick={e => e.stopPropagation()}
-            className="select-none"
-            style={{ transform: `scale(${zoomScale}) translate(${zoomPos.x / zoomScale}px, ${zoomPos.y / zoomScale}px)`, transition: isDraggingZoom ? 'none' : 'transform 0.2s' }}>
-            <img src={fullScreenImage} alt="Tam ekran" className="max-w-[90vw] max-h-[90vh] object-contain rounded-lg shadow-2xl" draggable={false} />
-          </div>
-          <div className="absolute top-4 right-4 flex gap-2">
-            <div className="flex items-center gap-1 bg-black/40 backdrop-blur-sm rounded-full px-2 py-1">
-              <button onClick={(e) => { e.stopPropagation(); setZoomScale(prev => Math.min(5, prev + 0.5)); }} className="p-1.5 text-white hover:bg-white/20 rounded-full transition-all text-sm font-bold">+</button>
-              <span className="text-white text-[10px] font-bold min-w-[32px] text-center tabular-nums">{Math.round(zoomScale * 100)}%</span>
-              <button onClick={(e) => { e.stopPropagation(); setZoomScale(prev => Math.max(0.5, prev - 0.5)); }} className="p-1.5 text-white hover:bg-white/20 rounded-full transition-all text-sm font-bold">−</button>
-            </div>
-            <button onClick={(e) => { e.stopPropagation(); setZoomScale(1); setZoomPos({ x: 0, y: 0 }); const a = document.createElement('a'); a.href = fullScreenImage!; a.download = 'image.png'; document.body.appendChild(a); a.click(); document.body.removeChild(a); }}
-              className="p-2 bg-white/20 hover:bg-white/30 backdrop-blur-sm rounded-full text-white transition-all" title="İndir">
-              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-            </button>
-            <button onClick={() => setFullScreenImage(null)}
-              className="p-2 bg-white/20 hover:bg-white/30 backdrop-blur-sm rounded-full text-white transition-all" title="Kapat">
-              <X size={20} />
-            </button>
-          </div>
-          <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex gap-2">
-            <button onClick={(e) => { e.stopPropagation(); setZoomScale(1); setZoomPos({ x: 0, y: 0 }); }} className="px-3 py-1.5 bg-white/20 hover:bg-white/30 backdrop-blur-sm rounded-full text-white text-[10px] font-bold transition-all">Sıfırla</button>
-          </div>
-        </div>
-      )}
-
     </div>
   );
 };

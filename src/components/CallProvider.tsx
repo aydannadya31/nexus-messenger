@@ -1,23 +1,13 @@
-import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
-import { collection, query, where, onSnapshot, addDoc, serverTimestamp, doc, updateDoc } from 'firebase/firestore';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { collection, query, where, onSnapshot, addDoc, serverTimestamp, doc, updateDoc, getDoc, getDocs, deleteDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { useAuth } from './AuthProvider';
 import { Call } from '../types';
-import { CallEngineManager } from '../call-engines/CallEngineManager';
-import { CallEngineOptions, CallSession } from '../call-engines/types';
-
-/** Our Node.js server on Render.com */
-const SERVER_URL = import.meta.env.VITE_SERVER_URL || 'https://nexus-messenger-rhad.onrender.com';
 
 interface CallContextType {
   activeCall: Call | null;
   incomingCall: Call | null;
-  callError: string | null;
-  /** The active engine session (if connected) */
-  session: CallSession | null;
-  /** Which engine is currently being tried/used */
-  currentEngine: string | null;
-  startCall: (chatId: string, participants: string[], type: 'private' | 'group', mediaType?: 'audio' | 'video') => Promise<void>;
+  startCall: (chatId: string, participants: string[], type: 'private' | 'group', mediaType: 'audio' | 'video') => Promise<void>;
   inviteToCall: (userIds: string[]) => Promise<void>;
   acceptCall: () => Promise<void>;
   rejectCall: () => Promise<void>;
@@ -31,42 +21,11 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const { user } = useAuth();
   const [activeCall, setActiveCall] = useState<Call | null>(null);
   const [incomingCall, setIncomingCall] = useState<Call | null>(null);
-  const [callError, setCallError] = useState<string | null>(null);
-  const [session, setSession] = useState<CallSession | null>(null);
-  const [currentEngine, setCurrentEngine] = useState<string | null>(null);
 
-  const activeCallRef = useRef<Call | null>(null);
-  const callStartTimeRef = useRef<number>(0);
-  const engineRef = useRef<CallEngineManager | null>(null);
-  const pendingRejectRef = useRef(false);
-
-  // Lazy init engine manager
-  const getEngine = useCallback(() => {
-    if (!engineRef.current) {
-      engineRef.current = new CallEngineManager();
-      engineRef.current.on((type, data) => {
-        if (type === 'engine_change') setCurrentEngine(data);
-        if (type === 'connected') setCurrentEngine(data);
-        if (type === 'disconnected') setCurrentEngine(null);
-        if (type === 'error') setCallError(data);
-      });
-    }
-    return engineRef.current;
-  }, []);
-
-  useEffect(() => {
-    if (activeCall?.status === 'ongoing' && callStartTimeRef.current === 0) {
-      callStartTimeRef.current = Date.now();
-    }
-    if (!activeCall) {
-      callStartTimeRef.current = 0;
-    }
-  }, [activeCall]);
-
-  // Firestore listener for calls
   useEffect(() => {
     if (!user) return;
 
+    // Listen for incoming calls and current active call updates
     const q = query(
       collection(db, 'calls'),
       where('participants', 'array-contains', user.uid),
@@ -74,108 +33,43 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
     );
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      try {
-        // Skip processing while a reject is in flight to prevent re-trigger loops
-        if (pendingRejectRef.current) return;
+      const calls = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Call));
+      
+      // Handle Incoming Call
+      const incoming = calls.find(c => 
+        c.status === 'calling' && 
+        c.callerId !== user.uid && 
+        !c.activeParticipants?.includes(user.uid) &&
+        !activeCall
+      );
+      setIncomingCall(incoming || null);
 
-        const calls = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Call));
-        const currentActive = activeCallRef.current;
-
-        // Incoming call detection
-        const incoming = calls.find(c =>
-          c.status === 'calling' &&
-          c.callerId !== user.uid &&
-          !c.activeParticipants?.includes(user.uid) &&
-          !currentActive
-        );
-        setIncomingCall(incoming || null);
-
-        // Active call tracking
-        if (currentActive) {
-          const updated = calls.find(c => c.id === currentActive.id);
-          if (updated) {
-            if (updated.status === 'ended' || (updated.type === 'private' && updated.status === 'ongoing' && updated.activeParticipants?.length < 2)) {
-              // Clean up engine session when call ends
-              if (session) {
-                session.end().catch(() => {});
-                setSession(null);
-              }
-              getEngine().endCall();
-              setActiveCall(null);
-              callStartTimeRef.current = 0;
-            } else {
-              setActiveCall(updated);
-            }
-          } else {
-            // Active call was removed from Firestore — clean up engine
-            getEngine().endCall();
-            setSession(null);
+      // Handle Active Call Update
+      if (activeCall) {
+        const updated = calls.find(c => c.id === activeCall.id);
+        if (updated) {
+          if (updated.status === 'ended' || (updated.type === 'private' && updated.activeParticipants?.length === 0)) {
             setActiveCall(null);
-            callStartTimeRef.current = 0;
+          } else {
+            setActiveCall(updated);
           }
         } else {
-          const myActive = calls.find(c =>
-            c.activeParticipants?.includes(user.uid) &&
-            (c.status === 'ongoing' || (c.callerId === user.uid && c.status === 'calling'))
-          );
-          if (myActive) {
-            setActiveCall(myActive);
-            // If we're the caller and the call is ongoing, try to connect engine
-            if (myActive.callerId === user.uid && myActive.status === 'ongoing' && !engineRef.current?.session) {
-              const opts: CallEngineOptions = {
-                userId: user.uid,
-                userDisplayName: user.displayName || undefined,
-                serverUrl: SERVER_URL,
-                roomId: myActive.roomId,
-              };
-              getEngine().startCall(myActive.id, opts).then(s => {
-                if (s) setSession(s);
-              }).catch(() => {});
-            }
-          }
+          setActiveCall(null);
         }
-      } catch (err) {
-        console.error("Call listener error:", err);
+      } else {
+        // If I'm the caller and call just started
+        const myActive = calls.find(c => c.callerId === user.uid && c.activeParticipants?.includes(user.uid));
+        if (myActive) setActiveCall(myActive);
       }
-    }, (err) => {
-      console.error("Call listener failed:", err);
-      setCallError('Arama sistemi hatas�' + (err.message || 'Bağlantı kaybı'));
     });
 
     return () => unsubscribe();
-  }, [user, getEngine]);
+  }, [user, activeCall?.id]);
 
-  const postCallMessage = async (chatId: string, duration: number, callStatus: 'missed' | 'completed' | 'cancelled' | 'rejected' | 'answered') => {
+  const startCall = async (chatId: string, participants: string[], type: 'private' | 'group', mediaType: 'audio' | 'video' = 'video') => {
     if (!user) return;
+    
     try {
-      const text = callStatus === 'completed'
-        ? `Görüşme ${Math.floor(duration / 60)}:${String(duration % 60).padStart(2, '0')}`
-        : callStatus === 'missed' ? 'Cevapsız Arama'
-        : callStatus === 'rejected' ? 'Gelen Arama Reddedildi'
-        : callStatus === 'answered' ? 'Gelen Arama Yanıtlandı'
-        : 'Çağrı iptal edildi';
-      await addDoc(collection(db, 'chats', chatId, 'messages'), {
-        senderId: user.uid, timestamp: serverTimestamp(), type: 'call',
-        callDuration: callStatus === 'completed' ? duration : 0,
-        callStatus, text, status: 'sent'
-      });
-      await updateDoc(doc(db, 'chats', chatId), {
-        lastMessage: { senderId: user.uid, senderName: user.displayName, text, timestamp: serverTimestamp() },
-        updatedAt: serverTimestamp()
-      });
-    } catch (err) {
-      console.error("Post call message error:", err);
-    }
-  };
-
-  const startCall = async (chatId: string, participants: string[], type: 'private' | 'group', mediaType: 'audio' | 'video' = 'audio') => {
-    if (!user) return;
-    setCallError(null);
-
-    try {
-      const roomId = `${chatId}_${Date.now()}`;
-
-      // Step 1: Create Firestore doc IMMEDIATELY so the other side sees the call
       const callData = {
         participants: [...participants],
         activeParticipants: [user.uid],
@@ -183,40 +77,13 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
         callerId: user.uid,
         type,
         mediaType,
-        status: type === 'group' ? 'ongoing' : 'calling',
+        status: participants.length > 1 ? 'ongoing' : 'calling',
         createdAt: serverTimestamp(),
-        engine: 'pending',
-        roomId,
       };
-
-      const docRef = await addDoc(collection(db, 'calls'), callData);
-      const newActive = { id: docRef.id, ...callData, createdAt: serverTimestamp() } as Call;
-      activeCallRef.current = newActive;
-      setActiveCall(newActive);
-
-      // Step 2: Best-effort engine connection (non-blocking)
-      const engine = getEngine();
-      const opts: CallEngineOptions = {
-        userId: user.uid,
-        userDisplayName: user.displayName || undefined,
-        serverUrl: SERVER_URL,
-        roomId,
-      };
-
-      engine.startCall('', opts).then(ses => {
-        if (ses) {
-          setSession(ses);
-          const engineName = engine.currentEngine || 'websocket';
-          // Update Firestore doc with engine info (fire-and-forget)
-          updateDoc(doc(db, 'calls', docRef.id), { engine: engineName }).catch(() => {});
-        } else {
-          // Engine failed — show warning but KEEP the call visible
-          setCallError('Mikrofon bağlantısı kurulamadı. Karşı taraf aramayı görebilir ancak ses iletilemeyebilir.');
-        }
-      });
-    } catch (error: any) {
+      
+      await addDoc(collection(db, 'calls'), callData);
+    } catch (error) {
       console.error("Start call error:", error);
-      setCallError('Arama başlatılamadı: ' + (error?.message || 'Bilinmeyen hata'));
     }
   };
 
@@ -235,84 +102,45 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const acceptCall = async () => {
     if (!incomingCall || !user) return;
     try {
-      setCallError(null);
-      const callDoc = incomingCall;
-
-      // Update Firestore FIRST so the caller sees 'ongoing' immediately
       const activeParts = Array.from(new Set([...(incomingCall.activeParticipants || []), user.uid]));
       await updateDoc(doc(db, 'calls', incomingCall.id), {
         status: 'ongoing',
         activeParticipants: activeParts
       });
-      await postCallMessage(incomingCall.chatId, 0, 'answered');
-      const updatedCall = { ...incomingCall, status: 'ongoing' as const, activeParticipants: activeParts };
-      activeCallRef.current = updatedCall;
-      setActiveCall(updatedCall);
       setIncomingCall(null);
-
-      // Engine connection best-effort (non-blocking)
-      const engine = getEngine();
-      const opts: CallEngineOptions = {
-        userId: user.uid,
-        userDisplayName: user.displayName || undefined,
-        serverUrl: SERVER_URL,
-        roomId: callDoc.roomId || callDoc.id,
-      };
-      engine.joinCall(opts.roomId, callDoc.callerId, opts).then(ses => {
-        if (ses) {
-          setSession(ses);
-        } else {
-          setCallError('Mikrofon bağlantısı kurulamadı. Ses iletilemeyebilir.');
-        }
-      });
-    } catch (error: any) {
+    } catch (error) {
       console.error("Accept call error:", error);
-      setCallError('Arama kabul edilemedi: ' + (error?.message || 'Bilinmeyen hata'));
     }
   };
 
   const rejectCall = async () => {
     if (!incomingCall) return;
-    pendingRejectRef.current = true;
     try {
-      // Immediately clear incoming so the listener won't re-process it
-      setIncomingCall(null);
+      // For private calls, if rejected, end the call
       if (incomingCall.type === 'private') {
-        await updateDoc(doc(db, 'calls', incomingCall.id), { status: 'ended' });
-        await postCallMessage(incomingCall.chatId, 0, 'rejected');
+        await updateDoc(doc(db, 'calls', incomingCall.id), {
+          status: 'ended'
+        });
       }
+      setIncomingCall(null);
     } catch (error) {
       console.error("Reject call error:", error);
-    } finally {
-      // Small delay to let Firestore listener settle before allowing re-detection
-      setTimeout(() => { pendingRejectRef.current = false; }, 1000);
     }
   };
 
   const leaveCall = async () => {
     if (!activeCall || !user) return;
     try {
-      // End engine session
-      if (session) {
-        await session.end();
-        setSession(null);
-      }
-      getEngine().endCall();
-
-      const duration = callStartTimeRef.current > 0
-        ? Math.floor((Date.now() - callStartTimeRef.current) / 1000) : 0;
       const activeParts = (activeCall.activeParticipants || []).filter(id => id !== user.uid);
       const updates: any = { activeParticipants: activeParts };
-      if (activeCall.type === 'private' || activeParts.length === 0) {
+      
+      // If no one left, end it
+      if (activeParts.length === 0) {
         updates.status = 'ended';
       }
-      activeCallRef.current = null;
+      
       await updateDoc(doc(db, 'calls', activeCall.id), updates);
-      if (updates.status === 'ended') {
-        await postCallMessage(activeCall.chatId, duration, duration > 0 ? 'completed' : 'cancelled');
-      }
       setActiveCall(null);
-      callStartTimeRef.current = 0;
     } catch (error) {
       console.error("Leave call error:", error);
     }
@@ -322,20 +150,9 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const callToEnd = activeCall || incomingCall;
     if (!callToEnd) return;
     try {
-      if (session) {
-        await session.end();
-        setSession(null);
-      }
-      getEngine().endCall();
-
-      activeCallRef.current = null;
-      const duration = callStartTimeRef.current > 0
-        ? Math.floor((Date.now() - callStartTimeRef.current) / 1000) : 0;
-      callStartTimeRef.current = 0;
-      await updateDoc(doc(db, 'calls', callToEnd.id), { status: 'ended' });
-      if (callToEnd.status === 'ongoing' || callToEnd.status === 'calling') {
-        await postCallMessage(callToEnd.chatId, duration, callToEnd.status === 'ongoing' ? 'completed' : 'cancelled');
-      }
+      await updateDoc(doc(db, 'calls', callToEnd.id), {
+        status: 'ended'
+      });
       setActiveCall(null);
       setIncomingCall(null);
     } catch (error) {
@@ -344,11 +161,7 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   return (
-    <CallContext.Provider value={{
-      activeCall, incomingCall, callError,
-      session, currentEngine,
-      startCall, inviteToCall, acceptCall, rejectCall, leaveCall, endCall
-    }}>
+    <CallContext.Provider value={{ activeCall, incomingCall, startCall, inviteToCall, acceptCall, rejectCall, leaveCall, endCall }}>
       {children}
     </CallContext.Provider>
   );
