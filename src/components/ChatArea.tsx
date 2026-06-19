@@ -168,7 +168,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
     try {
       if (amIHolding) {
         await updateDoc(doc(db, 'chats', chatId), { heldBy: null, holdExpiresAt: null });
-        showCustomAlert('Bekleme Kaldırıldı', `Bu sohbet için bekleme kaldırıldı. Kalan hakkınız: ${holdDailyCount}/${MAX_DAILY_HOLD}`);
+        showCustomAlert('Bekleme Kaldırıldı', `Bu sohbet için bekleme kaldırıldı. Kalan hakkınız: ${MAX_DAILY_HOLD - holdDailyCount}/${MAX_DAILY_HOLD}`);
       } else {
         if (holdDailyCount >= MAX_DAILY_HOLD) {
           showCustomAlert('Limit Doldu', `Günlük ${MAX_DAILY_HOLD} kullanım hakkınız doldu. Yarını kadar bekleyin.`);
@@ -176,6 +176,8 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
         }
         const newCount = holdDailyCount + 1;
         setHoldDailyCount(newCount);
+        localStorage.setItem('holdDailyCount_' + user.uid, String(newCount));
+        localStorage.setItem('holdDailyDate_' + user.uid, new Date().toDateString());
         await updateDoc(doc(db, 'chats', chatId), { heldBy: user.uid, holdExpiresAt: new Date(Date.now() + 24*60*60*1000) });
         showCustomAlert('Sohbet Beklemeye Alındı', `Bu sohbet 24 saat beklemeye alındı. Kalan hakkınız: ${MAX_DAILY_HOLD - newCount}/${MAX_DAILY_HOLD}`);
       }
@@ -268,6 +270,23 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
   }, [messages]);
+
+  // Hold daily count from localStorage
+  useEffect(() => {
+    if (!user) return;
+    try {
+      const stored = localStorage.getItem('holdDailyCount_' + user.uid);
+      const date = localStorage.getItem('holdDailyDate_' + user.uid);
+      const today = new Date().toDateString();
+      if (date === today && stored) {
+        setHoldDailyCount(parseInt(stored, 10));
+      } else {
+        setHoldDailyCount(0);
+        localStorage.setItem('holdDailyCount_' + user.uid, '0');
+        localStorage.setItem('holdDailyDate_' + user.uid, today);
+      }
+    } catch {}
+  }, [user]);
 
   const handleScroll = () => {
     if (!scrollRef.current) return;
