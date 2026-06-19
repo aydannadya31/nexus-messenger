@@ -5,7 +5,8 @@ import { useAuth } from './AuthProvider';
 import { useCall } from './CallProvider';
 import { Chat, Message, UserProfile, Call } from '../types';
 import { cn } from '../lib/utils';
-import { Image, MoreVertical, Send, Smile, Phone, Video, MessageSquarePlus, Clock, Play, Mic, Square, Pause, Trash2, ListChecks, X } from 'lucide-react';
+import ProfileModal from './ProfileModal';
+import { Image, MoreVertical, Send, Smile, Phone, Video, MessageSquarePlus, Clock, Play, Mic, Square, Pause, Trash2, ListChecks, X, Info, Eye, EyeOff } from 'lucide-react';
 import { format } from 'date-fns';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -31,6 +32,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
   const [showChatSearch, setShowChatSearch] = useState(false);
   const [chatSearchQuery, setChatSearchQuery] = useState('');
   const [mutedUsers, setMutedUsers] = useState<Record<string, boolean>>({});
+  const [showProfile, setShowProfile] = useState(false);
   const [customDialog, setCustomDialog] = useState<{
     isOpen: boolean;
     title: string;
@@ -648,7 +650,21 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
             </button>
           )}
 
-          {/* User Info - already inside MoreVertical dropdown */}
+          {/* User Info */}
+          <button 
+            onClick={() => {
+              if (chat?.type === 'group') {
+                const uinList = chat.participants.map(pId => `👤 ${participantInfo[pId]?.displayName || 'Katılımcı'} (UIN: #${participantInfo[pId]?.uin || 'Yok'})`).join('\n');
+                showCustomAlert("Grup Bilgileri", uinList);
+              } else if (otherUser) {
+                setShowProfile(true);
+              }
+            }}
+            className="hover:text-blue-600 transition-colors"
+            title="Kullanıcı Bilgisi"
+          >
+            <Info size={20} />
+          </button>
 
           <div className="relative">
             <button 
@@ -672,7 +688,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
                     onClick={handleClearChat}
                     className="w-full text-left px-4 py-3 text-xs font-bold text-red-600 hover:bg-red-50 transition-colors flex items-center gap-2"
                   >
-                    🗑️ Sohbet Geçmişini Temizle
+                    <Trash2 size={14} /> Sohbet Geçmişini Temizle
                   </button>
                   <button 
                     onClick={() => {
@@ -684,19 +700,8 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
                       showDeletedMessages ? "text-amber-600 hover:bg-amber-50" : "text-blue-600 hover:bg-blue-50"
                     )}
                   >
-                    {showDeletedMessages ? '🙈 Sildiğim Mesajları Gizle' : '👁️ Sildiğim Mesajları Göster'}
-                  </button>
-                  <button 
-                    onClick={() => {
-                      const uinList = chat?.type === 'group' 
-                        ? chat.participants.map(pId => `👤 ${participantInfo[pId]?.displayName || 'Katılımcı'} (UIN: #${participantInfo[pId]?.uin || 'Yok'})`).join('\n')
-                        : `👤 ${headerInfo.name} (UIN: #${headerInfo.uin || 'Yok'})`;
-                      showCustomAlert("Sohbet / Katılımcı Bilgileri", uinList);
-                      setIsHeaderMenuOpen(false);
-                    }}
-                    className="w-full text-left px-4 py-3 text-xs font-bold text-slate-700 hover:bg-slate-50 transition-colors flex items-center gap-2"
-                  >
-                    ℹ️ Sohbet / Katılımcı Bilgileri
+                    {showDeletedMessages ? <EyeOff size={14} /> : <Eye size={14} />}
+                    {showDeletedMessages ? ' Sildiğim Mesajları Gizle' : ' Sildiğim Mesajları Göster'}
                   </button>
                 </div>
               </>
@@ -1148,6 +1153,11 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
           </div>
         )}
       </AnimatePresence>
+
+      {/* Profile Modal */}
+      {showProfile && otherUser && (
+        <ProfileModal user={otherUser} onClose={() => setShowProfile(false)} />
+      )}
     </div>
   );
 };
