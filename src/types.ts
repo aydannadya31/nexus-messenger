@@ -35,7 +35,7 @@ export interface Message {
   text?: string;
   senderId: string;
   timestamp: any;
-  type: 'text' | 'image' | 'video' | 'audio';
+  type: 'text' | 'image' | 'video' | 'audio' | 'call';
   imageUrl?: string;
   videoUrl?: string;
   audioUrl?: string;
@@ -45,6 +45,10 @@ export interface Message {
   deletedAt?: any;
   encrypted?: boolean;
   imagePassword?: string;
+  callType?: 'audio' | 'video';
+  callDuration?: number;
+  callStatus?: 'missed' | 'completed' | 'rejected';
+  callerId?: string;
 }
 
 export interface Call {

@@ -856,6 +856,40 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
               const isMe = msg.senderId === user?.uid;
               const sender = participantInfo[msg.senderId];
 
+              // Call history: centered system message
+              if (msg.type === 'call') {
+                return (
+                  <motion.div
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    key={msg.id || idx}
+                    className="self-center flex flex-col items-center gap-1 py-2 w-full max-w-[200px]"
+                  >
+                    <div className={cn(
+                      "w-10 h-10 rounded-full flex items-center justify-center",
+                      msg.callStatus === 'completed' ? "bg-blue-50 text-blue-600" :
+                      msg.callStatus === 'missed' ? "bg-red-50 text-red-500" :
+                      "bg-slate-100 text-slate-500"
+                    )}>
+                      {msg.callType === 'video' ? <Video size={20} /> : <Phone size={20} />}
+                    </div>
+                    <span className={cn(
+                      "text-[11px] font-bold text-center",
+                      msg.callStatus === 'completed' ? "text-blue-600" :
+                      msg.callStatus === 'missed' ? "text-red-500" :
+                      "text-slate-500"
+                    )}>
+                      {msg.callType === 'video' ? 'Görüntülü' : 'Sesli'} Arama
+                    </span>
+                    <span className="text-[10px] font-medium text-slate-400 text-center">
+                      {msg.callStatus === 'completed'
+                        ? `${Math.floor((msg.callDuration || 0) / 60)}:${String((msg.callDuration || 0) % 60).padStart(2, '0')}`
+                        : msg.callStatus === 'missed' ? 'Cevaplanmadı' : 'Reddedildi'}
+                    </span>
+                  </motion.div>
+                );
+              }
+
               return (
               <motion.div 
                 initial={{ opacity: 0, y: 10 }}

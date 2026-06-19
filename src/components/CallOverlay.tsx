@@ -19,9 +19,11 @@ export const CallOverlay = () => {
   const [isVideoOff, setIsVideoOff] = useState(false);
   const [callerInfo, setCallerInfo] = useState<UserProfile | null>(null);
   const [isInviting, setIsInviting] = useState(false);
+  const [localUserInfo, setLocalUserInfo] = useState<UserProfile | null>(null);
 
   const pcs = useRef<Record<string, RTCPeerConnection>>({});
   const localVideoRef = useRef<HTMLVideoElement>(null);
+  const newVideoTrackRef = useRef<MediaStreamTrack | null>(null);
 
   const configuration: RTCConfiguration = {
     iceServers: [
@@ -31,6 +33,17 @@ export const CallOverlay = () => {
     ],
     iceCandidatePoolSize: 10,
   };
+
+  // Fetch local user info
+  useEffect(() => {
+    if (user && !localUserInfo) {
+      const fetchMe = async () => {
+        const d = await getDoc(doc(db, 'users', user.uid));
+        if (d.exists()) setLocalUserInfo(d.data() as UserProfile);
+      };
+      fetchMe();
+    }
+  }, [user]);
 
   // Fetch caller info for incoming call
   useEffect(() => {
@@ -78,6 +91,15 @@ export const CallOverlay = () => {
     const pc = new RTCPeerConnection(configuration);
     pcs.current[pId] = pc;
 
+    // Add existing local tracks (audio + video if present)
+    if (localStream) {
+      localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
+    }
+    // Add any new video track that was added after initial media setup
+    if (newVideoTrackRef.current && localStream) {
+      try { pc.addTrack(newVideoTrackRef.current, localStream); } catch (e) { /* already added */ }
+    }
+
     pc.onicecandidate = (event) => {
       if (event.candidate) {
         addDoc(collection(db, 'calls', activeCall.id, 'signals'), {
@@ -100,13 +122,8 @@ export const CallOverlay = () => {
       }
     };
 
-    // Add local tracks
-    if (localStream) {
-      localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
-    }
-
     if (isInitiator) {
-      const offer = await pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: activeCall.mediaType === 'video' });
+      const offer = await pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: true });
       await pc.setLocalDescription(offer);
       await addDoc(collection(db, 'calls', activeCall.id, 'signals'), {
         from: user.uid,
@@ -216,6 +233,7 @@ export const CallOverlay = () => {
         localStream.getTracks().forEach(track => track.stop());
         setLocalStream(null);
       }
+      newVideoTrackRef.current = null;
     }
   }, [activeCall, cleanupPeer]);
 
@@ -235,13 +253,49 @@ export const CallOverlay = () => {
     }
   };
 
-  const toggleVideo = () => {
-    if (localStream) {
-      const videoTrack = localStream.getVideoTracks()[0];
-      if (videoTrack) {
-        videoTrack.enabled = !videoTrack.enabled;
-        setIsVideoOff(!videoTrack.enabled);
+  const toggleVideo = async () => {
+    if (!localStream) return;
+    let videoTrack = localStream.getVideoTracks()[0];
+
+    if (!videoTrack) {
+      // Audio call: add video track dynamically
+      try {
+        const newStream = await navigator.mediaDevices.getUserMedia({
+          video: { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } }
+        });
+        const newTrack = newStream.getVideoTracks()[0];
+        localStream.addTrack(newTrack);
+        newVideoTrackRef.current = newTrack;
+
+        // Add track to all existing peer connections
+        Object.entries(pcs.current).forEach(([pId, pc]) => {
+          try {
+            pc.addTrack(newTrack, localStream);
+            // Re-negotiate
+            pc.createOffer().then(offer => {
+              pc.setLocalDescription(offer);
+              if (activeCall) {
+                addDoc(collection(db, 'calls', activeCall.id, 'signals'), {
+                  from: user!.uid,
+                  to: pId,
+                  type: 'offer',
+                  data: { type: offer.type, sdp: offer.sdp },
+                  createdAt: serverTimestamp()
+                });
+              }
+            }).catch(e => console.warn('Renegotiation error:', e));
+          } catch (e) {
+            console.warn('Could not add video track to peer:', e);
+          }
+        });
+
+        setIsVideoOff(false);
+      } catch (err) {
+        console.error("Could not add video:", err);
       }
+    } else {
+      videoTrack.enabled = !videoTrack.enabled;
+      setIsVideoOff(!videoTrack.enabled);
     }
   };
 
@@ -251,6 +305,20 @@ export const CallOverlay = () => {
   const gridCols = participantsCount <= 1 ? 'grid-cols-1' : 
                    participantsCount <= 2 ? 'grid-cols-1 landscape:grid-cols-2 sm:grid-cols-2' : 
                    participantsCount <= 4 ? 'grid-cols-1 sm:grid-cols-2' : 'grid-cols-2 sm:grid-cols-3';
+
+  // Shared avatar overlay component
+  const AvatarOverlay: React.FC<{ photoURL?: string; displayName: string; subtitle?: string; size?: string }> = ({ photoURL, displayName, subtitle, size = 'w-20 h-20' }) => (
+    <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-900 gap-3">
+      <div className={cn(size, "rounded-full bg-slate-800 overflow-hidden border-2 border-white/10 shadow-lg shadow-black/20")}>
+        <img 
+          src={photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${displayName}`}
+          className="w-full h-full object-cover opacity-70"
+        />
+      </div>
+      <span className="text-xs font-bold text-slate-400">{displayName}</span>
+      {subtitle && <span className="text-[10px] text-slate-500">{subtitle}</span>}
+    </div>
+  );
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col sm:items-center sm:justify-center sm:p-6 pointer-events-auto overflow-hidden bg-slate-950">
@@ -273,7 +341,7 @@ export const CallOverlay = () => {
               </div>
               
               <div className="text-center">
-                <h3 className="text-xl font-black text-slate-900 tracking-tight">{callerInfo?.displayName || 'Bilinmeyen'}</h3>
+                <h3 className="text-xl font-black text-slate-900 tracking-tight">{callerInfo?.displayName || 'Yükleniyor...'}</h3>
                 <p className="text-[10px] font-black text-blue-500 uppercase tracking-[0.2em] mt-1">{incomingCall.mediaType === 'video' ? 'Gelen Görüntülü Arama' : 'Gelen Sesli Arama'}</p>
               </div>
 
@@ -314,17 +382,17 @@ export const CallOverlay = () => {
                   muted 
                   className={cn("w-full h-full object-cover", !isVideoOff && "mirror")}
                 />
-                <div className="absolute bottom-4 left-4 flex items-center gap-2 bg-black/40 backdrop-blur-md px-3 py-1.5 rounded-xl border border-white/10">
+                {/* Camera off / audio mode overlay: show avatar */}
+                {(isVideoOff || activeCall.mediaType === 'audio') && (
+                  <AvatarOverlay
+                    photoURL={localUserInfo?.photoURL}
+                    displayName="Sen (Ben)"
+                  />
+                )}
+                <div className="absolute bottom-4 left-4 flex items-center gap-2 bg-black/40 backdrop-blur-md px-3 py-1.5 rounded-xl border border-white/10 z-10">
                   <span className="text-[10px] font-black text-white uppercase tracking-widest">Sen (Ben)</span>
                   {isMuted && <MicOff size={10} className="text-red-400" />}
                 </div>
-                {(isVideoOff || activeCall.mediaType === 'audio') && (
-                  <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-900 gap-3">
-                    <div className="w-16 h-16 rounded-full bg-slate-800 flex items-center justify-center text-slate-500">
-                      {activeCall.mediaType === 'audio' ? <Phone size={32} /> : <VideoOff size={32} />}
-                    </div>
-                  </div>
-                )}
               </div>
 
               {/* Remote Participants */}
@@ -334,28 +402,36 @@ export const CallOverlay = () => {
                 return (
                   <div key={pId} className="relative bg-slate-900 rounded-[2rem] overflow-hidden shadow-inner group">
                     {stream ? (
-                      <video 
-                        autoPlay 
-                        playsInline 
-                        ref={el => { 
-                          if (el) {
-                            el.srcObject = stream;
-                            if (el.paused) {
-                              el.play().catch(err => console.warn('[CallOverlay] Autoplay prevented:', err));
+                      <>
+                        <video 
+                          autoPlay 
+                          playsInline 
+                          ref={el => { 
+                            if (el) {
+                              el.srcObject = stream;
+                              if (el.paused) {
+                                el.play().catch(err => console.warn('[CallOverlay] Autoplay prevented:', err));
+                              }
                             }
-                          }
-                        }}
-                        className="w-full h-full object-cover"
-                      />
+                          }}
+                          className="w-full h-full object-cover"
+                        />
+                        {/* Always show avatar as fallback behind video */}
+                        <AvatarOverlay
+                          photoURL={info?.photoURL}
+                          displayName={info?.displayName || 'Katılımcı'}
+                          subtitle="Kamera Kapalı"
+                        />
+                      </>
                     ) : (
-                      <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-slate-900">
-                        <div className="w-20 h-20 rounded-full bg-slate-800 animate-pulse flex items-center justify-center">
-                           <img src={info?.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${pId}`} className="w-full h-full rounded-full opacity-50" />
-                        </div>
-                        <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Bağlanılıyor...</p>
-                      </div>
+                      <AvatarOverlay
+                        photoURL={info?.photoURL}
+                        displayName={info?.displayName || 'Katılımcı'}
+                        subtitle="Bağlanılıyor..."
+                        size="w-20 h-20"
+                      />
                     )}
-                    <div className="absolute bottom-4 left-4 flex items-center gap-2 bg-black/40 backdrop-blur-md px-3 py-1.5 rounded-xl border border-white/10">
+                    <div className="absolute bottom-4 left-4 flex items-center gap-2 bg-black/40 backdrop-blur-md px-3 py-1.5 rounded-xl border border-white/10 z-10">
                       <span className="text-[10px] font-black text-white uppercase tracking-widest">{info?.displayName || 'Katılımcı'}</span>
                     </div>
                   </div>
@@ -400,6 +476,7 @@ export const CallOverlay = () => {
                       "w-12 h-12 sm:w-14 sm:h-14 rounded-3xl flex items-center justify-center transition-all shadow-lg active:scale-95",
                       isVideoOff ? "bg-red-500 text-white" : "bg-slate-800 text-slate-300 hover:bg-slate-700"
                     )}
+                    title={activeCall.mediaType === 'audio' && !localStream?.getVideoTracks().length ? 'Görüntülü Aç' : isVideoOff ? 'Kamerayı Aç' : 'Kamerayı Kapat'}
                   >
                     {isVideoOff ? <VideoOff size={24} /> : <Video size={24} />}
                   </button>
@@ -440,7 +517,6 @@ export const CallOverlay = () => {
                     </button>
                   </div>
                   <div className="flex-1 overflow-y-auto p-4 space-y-2">
-                    {/* Simplified: Show all participants of the chat who are not in the call */}
                     {activeCall.participants.filter(pId => !activeCall.activeParticipants.includes(pId)).map(pId => (
                       <div key={pId} className="flex items-center justify-between p-3 rounded-2xl bg-slate-50 border border-slate-100">
                         <div className="flex items-center gap-3">
