@@ -251,46 +251,46 @@ export const CallOverlay = () => {
   const gridCols = participantsCount <= 1 ? 'grid-cols-1' : 
                    participantsCount <= 2 ? 'grid-cols-1 landscape:grid-cols-2 sm:grid-cols-2' : 
                    participantsCount <= 4 ? 'grid-cols-1 sm:grid-cols-2' : 'grid-cols-2 sm:grid-cols-3';
-  const gridRows = participantsCount <= 2 ? 'grid-rows-1' : 
-                   participantsCount <= 6 ? 'grid-rows-2' : 'grid-rows-3';
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 pointer-events-none">
+    <div className="fixed inset-0 z-50 flex flex-col sm:items-center sm:justify-center sm:p-6 pointer-events-auto overflow-hidden bg-slate-950">
       <AnimatePresence>
         {incomingCall && (
           <motion.div 
             initial={{ opacity: 0, y: 50, scale: 0.9 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, scale: 0.9 }}
-            className="bg-white rounded-[2.5rem] p-8 shadow-2xl flex flex-col items-center gap-6 border border-slate-100 pointer-events-auto"
+            className="absolute inset-0 z-20 flex items-center justify-center bg-slate-950/70 pointer-events-auto"
           >
-            <div className="relative">
-              <div className="w-24 h-24 rounded-full bg-blue-100 overflow-hidden border-4 border-white shadow-lg">
-                <img src={callerInfo?.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${incomingCall.callerId}`} className="w-full h-full object-cover" />
+            <div className="bg-white rounded-[2.5rem] p-8 shadow-2xl flex flex-col items-center gap-6 border border-slate-100">
+              <div className="relative">
+                <div className="w-24 h-24 rounded-full bg-blue-100 overflow-hidden border-4 border-white shadow-lg">
+                  <img src={callerInfo?.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${incomingCall.callerId}`} className="w-full h-full object-cover" />
+                </div>
+                <div className={cn("absolute -bottom-2 -right-2 p-2 rounded-full border-4 border-white", incomingCall.mediaType === 'video' ? "bg-green-500" : "bg-blue-500")}>
+                  {incomingCall.mediaType === 'video' ? <Video size={16} className="text-white" /> : <Phone size={16} className="text-white" />}
+                </div>
               </div>
-              <div className={cn("absolute -bottom-2 -right-2 p-2 rounded-full border-4 border-white", incomingCall.mediaType === 'video' ? "bg-green-500" : "bg-blue-500")}>
-                {incomingCall.mediaType === 'video' ? <Video size={16} className="text-white" /> : <Phone size={16} className="text-white" />}
+              
+              <div className="text-center">
+                <h3 className="text-xl font-black text-slate-900 tracking-tight">{callerInfo?.displayName || 'Bilinmeyen'}</h3>
+                <p className="text-[10px] font-black text-blue-500 uppercase tracking-[0.2em] mt-1">{incomingCall.mediaType === 'video' ? 'Gelen Görüntülü Arama' : 'Gelen Sesli Arama'}</p>
               </div>
-            </div>
-            
-            <div className="text-center">
-              <h3 className="text-xl font-black text-slate-900 tracking-tight">{callerInfo?.displayName || 'Bilinmeyen'}</h3>
-              <p className="text-[10px] font-black text-blue-500 uppercase tracking-[0.2em] mt-1">{incomingCall.mediaType === 'video' ? 'Gelen Görüntülü Arama' : 'Gelen Sesli Arama'}</p>
-            </div>
 
-            <div className="flex gap-4">
-              <button 
-                onClick={rejectCall}
-                className="w-14 h-14 bg-red-100 text-red-600 rounded-full flex items-center justify-center hover:bg-red-200 transition-colors active:scale-90"
-              >
-                <PhoneOff size={24} />
-              </button>
-              <button 
-                onClick={acceptCall}
-                className="w-14 h-14 bg-green-600 text-white rounded-full flex items-center justify-center hover:bg-green-700 transition-colors animate-bounce active:scale-95 shadow-xl shadow-green-600/20"
-              >
-                {incomingCall.mediaType === 'video' ? <Video size={24} /> : <Phone size={24} />}
-              </button>
+              <div className="flex gap-4">
+                <button 
+                  onClick={rejectCall}
+                  className="w-14 h-14 bg-red-100 text-red-600 rounded-full flex items-center justify-center hover:bg-red-200 transition-colors active:scale-90"
+                >
+                  <PhoneOff size={24} />
+                </button>
+                <button 
+                  onClick={acceptCall}
+                  className="w-14 h-14 bg-green-600 text-white rounded-full flex items-center justify-center hover:bg-green-700 transition-colors animate-bounce active:scale-95 shadow-xl shadow-green-600/20"
+                >
+                  {incomingCall.mediaType === 'video' ? <Video size={24} /> : <Phone size={24} />}
+                </button>
+              </div>
             </div>
           </motion.div>
         )}
@@ -299,10 +299,12 @@ export const CallOverlay = () => {
           <motion.div 
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
-            className="w-full sm:max-w-5xl h-full sm:max-h-[90vh] bg-slate-950 rounded-none sm:rounded-[3rem] overflow-hidden shadow-2xl flex flex-col pointer-events-auto relative"
+            exit={{ opacity: 0, scale: 0.9 }}
+            className="flex-1 min-h-0 flex flex-col sm:max-w-5xl sm:max-h-[90vh] sm:rounded-[3rem] sm:shadow-2xl sm:overflow-hidden relative"
           >
             {/* Main Video Area */}
-            <div className={cn("flex-1 p-2 sm:p-4 grid gap-2 sm:gap-4 transition-all duration-500", gridCols, gridRows)}>
+            <div className="flex-1 min-h-0 p-2 sm:p-4">
+              <div className={cn("w-full h-full grid gap-2 sm:gap-4", gridCols)} style={{ gridAutoRows: '1fr' }}>
               {/* Local Participant */}
               <div className="relative bg-slate-900 rounded-[2rem] overflow-hidden shadow-inner group">
                 <video 
@@ -369,10 +371,11 @@ export const CallOverlay = () => {
                     <p className="text-[10px] font-black text-slate-600 uppercase tracking-widest">Yanıt Bekleniyor...</p>
                  </div>
               )}
+              </div>
             </div>
 
             {/* Controls */}
-            <div className="h-20 sm:h-28 bg-slate-900 border-t border-white/5 px-6 sm:px-10 flex items-center justify-between shrink-0">
+            <div className="h-20 sm:h-28 shrink-0 bg-slate-900 border-t border-white/5 px-6 sm:px-10 flex items-center justify-between">
                <div className="hidden sm:flex flex-col">
                    <h4 className="text-sm font-black text-white tracking-tight">Nexus {activeCall.mediaType === 'video' ? 'Görüntülü' : 'Sesli'} Arama</h4>
                   <p className="text-[10px] font-bold text-blue-500 uppercase tracking-widest">
