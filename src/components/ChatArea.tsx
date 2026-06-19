@@ -641,7 +641,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
       </div>
 
       {/* Chat Header */}
-      <header className="bg-white border-b border-slate-200 px-8 py-3 shrink-0 relative z-10">
+      <header className="bg-white border-b border-slate-200 px-4 sm:px-8 py-3 shrink-0 relative z-10">
         {/* Row 1: Avatar + Name */}
         <div className="flex items-center">
           <div className="w-10 h-10 bg-gradient-to-br from-blue-400 to-indigo-500 rounded-full mr-4 shadow-sm overflow-hidden border-2 border-white shrink-0">
@@ -679,7 +679,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
         </div>
 
         {/* Row 2: Action Buttons */}
-        <div className="flex items-center gap-1.5 sm:gap-3 text-slate-500 relative mt-2 pl-14">
+        <div className="flex items-center gap-1.5 sm:gap-3 text-slate-500 relative mt-2 pl-0 sm:pl-14">
           {activeCallForChat && !activeCall && (
             <button 
               onClick={() => acceptCall()}
@@ -807,7 +807,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
       <div 
         ref={scrollRef}
         onScroll={handleScroll}
-        className="flex-1 overflow-y-auto p-10 space-y-6 custom-scrollbar z-10"
+        className="flex-1 overflow-y-auto p-4 sm:p-10 space-y-4 sm:space-y-6 custom-scrollbar z-10"
       >
         <div className="flex justify-center mb-8">
           <span className="px-3 py-1 bg-slate-200 text-slate-500 rounded-full text-[10px] font-bold uppercase tracking-widest shadow-sm">BUGÜN</span>
@@ -1071,9 +1071,9 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
       )}
 
       {/* Input Area */}
-      <footer className="p-6 bg-white border-t border-slate-200 shrink-0 z-10">
-        <div className="max-w-4xl mx-auto flex items-center bg-slate-100 rounded-2xl p-2 focus-within:ring-2 focus-within:ring-blue-500 transition-all relative">
-          
+      <footer className="p-3 sm:p-6 bg-white border-t border-slate-200 shrink-0 z-10">
+        <div className="max-w-4xl mx-auto bg-slate-100 rounded-2xl p-2 focus-within:ring-2 focus-within:ring-blue-500 transition-all relative flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-0">
+
           {/* Hidden inputs for real uploads */}
           <input 
             type="file" 
@@ -1089,6 +1089,32 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
             accept="video/*"
             className="hidden"
           />
+
+          {/* Mobile: Form (top) — Desktop: Form (right) */}
+          <form onSubmit={handleSend} className="flex-1 flex items-center order-1 sm:order-2 w-full sm:w-auto">
+            <input 
+              type="text" 
+              value={inputText}
+              onChange={(e) => setInputText(e.target.value)}
+              placeholder={isBeingHeld ? "Sohbet beklemeye alındı..." : "Mesaj yaz..."}
+              className="flex-1 bg-transparent border-none focus:ring-0 text-sm py-2 px-4 text-slate-900 placeholder:text-slate-400"
+            />
+            <button 
+              type="submit"
+              disabled={!inputText.trim()}
+              className={cn(
+                "p-2 rounded-xl transition-all flex items-center justify-center shadow-lg",
+                inputText.trim() 
+                  ? "bg-blue-600 text-white shadow-blue-200 hover:bg-blue-700" 
+                  : "bg-slate-200 text-slate-400 cursor-not-allowed shadow-none"
+              )}
+            >
+              <Send size={18} />
+            </button>
+          </form>
+
+          {/* Mobile: Buttons (bottom) — Desktop: Buttons (left) */}
+          <div className="flex items-center gap-0 order-2 sm:order-1 flex-wrap">
 
           <div className="relative">
             <button 
@@ -1167,28 +1193,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
           >
             <Lock size={18} />
           </button>
-
-          <form onSubmit={handleSend} className="flex-1 flex items-center">
-            <input 
-              type="text" 
-              value={inputText}
-              onChange={(e) => setInputText(e.target.value)}
-              placeholder={isBeingHeld ? "Sohbet beklemeye alındı..." : "Mesaj yaz..."}
-              className="flex-1 bg-transparent border-none focus:ring-0 text-sm py-2 px-4 text-slate-900 placeholder:text-slate-400"
-            />
-            <button 
-              type="submit"
-              disabled={!inputText.trim()}
-              className={cn(
-                "p-2 rounded-xl transition-all flex items-center justify-center shadow-lg",
-                inputText.trim() 
-                  ? "bg-blue-600 text-white shadow-blue-200 hover:bg-blue-700" 
-                  : "bg-slate-200 text-slate-400 cursor-not-allowed shadow-none"
-              )}
-            >
-              <Send size={18} />
-            </button>
-          </form>
+          </div>{/* /buttons-wrapper */}
         </div>
       </footer>
 
