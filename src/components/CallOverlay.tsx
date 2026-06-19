@@ -249,8 +249,8 @@ export const CallOverlay = () => {
 
   const participantsCount = activeCall?.activeParticipants?.length || 1;
   const gridCols = participantsCount <= 1 ? 'grid-cols-1' : 
-                   participantsCount <= 2 ? 'grid-cols-1 sm:grid-cols-2' : 
-                   participantsCount <= 4 ? 'grid-cols-2' : 'grid-cols-3';
+                   participantsCount <= 2 ? 'grid-cols-1 landscape:grid-cols-2 sm:grid-cols-2' : 
+                   participantsCount <= 4 ? 'grid-cols-1 sm:grid-cols-2' : 'grid-cols-2 sm:grid-cols-3';
   const gridRows = participantsCount <= 2 ? 'grid-rows-1' : 
                    participantsCount <= 6 ? 'grid-rows-2' : 'grid-rows-3';
 
@@ -302,7 +302,7 @@ export const CallOverlay = () => {
             className="w-full sm:max-w-5xl h-full sm:max-h-[90vh] bg-slate-950 rounded-none sm:rounded-[3rem] overflow-hidden shadow-2xl flex flex-col pointer-events-auto relative"
           >
             {/* Main Video Area */}
-            <div className={cn("flex-1 p-4 grid gap-4 transition-all duration-500", gridCols, gridRows)}>
+            <div className={cn("flex-1 p-2 sm:p-4 grid gap-2 sm:gap-4 transition-all duration-500", gridCols, gridRows)}>
               {/* Local Participant */}
               <div className="relative bg-slate-900 rounded-[2rem] overflow-hidden shadow-inner group">
                 <video 
@@ -372,7 +372,7 @@ export const CallOverlay = () => {
             </div>
 
             {/* Controls */}
-            <div className="h-28 bg-slate-900 border-t border-white/5 px-6 sm:px-10 flex items-center justify-between shrink-0">
+            <div className="h-20 sm:h-28 bg-slate-900 border-t border-white/5 px-6 sm:px-10 flex items-center justify-between shrink-0">
                <div className="hidden sm:flex flex-col">
                    <h4 className="text-sm font-black text-white tracking-tight">Nexus {activeCall.mediaType === 'video' ? 'Görüntülü' : 'Sesli'} Arama</h4>
                   <p className="text-[10px] font-bold text-blue-500 uppercase tracking-widest">
