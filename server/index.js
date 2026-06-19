@@ -106,20 +106,26 @@ const server = createServer(app);
 // ─── WebSocket Relay ──────────────────────────────────────
 const wss = new WebSocketServer({ server, path: '/ws' });
 
-/** Map<roomId, Set<WebSocket>> */
+/** Map<roomId, Set<WebSocket>> — PCM audio relay rooms */
 const rooms = new Map();
+
+/** Map<roomId, Map<userId, {ws, userName}>> — WebRTC signaling rooms */
+const signalingRooms = new Map();
 
 wss.on('connection', (ws) => {
   let currentRoom = null;
   let userId = null;
+  let isSignaling = false;
 
   ws.on('message', (data) => {
-    // First message should be a JSON join
     try {
       const msg = JSON.parse(data.toString());
+
+      // ── PCM audio relay (existing) ──────────────────────
       if (msg.type === 'join' && msg.room && msg.userId) {
         currentRoom = msg.room;
         userId = msg.userId;
+        isSignaling = false;
 
         if (!rooms.has(currentRoom)) {
           rooms.set(currentRoom, new Set());
@@ -129,10 +135,59 @@ wss.on('connection', (ws) => {
         ws.send(JSON.stringify({ type: 'room_joined', room: currentRoom }));
         return;
       }
+
+      // ── WebRTC signaling join ───────────────────────────
+      if (msg.type === 'join-room' && msg.roomId && msg.userId) {
+        currentRoom = msg.roomId;
+        userId = msg.userId;
+        isSignaling = true;
+
+        if (!signalingRooms.has(currentRoom)) {
+          signalingRooms.set(currentRoom, new Map());
+        }
+        const room = signalingRooms.get(currentRoom);
+        room.set(userId, { ws, userName: msg.userName || userId });
+
+        // Send existing user list to newcomer
+        const existingUsers = [];
+        for (const [id, info] of room) {
+          if (id !== userId) {
+            existingUsers.push({ userId: id, userName: info.userName });
+          }
+        }
+        ws.send(JSON.stringify({ type: 'user-list', users: existingUsers, roomId: currentRoom }));
+
+        // Notify existing peers about newcomer
+        for (const [id, info] of room) {
+          if (id !== userId) {
+            info.ws.send(JSON.stringify({
+              type: 'user-joined',
+              userId,
+              userName: msg.userName || userId,
+            }));
+          }
+        }
+        return;
+      }
+
+      // ── WebRTC signaling relay ──────────────────────────
+      if (msg.type === 'signal' && currentRoom && isSignaling) {
+        const room = signalingRooms.get(currentRoom);
+        if (!room) return;
+        const target = room.get(msg.targetUserId);
+        if (target && target.ws.readyState === 1) {
+          target.ws.send(JSON.stringify({
+            type: 'signal',
+            senderUserId: userId,
+            signalData: msg.signalData,
+          }));
+        }
+        return;
+      }
     } catch { /* binary data = audio chunk */ }
 
-    // Binary audio chunk — broadcast to room peers
-    if (currentRoom && rooms.has(currentRoom)) {
+    // ── Binary audio chunk relay (PCM, existing) ──────────
+    if (!isSignaling && currentRoom && rooms.has(currentRoom)) {
       for (const client of rooms.get(currentRoom)) {
         if (client !== ws && client.readyState === 1) {
           client.send(data);
@@ -142,7 +197,19 @@ wss.on('connection', (ws) => {
   });
 
   ws.on('close', () => {
-    if (currentRoom && rooms.has(currentRoom)) {
+    if (isSignaling && currentRoom && signalingRooms.has(currentRoom)) {
+      const room = signalingRooms.get(currentRoom);
+      room.delete(userId);
+
+      // Notify remaining peers
+      for (const [id, info] of room) {
+        info.ws.send(JSON.stringify({ type: 'user-left', userId }));
+      }
+
+      if (room.size === 0) {
+        signalingRooms.delete(currentRoom);
+      }
+    } else if (!isSignaling && currentRoom && rooms.has(currentRoom)) {
       rooms.get(currentRoom).delete(ws);
       if (rooms.get(currentRoom).size === 0) {
         rooms.delete(currentRoom);
