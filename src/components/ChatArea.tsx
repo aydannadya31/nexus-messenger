@@ -6,7 +6,7 @@ import { useCall } from './CallProvider';
 import { Chat, Message, UserProfile, Call } from '../types';
 import { cn } from '../lib/utils';
 import ProfileModal from './ProfileModal';
-import { Image, MoreVertical, Send, Smile, Phone, Video, MessageSquarePlus, Clock, Play, Mic, Square, Pause, Trash2, ListChecks, X, Info, Eye, EyeOff, Lock } from 'lucide-react';
+import { Image, Send, Smile, Phone, Video, MessageSquarePlus, Clock, Play, Mic, Square, Pause, Trash2, ListChecks, X, Info, Lock, ChevronDown } from 'lucide-react';
 import { format } from 'date-fns';
 import { motion, AnimatePresence } from 'motion/react';
 import { encryptMessage, decryptMessage } from '../lib/crypto';
@@ -85,13 +85,13 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
   const [inputText, setInputText] = useState('');
   const [activeCallForChat, setActiveCallForChat] = useState<Call | null>(null);
   const [reactionMenu, setReactionMenu] = useState<{ msgId: string, x: number, y: number } | null>(null);
-  const [isHeaderMenuOpen, setIsHeaderMenuOpen] = useState(false);
   const [isEmojiMenuOpen, setIsEmojiMenuOpen] = useState(false);
-  const [showDeletedMessages, setShowDeletedMessages] = useState(false);
   const [batchMode, setBatchMode] = useState(false);
   const [selectedMsgs, setSelectedMsgs] = useState<Set<string>>(new Set());
   const [showChatSearch, setShowChatSearch] = useState(false);
   const [chatSearchQuery, setChatSearchQuery] = useState('');
+  const [holdDailyCount, setHoldDailyCount] = useState(0);
+  const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   const [mutedUsers, setMutedUsers] = useState<Record<string, boolean>>({});
   const [showProfile, setShowProfile] = useState(false);
   const [customDialog, setCustomDialog] = useState<{
@@ -158,6 +158,8 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
     setReactionMenu({ msgId, x: e.clientX, y: e.clientY });
   };
 
+  const MAX_DAILY_HOLD = 7;
+
   const amIHolding = chat?.heldBy === user?.uid;
   const isBeingHeld = !!chat?.heldBy && !amIHolding;
 
@@ -166,8 +168,16 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
     try {
       if (amIHolding) {
         await updateDoc(doc(db, 'chats', chatId), { heldBy: null, holdExpiresAt: null });
+        showCustomAlert('Bekleme Kaldırıldı', `Bu sohbet için bekleme kaldırıldı. Kalan hakkınız: ${holdDailyCount}/${MAX_DAILY_HOLD}`);
       } else {
+        if (holdDailyCount >= MAX_DAILY_HOLD) {
+          showCustomAlert('Limit Doldu', `Günlük ${MAX_DAILY_HOLD} kullanım hakkınız doldu. Yarını kadar bekleyin.`);
+          return;
+        }
+        const newCount = holdDailyCount + 1;
+        setHoldDailyCount(newCount);
         await updateDoc(doc(db, 'chats', chatId), { heldBy: user.uid, holdExpiresAt: new Date(Date.now() + 24*60*60*1000) });
+        showCustomAlert('Sohbet Beklemeye Alındı', `Bu sohbet 24 saat beklemeye alındı. Kalan hakkınız: ${MAX_DAILY_HOLD - newCount}/${MAX_DAILY_HOLD}`);
       }
     } catch (err) {
       console.error("Hold toggle error:", err);
@@ -258,6 +268,18 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
   }, [messages]);
+
+  const handleScroll = () => {
+    if (!scrollRef.current) return;
+    const { scrollTop, scrollHeight, clientHeight } = scrollRef.current;
+    setShowScrollToBottom(scrollHeight - scrollTop - clientHeight > 200);
+  };
+
+  const scrollToBottom = () => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
+    }
+  };
 
   const handleVideoSend = () => {
     videoInputRef.current?.click();
@@ -464,49 +486,25 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
   };
 
   const handleDeleteMessage = async (msgId: string) => {
-    if (!chatId) return;
+    if (!chatId || !user) return;
     showCustomConfirm(
       "Mesajı Sil",
-      "Bu mesajı silmek istediğinizden emin misiniz? Silinen bu mesaj sadece sizin 'Sildiğim Mesajları Göster' seçeneğiniz açıkken görüntülenebilir.",
+      "Bu mesajı silmek istediğinizden emin misiniz? Silinen mesaj yönetim onayına gönderilecektir.",
       async () => {
         try {
-          await updateDoc(doc(db, 'chats', chatId, 'messages', msgId), {
-            isDeleted: true,
-            deletedAt: serverTimestamp()
+          // Mesajı tamamen sil
+          await deleteDoc(doc(db, 'chats', chatId, 'messages', msgId));
+          // Yönetim paneline bildir
+          await addDoc(collection(db, 'pendingDeletions'), {
+            chatId,
+            messageId: msgId,
+            deletedBy: user.uid,
+            deletedByName: user.displayName,
+            deletedAt: serverTimestamp(),
+            status: 'pending'
           });
         } catch (error) {
           console.error("Delete message error:", error);
-        }
-      }
-    );
-  };
-
-  const handleClearChat = async () => {
-    if (!chatId) return;
-    setIsHeaderMenuOpen(false);
-    showCustomConfirm(
-      "Sohbeti Temizle",
-      "Bu sohbetteki tüm mesajları silmek istediğinizden emin misiniz? Bu işlem geri alınamaz.",
-      async () => {
-        try {
-          const messagesRef = collection(db, 'chats', chatId, 'messages');
-          const q = query(messagesRef);
-          const querySnapshot = await getDocs(q);
-          const deletePromises = querySnapshot.docs.map(d => deleteDoc(doc(db, 'chats', chatId, 'messages', d.id)));
-          await Promise.all(deletePromises);
-          
-          // Update lastMessage
-          await updateDoc(doc(db, 'chats', chatId), {
-            lastMessage: {
-              text: 'Sohbet geçmişi temizlendi.',
-              senderId: user?.uid || '',
-              senderName: user?.displayName || '',
-              timestamp: serverTimestamp()
-            },
-            updatedAt: serverTimestamp()
-          });
-        } catch (error) {
-          console.error("Clear chat error:", error);
         }
       }
     );
@@ -662,7 +660,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
         </div>
 
         {/* Row 2: Action Buttons */}
-        <div className="flex items-center gap-2 sm:gap-4 text-slate-400 relative mt-2 pl-14">
+        <div className="flex items-center gap-1.5 sm:gap-3 text-slate-500 relative mt-2 pl-14">
           {activeCallForChat && !activeCall && (
             <button 
               onClick={() => acceptCall()}
@@ -677,14 +675,14 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
             <>
               <button 
                 onClick={() => chat && startCall(chat.id, chat.participants, chat.type, 'audio')}
-                className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-blue-50 hover:text-blue-600 transition-all active:scale-90"
+                className="w-8 h-8 flex items-center justify-center rounded-xl bg-blue-50 text-blue-500 hover:bg-blue-100 hover:text-blue-700 transition-all active:scale-90"
                 title="Sesli Arama Başlat"
               >
                 <Phone size={16} />
               </button>
               <button 
                 onClick={() => chat && startCall(chat.id, chat.participants, chat.type, 'video')}
-                className="w-8 h-8 flex items-center justify-center rounded-full bg-blue-500 text-white hover:bg-blue-600 transition-all active:scale-90 shadow-md shadow-blue-500/20"
+                className="w-8 h-8 flex items-center justify-center rounded-xl bg-indigo-50 text-indigo-500 hover:bg-indigo-100 hover:text-indigo-700 transition-all active:scale-90"
                 title="Görüntülü Arama Başlat"
               >
                 <Video size={16} />
@@ -702,16 +700,16 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
           {/* Ara */}
           <button 
             onClick={() => setShowChatSearch(!showChatSearch)}
-            className={cn("hover:text-blue-600 transition-colors p-1 rounded-full hover:bg-blue-50", showChatSearch && "text-blue-600 bg-blue-50")}
+            className={cn("w-8 h-8 flex items-center justify-center rounded-xl transition-all", showChatSearch ? "bg-sky-100 text-sky-600" : "bg-slate-100 text-slate-500 hover:bg-slate-200 hover:text-slate-700")}
             title="Sohbet İçi Ara"
           >
-            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
           </button>
 
           {/* Toplu Seç */}
           <button 
             onClick={() => { setBatchMode(!batchMode); setSelectedMsgs(new Set()); }}
-            className={cn("hover:text-slate-900 transition-colors p-1 rounded-full hover:bg-slate-100", batchMode && "text-blue-600 bg-blue-50")}
+            className={cn("w-8 h-8 flex items-center justify-center rounded-xl transition-all", batchMode ? "bg-emerald-100 text-emerald-600" : "bg-emerald-50 text-emerald-500 hover:bg-emerald-100 hover:text-emerald-700")}
             title="Toplu Mesaj Seç"
           >
             <ListChecks size={18} />
@@ -721,10 +719,20 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
           {(chat?.type === 'private' || chat?.groupMetadata?.adminId === user?.uid) && (
             <button 
               onClick={handleHoldToggle}
-              className={cn("transition-colors p-1 rounded-full hover:bg-amber-50 relative", amIHolding ? "text-amber-500 bg-amber-50" : "hover:text-amber-500")}
+              className={cn("w-8 h-8 flex items-center justify-center rounded-xl transition-all relative", amIHolding ? "bg-amber-100 text-amber-600" : "bg-amber-50 text-amber-500 hover:bg-amber-100 hover:text-amber-700")}
               title={amIHolding ? 'Beklemeden Çıkar' : 'Beklemeye Al'}
             >
               {amIHolding ? <Play size={18} /> : <Pause size={18} />}
+              {!amIHolding && holdDailyCount < MAX_DAILY_HOLD && (
+                <span className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-amber-500 text-white text-[8px] font-black rounded-full flex items-center justify-center shadow-sm">
+                  {MAX_DAILY_HOLD - holdDailyCount}
+                </span>
+              )}
+              {holdDailyCount >= MAX_DAILY_HOLD && !amIHolding && (
+                <span className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-red-500 text-white text-[7px] font-black rounded-full flex items-center justify-center shadow-sm">
+                  <X size={10} />
+                </span>
+              )}
             </button>
           )}
 
@@ -738,53 +746,11 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
                 setShowProfile(true);
               }
             }}
-            className="hover:text-blue-600 transition-colors p-1 rounded-full hover:bg-blue-50"
+            className="w-8 h-8 flex items-center justify-center rounded-xl bg-purple-50 text-purple-500 hover:bg-purple-100 hover:text-purple-700 transition-all"
             title="Kullanıcı Bilgisi"
           >
             <Info size={18} />
           </button>
-
-          <div className="relative ml-auto">
-            <button 
-              onClick={() => setIsHeaderMenuOpen(!isHeaderMenuOpen)}
-              className="hover:text-slate-900 transition-colors p-1 rounded-full hover:bg-slate-100"
-            >
-              <MoreVertical size={18} />
-            </button>
-
-            {isHeaderMenuOpen && (
-              <>
-                <div 
-                  className="fixed inset-0 z-40" 
-                  onClick={() => setIsHeaderMenuOpen(false)} 
-                />
-                <div className="absolute right-0 mt-2 w-56 bg-white border border-slate-150 rounded-2xl shadow-xl py-2 z-50 animate-in fade-in slide-in-from-top-1 duration-100">
-                  <div className="px-4 py-2 border-b border-slate-100">
-                    <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">Sohbet İşlemleri</p>
-                  </div>
-                  <button 
-                    onClick={handleClearChat}
-                    className="w-full text-left px-4 py-3 text-xs font-bold text-red-600 hover:bg-red-50 transition-colors flex items-center gap-2"
-                  >
-                    <Trash2 size={14} /> Sohbet Geçmişini Temizle
-                  </button>
-                  <button 
-                    onClick={() => {
-                      setShowDeletedMessages(!showDeletedMessages);
-                      setIsHeaderMenuOpen(false);
-                    }}
-                    className={cn(
-                      "w-full text-left px-4 py-3 text-xs font-bold transition-colors flex items-center gap-2",
-                      showDeletedMessages ? "text-amber-600 hover:bg-amber-50" : "text-blue-600 hover:bg-blue-50"
-                    )}
-                  >
-                    {showDeletedMessages ? <EyeOff size={14} /> : <Eye size={14} />}
-                    {showDeletedMessages ? ' Sildiğim Mesajları Gizle' : ' Sildiğim Mesajları Göster'}
-                  </button>
-                </div>
-              </>
-            )}
-          </div>
         </div>
       </header>
 
@@ -821,6 +787,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
       {/* Messages */}
       <div 
         ref={scrollRef}
+        onScroll={handleScroll}
         className="flex-1 overflow-y-auto p-10 space-y-6 custom-scrollbar z-10"
       >
         <div className="flex justify-center mb-8">
@@ -829,12 +796,10 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
 
         <AnimatePresence>
           {messages
-            .filter(msg => !msg.isDeleted || (showDeletedMessages && msg.senderId === user?.uid))
             .filter(msg => !chatSearchQuery || msg.text?.toLowerCase().includes(chatSearchQuery.toLowerCase()))
             .map((msg, idx) => {
               const isMe = msg.senderId === user?.uid;
               const sender = participantInfo[msg.senderId];
-              const isDeleted = msg.isDeleted === true;
 
               return (
               <motion.div 
@@ -873,21 +838,14 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
                       </span>
                     )}
                     <div 
-                      onContextMenu={(e) => msg.id && !isDeleted && onContextMenu(e, msg.id)}
+                      onContextMenu={(e) => msg.id && onContextMenu(e, msg.id)}
                       className={cn(
                         "px-5 py-3 rounded-2xl shadow-sm border overflow-hidden relative group/bubble transition-all duration-300",
-                        isDeleted
-                          ? "bg-slate-100 text-slate-400 border-slate-200/60 opacity-60 rounded-br-none"
-                          : isMe 
-                            ? "bg-blue-600 text-white border-blue-500 rounded-br-none shadow-blue-100" 
-                            : "bg-white text-slate-800 border-slate-100 rounded-bl-none"
+                        isMe 
+                          ? "bg-blue-600 text-white border-blue-500 rounded-br-none shadow-blue-100" 
+                          : "bg-white text-slate-800 border-slate-100 rounded-bl-none"
                       )}
                     >
-                      {isDeleted && (
-                        <div className="text-[9px] font-black uppercase tracking-wider text-rose-500 flex items-center gap-1 mb-1.5 bg-rose-50 border border-rose-100 px-1.5 py-0.5 rounded w-max select-none">
-                          <Trash2 size={10} /> SİLDİĞİNİZ MESAJ
-                        </div>
-                      )}
 
                       {msg.type === 'text' && (
                         msg.encrypted && !isMe ? (
@@ -896,18 +854,12 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
                             🔒 Şifreli Mesaj (dokunun)
                           </button>
                         ) : (
-                          <p className={cn(
-                            "text-sm font-medium leading-relaxed",
-                            isDeleted && "line-through text-slate-400 font-normal italic"
-                          )}>{msg.text}</p>
+                          <p className="text-sm font-medium leading-relaxed">{msg.text}</p>
                         )
                       )}
                       
                       {msg.type === 'image' && msg.imageUrl && (
-                        <div className={cn(
-                          "relative rounded-lg overflow-hidden mb-1 min-w-[200px]",
-                          isDeleted && "grayscale blur-[2px] opacity-40"
-                        )}>
+                        <div className="relative rounded-lg overflow-hidden mb-1 min-w-[200px]">
                           {msg.encrypted && !isMe ? (
                             <>
                               <img src={msg.imageUrl} alt="" className="w-full h-auto object-cover blur-[12px]" />
@@ -921,17 +873,14 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
                               src={msg.imageUrl} 
                               alt="Paylaşılan görsel" 
                               className="max-w-full h-auto object-cover hover:scale-105 transition-transform duration-500 cursor-pointer"
-                              onClick={() => !isDeleted && window.open(msg.imageUrl, '_blank')}
+                              onClick={() => window.open(msg.imageUrl, '_blank')}
                             />
                           )}
                         </div>
                       )}
 
                       {msg.type === 'video' && msg.videoUrl && (
-                        <div className={cn(
-                          "relative rounded-lg overflow-hidden mb-1 min-w-[240px] bg-black/5",
-                          isDeleted && "grayscale blur-[2px] opacity-40"
-                        )}>
+                        <div className="relative rounded-lg overflow-hidden mb-1 min-w-[240px] bg-black/5">
                           {msg.encrypted && !isMe ? (
                             <>
                               <video src={msg.videoUrl} className="max-w-full h-auto blur-[12px]" playsInline />
@@ -944,7 +893,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
                             <video 
                               src={msg.videoUrl} 
                               className="max-w-full h-auto" 
-                              controls={!isDeleted}
+                              controls
                               playsInline
                             />
                           )}
@@ -952,7 +901,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
                       )}
 
                       {msg.type === 'audio' && msg.audioUrl && (
-                        <div className={cn(isDeleted && "grayscale opacity-40 pointer-events-none")}>
+                        <div>
                           {msg.encrypted && !isMe ? (
                             <button onClick={() => setDecryptModal(msg)}
                               className="text-[10px] font-bold flex items-center gap-1 text-slate-500 hover:text-slate-700">🔒 Şifreli Ses Mesajı (dokunun)</button>
@@ -964,17 +913,17 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
 
                       <div className={cn(
                         "flex items-center justify-end mt-1.5 space-x-1",
-                        isMe && !isDeleted ? "text-blue-100" : "text-slate-400"
+                        isMe ? "text-blue-100" : "text-slate-400"
                       )}>
                         <span className="text-[10px] font-medium">
                           {msg.timestamp ? format(msg.timestamp.toDate(), 'HH:mm') : ''}
                         </span>
-                        {isMe && !isDeleted && <MessageStatus status={msg.status} />}
+                        {isMe && <MessageStatus status={msg.status} />}
                       </div>
                     </div>
 
                     {/* Hover Actions: Reaction & Delete */}
-                    {!isDeleted && msg.id && (
+                    {msg.id && (
                       <div className={cn(
                         "absolute flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-200 bg-white border border-slate-200 p-1 rounded-full shadow-lg z-20",
                         isMe ? "right-full mr-3 top-1/2 -translate-y-1/2" : "left-full ml-3 top-1/2 -translate-y-1/2"
@@ -1046,6 +995,16 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
         </AnimatePresence>
       </div>
 
+      {/* Scroll to Bottom Button */}
+      {showScrollToBottom && (
+        <button onClick={scrollToBottom}
+          className="absolute bottom-24 right-6 z-20 w-10 h-10 bg-white border border-slate-200 rounded-full shadow-lg flex items-center justify-center text-slate-500 hover:text-blue-600 hover:border-blue-200 transition-all animate-in fade-in slide-in-from-bottom-2 duration-200"
+          title="Sona Dön"
+        >
+          <ChevronDown size={20} />
+        </button>
+      )}
+
       {/* Batch Action Bar */}
       {batchMode && (
         <div className="p-3 bg-white border-t border-b border-slate-200 flex items-center justify-between shrink-0 z-10">
@@ -1058,10 +1017,18 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
             <button onClick={() => {
                 if (selectedMsgs.size === 0) return;
                 showCustomConfirm('Mesajları Sil', `${selectedMsgs.size} mesajı silmek istediğinize emin misiniz?`, async () => {
-                  if (!chat) return;
+                  if (!chat || !user) return;
                   for (const msgId of selectedMsgs) {
                     try {
-                      await updateDoc(doc(db, 'chats', chatId, 'messages', msgId), { isDeleted: true });
+                      await deleteDoc(doc(db, 'chats', chatId, 'messages', msgId));
+                      await addDoc(collection(db, 'pendingDeletions'), {
+                        chatId,
+                        messageId: msgId,
+                        deletedBy: user.uid,
+                        deletedByName: user.displayName,
+                        deletedAt: serverTimestamp(),
+                        status: 'pending'
+                      });
                     } catch(err) { console.error(err); }
                   }
                   setBatchMode(false);
@@ -1295,7 +1262,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
 
       {/* Profile Modal */}
       {showProfile && otherUser && (
-        <ProfileModal user={otherUser} onClose={() => setShowProfile(false)} />
+        <ProfileModal user={otherUser} onClose={() => setShowProfile(false)} readOnly />
       )}
     </div>
   );

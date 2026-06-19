@@ -9,9 +9,10 @@ import { cn } from '../lib/utils';
 interface ProfileModalProps {
   user: UserProfile;
   onClose: () => void;
+  readOnly?: boolean;
 }
 
-const ProfileModal: React.FC<ProfileModalProps> = ({ user, onClose }) => {
+const ProfileModal: React.FC<ProfileModalProps> = ({ user, onClose, readOnly }) => {
   const { addToast } = useToast();
   const [displayName, setDisplayName] = useState(user.displayName);
   const [nickname, setNickname] = useState(user.nickname || '');
@@ -30,6 +31,8 @@ const ProfileModal: React.FC<ProfileModalProps> = ({ user, onClose }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const isReadOnly = readOnly === true;
 
   const handleSave = async () => {
     setSaving(true);
@@ -130,7 +133,7 @@ const ProfileModal: React.FC<ProfileModalProps> = ({ user, onClose }) => {
       <div className="bg-white rounded-3xl w-full max-w-md shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
         <div className="bg-blue-600 p-6 flex justify-between items-center text-white">
           <div>
-            <h2 className="text-xl font-black tracking-tight">Profilini Düzenle</h2>
+            <h2 className="text-xl font-black tracking-tight">{isReadOnly ? 'Kullanıcı Bilgisi' : 'Profilini Düzenle'}</h2>
             <p className="text-blue-100 text-xs font-bold uppercase tracking-widest mt-1">UIN NO: {user.uin}</p>
           </div>
           <button onClick={() => { stopCamera(); onClose(); }} className="p-2 hover:bg-white/10 rounded-full transition-colors">
@@ -170,7 +173,7 @@ const ProfileModal: React.FC<ProfileModalProps> = ({ user, onClose }) => {
                 )}
               </div>
 
-              {!isCameraActive && (
+              {!isCameraActive && !isReadOnly && (
                 <div className="absolute -bottom-2 -right-2 flex gap-1">
                   <button 
                     onClick={startCamera}
@@ -218,7 +221,8 @@ const ProfileModal: React.FC<ProfileModalProps> = ({ user, onClose }) => {
               type="text" 
               value={displayName}
               onChange={(e) => setDisplayName(e.target.value)}
-              className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl px-4 py-3 text-sm font-bold text-slate-900 focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 outline-none transition-all placeholder:text-slate-300"
+              readOnly={isReadOnly}
+              className={cn("w-full bg-slate-50 border-2 border-slate-100 rounded-2xl px-4 py-3 text-sm font-bold text-slate-900 focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 outline-none transition-all placeholder:text-slate-300", isReadOnly && "opacity-70 cursor-default")}
               placeholder="İsminiz..."
             />
           </div>
@@ -232,7 +236,8 @@ const ProfileModal: React.FC<ProfileModalProps> = ({ user, onClose }) => {
               type="text" 
               value={nickname}
               onChange={(e) => setNickname(e.target.value)}
-              className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl px-4 py-3 text-sm font-bold text-slate-900 focus:border-purple-500 focus:ring-4 focus:ring-purple-500/10 outline-none transition-all placeholder:text-slate-300"
+              readOnly={isReadOnly}
+              className={cn("w-full bg-slate-50 border-2 border-slate-100 rounded-2xl px-4 py-3 text-sm font-bold text-slate-900 focus:border-purple-500 focus:ring-4 focus:ring-purple-500/10 outline-none transition-all placeholder:text-slate-300", isReadOnly && "opacity-70 cursor-default")}
               placeholder="Takma adınız (opsiyonel)..."
             />
           </div>
@@ -246,12 +251,13 @@ const ProfileModal: React.FC<ProfileModalProps> = ({ user, onClose }) => {
               {statusOptions.map((opt) => (
                 <button
                   key={opt.value}
-                  onClick={() => setOnlineStatus(opt.value as any)}
+                  onClick={() => !isReadOnly && setOnlineStatus(opt.value as any)}
                   className={cn(
                     "flex-1 flex items-center justify-center gap-2 py-3 rounded-2xl border-2 transition-all font-bold text-xs uppercase tracking-tighter",
                     onlineStatus === opt.value 
                       ? "border-blue-500 bg-blue-50 text-blue-600 shadow-md shadow-blue-500/10" 
-                      : "border-slate-100 bg-white text-slate-400 hover:border-slate-200"
+                      : "border-slate-100 bg-white text-slate-400 hover:border-slate-200",
+                    isReadOnly && "cursor-default"
                   )}
                 >
                   <div className={cn("w-2 h-2 rounded-full", opt.color)} />
@@ -269,55 +275,65 @@ const ProfileModal: React.FC<ProfileModalProps> = ({ user, onClose }) => {
             <textarea 
               value={about}
               onChange={(e) => setAbout(e.target.value)}
+              readOnly={isReadOnly}
               rows={3}
-              className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl px-4 py-3 text-sm font-bold text-slate-900 focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 outline-none transition-all resize-none placeholder:text-slate-300"
+              className={cn("w-full bg-slate-50 border-2 border-slate-100 rounded-2xl px-4 py-3 text-sm font-bold text-slate-900 focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 outline-none transition-all resize-none placeholder:text-slate-300", isReadOnly && "opacity-70 cursor-default")}
               placeholder="Neler yapıyorsun?"
             />
           </div>
 
           {/* Birth Date */}
           <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
-                🎂 Doğum Tarihi
-              </label>
-              <button onClick={() => setShowBirthDate(!showBirthDate)}
-                className={cn("text-[9px] font-bold px-2 py-1 rounded-lg transition-all", showBirthDate ? "bg-green-100 text-green-600" : "bg-slate-100 text-slate-400")}>
-                {showBirthDate ? 'Gösteriliyor' : 'Gizli'}
-              </button>
-            </div>
+              <div className="flex items-center justify-between">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                  🎂 Doğum Tarihi
+                </label>
+                {!isReadOnly && (
+                <button onClick={() => setShowBirthDate(!showBirthDate)}
+                  className={cn("text-[9px] font-bold px-2 py-1 rounded-lg transition-all", showBirthDate ? "bg-green-100 text-green-600" : "bg-slate-100 text-slate-400")}>
+                  {showBirthDate ? 'Gösteriliyor' : 'Gizli'}
+                </button>
+                )}
+              </div>
             <input type="date" value={birthDate} onChange={e => setBirthDate(e.target.value)}
-              className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl px-4 py-3 text-sm font-bold text-slate-900 focus:border-blue-500 outline-none transition-all" />
+              readOnly={isReadOnly}
+              className={cn("w-full bg-slate-50 border-2 border-slate-100 rounded-2xl px-4 py-3 text-sm font-bold text-slate-900 focus:border-blue-500 outline-none transition-all", isReadOnly && "opacity-70 cursor-default")} />
           </div>
 
           {/* Phone */}
           <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
-                📞 Telefon No.
-              </label>
-              <button onClick={() => setShowPhone(!showPhone)}
-                className={cn("text-[9px] font-bold px-2 py-1 rounded-lg transition-all", showPhone ? "bg-green-100 text-green-600" : "bg-slate-100 text-slate-400")}>
-                {showPhone ? 'Gösteriliyor' : 'Gizli'}
-              </button>
-            </div>
+              <div className="flex items-center justify-between">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                  📞 Telefon No.
+                </label>
+                {!isReadOnly && (
+                <button onClick={() => setShowPhone(!showPhone)}
+                  className={cn("text-[9px] font-bold px-2 py-1 rounded-lg transition-all", showPhone ? "bg-green-100 text-green-600" : "bg-slate-100 text-slate-400")}>
+                  {showPhone ? 'Gösteriliyor' : 'Gizli'}
+                </button>
+                )}
+              </div>
             <input type="tel" value={phone} onChange={e => setPhone(e.target.value)} placeholder="+90 5XX XXX XXXX"
-              className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl px-4 py-3 text-sm font-bold text-slate-900 focus:border-blue-500 outline-none transition-all" />
+              readOnly={isReadOnly}
+              className={cn("w-full bg-slate-50 border-2 border-slate-100 rounded-2xl px-4 py-3 text-sm font-bold text-slate-900 focus:border-blue-500 outline-none transition-all", isReadOnly && "opacity-70 cursor-default")} />
           </div>
 
           {/* Location */}
           <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
-                📍 Konum
-              </label>
-              <button onClick={() => setShowLocation(!showLocation)}
-                className={cn("text-[9px] font-bold px-2 py-1 rounded-lg transition-all", showLocation ? "bg-green-100 text-green-600" : "bg-slate-100 text-slate-400")}>
-                {showLocation ? 'Gösteriliyor' : 'Gizli'}
-              </button>
-            </div>
+              <div className="flex items-center justify-between">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                  📍 Konum
+                </label>
+                {!isReadOnly && (
+                <button onClick={() => setShowLocation(!showLocation)}
+                  className={cn("text-[9px] font-bold px-2 py-1 rounded-lg transition-all", showLocation ? "bg-green-100 text-green-600" : "bg-slate-100 text-slate-400")}>
+                  {showLocation ? 'Gösteriliyor' : 'Gizli'}
+                </button>
+                )}
+              </div>
             <input type="text" value={location} onChange={e => setLocation(e.target.value)} placeholder="İstanbul, Türkiye"
-              className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl px-4 py-3 text-sm font-bold text-slate-900 focus:border-blue-500 outline-none transition-all" />
+              readOnly={isReadOnly}
+              className={cn("w-full bg-slate-50 border-2 border-slate-100 rounded-2xl px-4 py-3 text-sm font-bold text-slate-900 focus:border-blue-500 outline-none transition-all", isReadOnly && "opacity-70 cursor-default")} />
           </div>
 
           <div className="flex gap-3 pt-4">
@@ -325,8 +341,9 @@ const ProfileModal: React.FC<ProfileModalProps> = ({ user, onClose }) => {
               onClick={onClose}
               className="flex-1 px-4 py-4 rounded-2xl text-sm font-black text-slate-500 hover:bg-slate-50 transition-colors uppercase tracking-widest"
             >
-              Vazgeç
+              {isReadOnly ? 'Kapat' : 'Vazgeç'}
             </button>
+            {!isReadOnly && (
             <button 
               onClick={handleSave}
               disabled={saving}
@@ -341,6 +358,7 @@ const ProfileModal: React.FC<ProfileModalProps> = ({ user, onClose }) => {
                 </>
               )}
             </button>
+            )}
           </div>
         </div>
       </div>
