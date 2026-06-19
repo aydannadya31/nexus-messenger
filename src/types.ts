@@ -26,6 +26,8 @@ export interface Chat {
     timestamp: any;
   };
   updatedAt: any;
+  heldBy?: string | null;
+  holdExpiresAt?: any;
 }
 
 export interface Message {

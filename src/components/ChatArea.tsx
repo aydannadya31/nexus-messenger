@@ -178,8 +178,8 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
         setHoldDailyCount(newCount);
         localStorage.setItem('holdDailyCount_' + user.uid, String(newCount));
         localStorage.setItem('holdDailyDate_' + user.uid, new Date().toDateString());
-        await updateDoc(doc(db, 'chats', chatId), { heldBy: user.uid, holdExpiresAt: new Date(Date.now() + 24*60*60*1000) });
-        showCustomAlert('Sohbet Beklemeye Alındı', `Bu sohbet 24 saat beklemeye alındı. Kalan hakkınız: ${MAX_DAILY_HOLD - newCount}/${MAX_DAILY_HOLD}`);
+        await updateDoc(doc(db, 'chats', chatId), { heldBy: user.uid, holdExpiresAt: new Date(Date.now() + 30*60*1000) });
+        showCustomAlert('Sohbet Beklemeye Alındı', `${otherUser?.displayName || 'Karşı taraf'} 30 dakika beklemeye alındı. Kalan hakkınız: ${MAX_DAILY_HOLD - newCount}/${MAX_DAILY_HOLD}`);
       }
     } catch (err) {
       console.error("Hold toggle error:", err);
@@ -288,6 +288,18 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
     } catch {}
   }, [user]);
 
+  // Auto-release hold after 30 minutes
+  useEffect(() => {
+    if (!chatId || !chat?.heldBy || !chat?.holdExpiresAt) return;
+    const checkExpiry = async () => {
+      const expires = chat.holdExpiresAt?.toDate?.() || chat.holdExpiresAt;
+      if (expires && new Date() > new Date(expires)) {
+        await updateDoc(doc(db, 'chats', chatId), { heldBy: null, holdExpiresAt: null });
+      }
+    };
+    checkExpiry();
+  }, [chat?.heldBy, chat?.holdExpiresAt]);
+
   const handleScroll = () => {
     if (!scrollRef.current) return;
     const { scrollTop, scrollHeight, clientHeight } = scrollRef.current;
@@ -308,9 +320,15 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
     const file = e.target.files?.[0];
     if (!file || !user || !chatId) return;
 
-    if (file.size > 1500 * 1024) {
-      showCustomAlert("Dosya Boyutu Sınırı", "Ses/video dosyası çok büyük (maksimum 1.5MB olmalıdır).");
+    if (file.size > 4500 * 1024) {
+      showCustomAlert("Dosya Boyutu Sınırı", "Ses/video dosyası çok büyük (maksimum 4.5MB olmalıdır).");
       return;
+    }
+
+    let pwd = '';
+    if (encryptMode) {
+      pwd = prompt('Şifreli video şifresini girin:') || '';
+      if (!pwd) { return; }
     }
 
     const reader = new FileReader();
@@ -322,12 +340,13 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
           senderId: user.uid,
           timestamp: serverTimestamp(),
           type: 'video',
-          status: 'sent'
+          status: 'sent',
+          ...(pwd ? { encrypted: true, imagePassword: btoa(pwd) } : {})
         });
 
         await updateDoc(doc(db, 'chats', chatId), {
           lastMessage: {
-            text: '🎥 Video Mesajı',
+            text: pwd ? '🔒 Şifreli Video' : '🎥 Video Mesajı',
             senderId: user.uid,
             senderName: user.displayName,
             timestamp: serverTimestamp()
@@ -347,9 +366,18 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const timerRef = useRef<any>(null);
+  const audioPwdRef = useRef<string>('');
 
   const startRecording = async () => {
     try {
+      if (encryptMode) {
+        const pwd = prompt('Şifreli ses kaydı şifresini girin:') || '';
+        if (!pwd) { return; }
+        audioPwdRef.current = pwd;
+      } else {
+        audioPwdRef.current = '';
+      }
+
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const mediaRecorder = new MediaRecorder(stream);
       mediaRecorderRef.current = mediaRecorder;
@@ -365,11 +393,11 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
         reader.readAsDataURL(audioBlob);
         reader.onloadend = async () => {
           const base64Audio = reader.result as string;
-          if (base64Audio.length > 800000) {
+          if (base64Audio.length > 2400000) {
             showCustomAlert("Ses Kaydı Sınırı", "Ses mesajı çok uzun, lütfen daha kısa bir kayıt yapın.");
             return;
           }
-          await sendAudioMessage(base64Audio);
+          await sendAudioMessage(base64Audio, audioPwdRef.current || undefined);
         };
         stream.getTracks().forEach(track => track.stop());
       };
@@ -393,7 +421,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
     }
   };
 
-  const sendAudioMessage = async (audioUrl: string) => {
+  const sendAudioMessage = async (audioUrl: string, pwd?: string) => {
     if (!user || !chatId) return;
     try {
       await addDoc(collection(db, 'chats', chatId, 'messages'), {
@@ -401,12 +429,13 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
         senderId: user.uid,
         timestamp: serverTimestamp(),
         type: 'audio',
-        status: 'sent'
+        status: 'sent',
+        ...(pwd ? { encrypted: true, imagePassword: btoa(pwd) } : {})
       });
 
       await updateDoc(doc(db, 'chats', chatId), {
         lastMessage: {
-          text: '🎤 Ses Mesajı',
+          text: pwd ? '🔒 Şifreli Ses' : '🎤 Ses Mesajı',
           senderId: user.uid,
           senderName: user.displayName,
           timestamp: serverTimestamp()
@@ -470,9 +499,15 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
     const file = e.target.files?.[0];
     if (!file || !user || !chatId) return;
 
-    if (file.size > 800 * 1024) {
-      showCustomAlert("Dosya Boyutu Sınırı", "Seçilen görsel dosyası çok büyük (maksimum 800KB olmalıdır).");
+    if (file.size > 2400 * 1024) {
+      showCustomAlert("Dosya Boyutu Sınırı", "Seçilen görsel dosyası çok büyük (maksimum 2.4MB olmalıdır).");
       return;
+    }
+
+    let pwd = '';
+    if (encryptMode) {
+      pwd = prompt('Şifreli görsel şifresini girin:') || '';
+      if (!pwd) { return; }
     }
 
     const reader = new FileReader();
@@ -484,12 +519,13 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
           senderId: user.uid,
           timestamp: serverTimestamp(),
           type: 'image',
-          status: 'sent'
+          status: 'sent',
+          ...(pwd ? { encrypted: true, imagePassword: btoa(pwd) } : {})
         });
 
         await updateDoc(doc(db, 'chats', chatId), {
           lastMessage: {
-            text: '📷 Fotoğraf',
+            text: pwd ? '🔒 Şifreli Görsel' : '📷 Fotoğraf',
             senderId: user.uid,
             senderName: user.displayName,
             timestamp: serverTimestamp()
@@ -843,7 +879,8 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
                   />
                 )}
                 {!isMe && (
-                    <div className="w-8 h-8 rounded-full bg-slate-200 shrink-0 border border-white shadow-sm overflow-hidden">
+                    <div className="w-8 h-8 rounded-full bg-slate-200 shrink-0 border border-white shadow-sm overflow-hidden cursor-pointer"
+                      onClick={() => setShowProfile(true)}>
                       <img src={sender?.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${msg.senderId}`} alt="" className="w-full h-full object-cover" />
                     </div>
                   )}
@@ -852,7 +889,8 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
                      isMe ? "items-end" : "items-start"
                   )}>
                     {!isMe && chat?.type === 'group' && (
-                      <span className="text-[10px] font-black text-slate-400 mb-1 ml-1 uppercase tracking-wider">
+                      <span className="text-[10px] font-black text-slate-400 mb-1 ml-1 uppercase tracking-wider cursor-pointer"
+                        onClick={() => setShowProfile(true)}>
                         {sender?.displayName || 'Bilinmeyen'}
                       </span>
                     )}
@@ -865,6 +903,9 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
                           : "bg-white text-slate-800 border-slate-100 rounded-bl-none"
                       )}
                     >
+                      {isMe && msg.encrypted && (
+                        <span className="absolute -top-1.5 -left-1.5 text-[10px] opacity-60" title="Şifreli">🔒</span>
+                      )}
 
                       {msg.type === 'text' && (
                         msg.encrypted && !isMe ? (
