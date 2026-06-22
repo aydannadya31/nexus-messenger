@@ -3,7 +3,7 @@ import { collection, query, getDocs, doc, getDoc, where, orderBy, deleteDoc, upd
 import { db } from '../lib/firebase';
 import { useToast } from '../lib/toast';
 import { UserProfile, Message, Chat } from '../types';
-import { X, Search, Shield, UserX, UserCheck, Trash2, Clock, MessageSquare, Ban } from 'lucide-react';
+import { X, Search, Shield, UserX, UserCheck, Trash2, Clock, MessageSquare, Ban, Mail, Plus, Trash } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useAuth } from './AuthProvider';
 import { motion, AnimatePresence } from 'motion/react';
@@ -16,10 +16,13 @@ interface AdminPanelProps {
 export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
   const { user } = useAuth();
   const { addToast } = useToast();
-  const [step, setStep] = useState<'password' | 'panel'>('password');
+  const [step, setStep] = useState<'email-check' | 'password' | 'panel'>('email-check');
   const [password, setPassword] = useState('');
   const [passwordError, setPasswordError] = useState('');
   const [verifying, setVerifying] = useState(false);
+  const [emailAuthorized, setEmailAuthorized] = useState(false);
+  const [adminEmails, setAdminEmails] = useState<string[]>([]);
+  const [newAdminEmail, setNewAdminEmail] = useState('');
 
   const [users, setUsers] = useState<UserProfile[]>([]);
   const [search, setSearch] = useState('');
@@ -29,8 +32,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
   const [banDuration, setBanDuration] = useState({ value: 30, unit: 'minutes' as 'minutes' | 'hours' | 'days' });
   const [loadingUsers, setLoadingUsers] = useState(false);
 
-  // Tab: users, admin-msgs, deleted, encrypted
-  const [tab, setTab] = useState<'users' | 'admin-msgs' | 'deleted' | 'encrypted' | 'delete-requests'>('users');
+  // Tab: users, admin-msgs, deleted, encrypted, emails
+  const [tab, setTab] = useState<'users' | 'admin-msgs' | 'deleted' | 'encrypted' | 'delete-requests' | 'emails'>('users');
 
   const [adminMessages, setAdminMessages] = useState<{ id: string; message: string; userId: string; userDisplayName: string; userNickname?: string; userUIN?: string; timestamp: any }[]>([]);
   const [deletedMessages, setDeletedMessages] = useState<any[]>([]);
@@ -45,6 +48,32 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
     const hashBuffer = await crypto.subtle.digest('SHA-256', data);
     return Array.from(new Uint8Array(hashBuffer)).map(b => b.toString(16).padStart(2, '0')).join('');
   };
+
+  // Email whitelist check on mount
+  useEffect(() => {
+    if (step !== 'email-check' || !user) return;
+    const checkEmail = async () => {
+      try {
+        const configDoc = await getDoc(doc(db, 'config', 'admin'));
+        if (!configDoc.exists()) {
+          setEmailAuthorized(false);
+          return;
+        }
+        const emails: string[] = configDoc.data().adminEmails || [];
+        setAdminEmails(emails);
+        if (user.email && emails.includes(user.email)) {
+          setEmailAuthorized(true);
+          setStep('password');
+        } else {
+          setEmailAuthorized(false);
+        }
+      } catch (err) {
+        console.error('Email check error:', err);
+        setEmailAuthorized(false);
+      }
+    };
+    checkEmail();
+  }, [step, user]);
 
   const verifyAdmin = async (password: string): Promise<boolean> => {
     try {
@@ -81,6 +110,40 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
       setPasswordError('Hatalı şifre!');
     }
     setVerifying(false);
+  };
+
+  // Email management
+  const addAdminEmail = async () => {
+    if (!newAdminEmail.trim() || !/\S+@\S+\.\S+/.test(newAdminEmail)) {
+      addToast('Geçerli bir email adresi girin.', 'error');
+      return;
+    }
+    if (adminEmails.includes(newAdminEmail.trim())) {
+      addToast('Bu email zaten listede.', 'warning');
+      return;
+    }
+    const updated = [...adminEmails, newAdminEmail.trim()];
+    try {
+      await setDoc(doc(db, 'config', 'admin'), { adminEmails: updated }, { merge: true });
+      setAdminEmails(updated);
+      setNewAdminEmail('');
+      addToast('Email eklendi.', 'success');
+    } catch (err) {
+      console.error('Add email error:', err);
+      addToast('Email eklenirken hata oluştu.', 'error');
+    }
+  };
+
+  const removeAdminEmail = async (email: string) => {
+    const updated = adminEmails.filter(e => e !== email);
+    try {
+      await setDoc(doc(db, 'config', 'admin'), { adminEmails: updated }, { merge: true });
+      setAdminEmails(updated);
+      addToast('Email kaldırıldı.', 'success');
+    } catch (err) {
+      console.error('Remove email error:', err);
+      addToast('Email kaldırılırken hata oluştu.', 'error');
+    }
   };
 
   // Fetch all users
@@ -290,6 +353,39 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
     u.email?.toLowerCase().includes(search.toLowerCase())
   );
 
+  if (step === 'email-check') {
+    return (
+      <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-md">
+        <motion.div
+          initial={{ opacity: 0, scale: 0.95 }}
+          animate={{ opacity: 1, scale: 1 }}
+          className="bg-white rounded-3xl p-8 shadow-2xl max-w-sm w-full"
+        >
+          <div className="flex items-center justify-between mb-6">
+            <h2 className="text-lg font-black text-slate-900 tracking-tight">Yönetim Paneli</h2>
+            <button onClick={onClose} className="p-1 hover:bg-slate-100 rounded-full"><X size={20} /></button>
+          </div>
+          <div className="w-16 h-16 bg-red-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
+            <Shield size={32} className="text-red-500" />
+          </div>
+          <p className="text-xs text-slate-500 font-bold text-center mb-2 uppercase tracking-widest">Yetkisiz Erişim</p>
+          <p className="text-sm text-slate-700 text-center font-bold mb-6">
+            Email adresiniz (<span className="text-blue-600">{user?.email || 'yok'}</span>) yönetici listesinde bulunmamaktadır.
+          </p>
+          <p className="text-[11px] text-slate-400 text-center mb-6">
+            Admin panelini kullanabilmek için yetkili bir email adresine sahip olmanız gerekmektedir.
+          </p>
+          <button
+            onClick={onClose}
+            className="w-full py-3 bg-slate-200 hover:bg-slate-300 text-slate-800 font-bold rounded-2xl transition-all text-sm"
+          >
+            Kapat
+          </button>
+        </motion.div>
+      </div>
+    );
+  }
+
   if (step === 'password') {
     return (
       <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-md">
@@ -376,6 +472,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
             {encryptedMessages.length > 0 && (
               <span className="ml-1.5 text-[10px] text-purple-300">({encryptedMessages.length})</span>
             )}
+          </button>
+          <button
+            onClick={() => setTab('emails')}
+            className={cn("px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wider transition-all flex items-center gap-1.5", tab === 'emails' ? "bg-green-600 text-white" : "bg-slate-800 text-slate-400 hover:text-white")}
+          >
+            <Mail size={14} /> E-Postalar
           </button>
           <button onClick={onClose} className="p-2 hover:bg-slate-800 rounded-full text-slate-400"><X size={20} /></button>
         </div>
@@ -637,58 +739,116 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
         {tab === 'delete-requests' && (
           <div className="flex-1 overflow-y-auto custom-scrollbar p-6">
             <h2 className="text-lg font-black text-white mb-2">Silme İstekleri</h2>
-            <p className="text-[10px] text-slate-500 font-bold mb-6">Kullanıcıların sildiği mesajların onay bekleyen talepleri. Onaylarsanız kalıcı olarak silinir, reddederseniz mesaj geri yüklenir.</p>
+            <p className="text-[10px] text-slate-500 font-bold mb-6">Mesaj, grup ve sohbet silme talepleri. Onaylarsanız kalıcı olarak silinir, reddederseniz veri korunur.</p>
             {deleteRequests.filter(r => r.status === 'pending').length === 0 ? (
               <p className="text-slate-500 text-sm font-bold">Bekleyen silme isteği yok.</p>
             ) : (
-              <div className="space-y-3">
+              <div className="space-y-4">
                 {deleteRequests.filter(r => r.status === 'pending').map((req) => {
+                  const isGroupDelete = req.type === 'group-auto-delete';
                   const reqUser = users.find(u => u.uid === req.requestedBy);
+                  
+                  if (isGroupDelete) {
+                    const msgCount = req.messages?.length || 0;
+                    const chatInfo = req.chatData || {};
+                    const participants = chatInfo.participants || [];
+                    return (
+                      <div key={req.id} className="bg-slate-800 rounded-2xl p-4 border border-red-700/50">
+                        <div className="flex items-center gap-2 mb-2">
+                          <Trash2 size={14} className="text-red-500" />
+                          <span className="text-xs font-bold text-red-400">Grup Otomatik Silindi</span>
+                          <span className="text-[10px] text-slate-500 ml-auto">{req.timestamp?.toDate ? format(req.timestamp.toDate(), 'dd.MM HH:mm') : ''}</span>
+                        </div>
+                        <div className="mb-3 space-y-1">
+                          <p className="text-sm font-bold text-slate-200">{chatInfo.groupMetadata?.name || 'İsimsiz Grup'}</p>
+                          <p className="text-[10px] text-slate-400 font-bold">{msgCount} mesaj · {participants.length} katılımcı</p>
+                          <p className="text-[10px] text-slate-500">Grup ID: {req.chatId?.slice(0, 20)}...</p>
+                        </div>
+                        <div className="bg-slate-900/50 rounded-xl p-3 mb-3 max-h-32 overflow-y-auto">
+                          <p className="text-[9px] text-slate-500 font-bold mb-2">YEDEKLENEN MESAJLAR ({msgCount})</p>
+                          {req.messages?.slice(0, 10).map((msg: any, i: number) => (
+                            <p key={i} className="text-[10px] text-slate-400 truncate border-b border-slate-700/50 py-1 last:border-0">
+                              <span className="text-slate-500">{msg.senderId?.slice(0,6)}:</span> {msg.text || (msg.type === 'image' ? '📷' : msg.type === 'video' ? '🎥' : msg.type === 'audio' ? '🎤' : '📄')}
+                            </p>
+                          ))}
+                          {msgCount > 10 && <p className="text-[10px] text-slate-600 pt-1">...ve {msgCount - 10} mesaj daha</p>}
+                        </div>
+                        <div className="flex gap-2">
+                          <button onClick={async () => {
+                              try {
+                                await updateDoc(doc(db, 'adminDeleteRequests', req.id), { status: 'approved' });
+                                // Group data is already deleted, just mark as approved
+                              } catch (e) { console.error(e); }
+                            }}
+                            className="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-lg text-[10px] font-bold">
+                            Silmeyi Onayla ✅
+                          </button>
+                          <button onClick={async () => {
+                              try {
+                                await updateDoc(doc(db, 'adminDeleteRequests', req.id), { status: 'rejected' });
+                              } catch (e) { console.error(e); }
+                            }}
+                            className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-[10px] font-bold">
+                            Reddet (Veri Kalsın)
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  }
+                  
+                  // Regular message delete requests
+                  const reqUserDisplay = users.find(u => u.uid === req.requestedBy);
                   return (
                     <div key={req.id} className="bg-slate-800 rounded-2xl p-4 border border-amber-700/50">
                       <div className="flex items-center gap-2 mb-2">
                         <Trash2 size={14} className="text-amber-500" />
-                        <span className="text-xs font-bold text-amber-400">{reqUser?.displayName || req.requestedBy?.slice(0, 8)}</span>
+                        <span className="text-xs font-bold text-amber-400">{reqUserDisplay?.displayName || req.requestedBy?.slice(0, 8)}</span>
                         <span className="text-[10px] text-slate-500">tarafından silindi</span>
                         <span className="text-[10px] text-slate-500 ml-auto">{req.timestamp?.toDate ? format(req.timestamp.toDate(), 'dd.MM HH:mm') : ''}</span>
                       </div>
                       <div className="flex items-center gap-2 mb-3">
                         <span className="text-[10px] text-slate-400 font-bold">Sohbet: {req.chatId?.slice(0, 12)}...</span>
-                        <span className="text-[10px] text-slate-400 font-bold">• {req.participants?.length || 0} katılımcı</span>
                       </div>
                       <div className="flex gap-2">
-                        <button
-                          onClick={async () => {
+                        <button onClick={async () => {
                             try {
                               await deleteDoc(doc(db, 'chats', req.chatId, 'messages', req.msgId));
                               await updateDoc(doc(db, 'adminDeleteRequests', req.id), { status: 'approved' });
-                            } catch (e) {
-                              console.error("Approve delete error:", e);
-                            }
+                            } catch (e) { console.error(e); }
                           }}
-                          className="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-lg text-[10px] font-bold"
-                        >
+                          className="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-lg text-[10px] font-bold">
                           Kalıcı Sil ✅
                         </button>
-                        <button
-                          onClick={async () => {
+                        <button onClick={async () => {
                             try {
-                              await updateDoc(doc(db, 'chats', req.chatId, 'messages', req.msgId), {
-                                deletedBy: []
-                              });
+                              await updateDoc(doc(db, 'chats', req.chatId, 'messages', req.msgId), { deletedBy: [] });
                               await updateDoc(doc(db, 'adminDeleteRequests', req.id), { status: 'rejected' });
-                            } catch (e) {
-                              console.error("Reject delete error:", e);
-                            }
+                            } catch (e) { console.error(e); }
                           }}
-                          className="px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white rounded-lg text-[10px] font-bold"
-                        >
+                          className="px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white rounded-lg text-[10px] font-bold">
                           Geri Yükle 🔄
                         </button>
                       </div>
                     </div>
                   );
                 })}
+              </div>
+            )}
+            {/* Show approved/rejected history */}
+            {deleteRequests.filter(r => r.status !== 'pending').length > 0 && (
+              <div className="mt-8">
+                <h3 className="text-sm font-black text-slate-400 mb-4 uppercase tracking-wider">Geçmiş İşlemler</h3>
+                <div className="space-y-2">
+                  {deleteRequests.filter(r => r.status !== 'pending').slice(0, 10).map((req) => (
+                    <div key={req.id} className="bg-slate-800/50 rounded-xl p-3 border border-slate-700 flex items-center gap-3">
+                      <div className={cn("w-2 h-2 rounded-full", req.status === 'approved' ? "bg-red-500" : "bg-green-500")} />
+                      <span className="text-[10px] text-slate-400 font-bold flex-1">
+                        {req.type === 'group-auto-delete' ? 'Grup Silme' : 'Mesaj Silme'} - {req.status === 'approved' ? 'Onaylandı' : 'Reddedildi'}
+                      </span>
+                      <span className="text-[9px] text-slate-600">{req.timestamp?.toDate ? format(req.timestamp.toDate(), 'dd.MM') : ''}</span>
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
           </div>
@@ -728,6 +888,54 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                     </div>
                   );
                 })}
+              </div>
+            )}
+          </div>
+        )}
+
+        {tab === 'emails' && (
+          <div className="flex-1 overflow-y-auto custom-scrollbar p-6">
+            <h2 className="text-lg font-black text-white mb-2 flex items-center gap-2">
+              <Mail size={20} className="text-green-400" /> Yetkili E-Postalar
+            </h2>
+            <p className="text-[10px] text-slate-500 font-bold mb-6">Admin paneline erişebilecek email adreslerini yönetin.</p>
+
+            {/* Add new email */}
+            <div className="flex items-center gap-2 mb-6">
+              <input
+                type="email"
+                value={newAdminEmail}
+                onChange={(e) => setNewAdminEmail(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && addAdminEmail()}
+                placeholder="Yeni email adresi..."
+                className="flex-1 bg-slate-800 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-white placeholder:text-slate-500 outline-none focus:ring-2 focus:ring-green-500/30 transition-all"
+              />
+              <button
+                onClick={addAdminEmail}
+                className="px-4 py-2.5 bg-green-600 hover:bg-green-700 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1.5"
+              >
+                <Plus size={14} /> Ekle
+              </button>
+            </div>
+
+            {/* Email list */}
+            {adminEmails.length === 0 ? (
+              <p className="text-slate-500 text-sm font-bold">Henüz yetkili email bulunmuyor.</p>
+            ) : (
+              <div className="space-y-2">
+                {adminEmails.map((email) => (
+                  <div key={email} className="bg-slate-800 rounded-xl p-3 flex items-center gap-3 border border-slate-700">
+                    <Mail size={16} className="text-slate-500 shrink-0" />
+                    <span className="text-sm text-white font-bold flex-1">{email}</span>
+                    <button
+                      onClick={() => removeAdminEmail(email)}
+                      className="p-1.5 hover:bg-red-600/20 rounded-lg text-slate-400 hover:text-red-400 transition-all"
+                      title="Kaldır"
+                    >
+                      <Trash size={14} />
+                    </button>
+                  </div>
+                ))}
               </div>
             )}
           </div>

@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { collection, query, onSnapshot, orderBy, addDoc, serverTimestamp, doc, updateDoc, setDoc, getDoc, where, deleteDoc, getDocs } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { useAuth } from './AuthProvider';
@@ -6,7 +6,7 @@ import { useCall } from './CallProvider';
 import { Chat, Message, UserProfile, Call } from '../types';
 import { cn } from '../lib/utils';
 import ProfileModal from './ProfileModal';
-import { Image, Send, Smile, Phone, Video, MessageSquarePlus, Clock, Play, Mic, Square, Pause, Trash2, ListChecks, X, Info, Lock, ChevronDown } from 'lucide-react';
+import { Image, MoreVertical, Send, Smile, Phone, Video, MessageSquarePlus, Clock, Play, Mic, Square, Pause, Trash2, ListChecks, X, Info, Eye, EyeOff, Lock, LogOut, Shield, UserX, UserCheck, Ban, Settings } from 'lucide-react';
 import { format } from 'date-fns';
 import { motion, AnimatePresence } from 'motion/react';
 import { encryptMessage, decryptMessage } from '../lib/crypto';
@@ -85,13 +85,13 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
   const [inputText, setInputText] = useState('');
   const [activeCallForChat, setActiveCallForChat] = useState<Call | null>(null);
   const [reactionMenu, setReactionMenu] = useState<{ msgId: string, x: number, y: number } | null>(null);
+  const [isHeaderMenuOpen, setIsHeaderMenuOpen] = useState(false);
   const [isEmojiMenuOpen, setIsEmojiMenuOpen] = useState(false);
+  const [showDeletedMessages, setShowDeletedMessages] = useState(false);
   const [batchMode, setBatchMode] = useState(false);
   const [selectedMsgs, setSelectedMsgs] = useState<Set<string>>(new Set());
   const [showChatSearch, setShowChatSearch] = useState(false);
   const [chatSearchQuery, setChatSearchQuery] = useState('');
-  const [holdDailyCount, setHoldDailyCount] = useState(0);
-  const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   const [mutedUsers, setMutedUsers] = useState<Record<string, boolean>>({});
   const [showProfile, setShowProfile] = useState(false);
   const [customDialog, setCustomDialog] = useState<{
@@ -103,6 +103,23 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
   } | null>(null);
   const [encryptMode, setEncryptMode] = useState(false);
   const [decryptModal, setDecryptModal] = useState<Message | null>(null);
+
+  // Upload menu state
+  const [showUploadMenu, setShowUploadMenu] = useState(false);
+
+  // Group admin state
+  const [showGroupAdmin, setShowGroupAdmin] = useState(false);
+  const [editGroupName, setEditGroupName] = useState('');
+  const [showEditGroupName, setShowEditGroupName] = useState(false);
+  const [showTransferAdmin, setShowTransferAdmin] = useState(false);
+  const [showKickMember, setShowKickMember] = useState(false);
+  const [kickMemberId, setKickMemberId] = useState<string | null>(null);
+  const [kickDuration, setKickDuration] = useState<number>(0);
+  const [kickDurationUnit, setKickDurationUnit] = useState<'minutes' | 'hours' | 'days'>('minutes');
+  const [allMembers, setAllMembers] = useState<UserProfile[]>([]);
+  const [loadingMembers, setLoadingMembers] = useState(false);
+
+  const isGroupAdmin = chat?.type === 'group' && chat?.groupMetadata?.adminId === user?.uid;
 
   const showCustomAlert = (title: string, message: string) => {
     setCustomDialog({
@@ -121,6 +138,155 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
       type: 'confirm',
       onConfirm
     });
+  };
+
+  // Group Admin Functions
+  const loadGroupMembers = useCallback(async () => {
+    if (!chat || chat.type !== 'group' || !chat.participants) return;
+    setLoadingMembers(true);
+    const members: UserProfile[] = [];
+    for (const pId of chat.participants) {
+      if (participantInfo[pId]) {
+        members.push(participantInfo[pId]);
+      } else {
+        const d = await getDoc(doc(db, 'users', pId));
+        if (d.exists()) {
+          const p = d.data() as UserProfile;
+          members.push(p);
+          setParticipantInfo(prev => ({ ...prev, [pId]: p }));
+        }
+      }
+    }
+    setAllMembers(members);
+    setLoadingMembers(false);
+  }, [chat?.participants, participantInfo]);
+
+  const handleEditGroupName = async () => {
+    if (!chatId || !editGroupName.trim() || !isGroupAdmin) return;
+    try {
+      await updateDoc(doc(db, 'chats', chatId), {
+        'groupMetadata.name': editGroupName.trim()
+      });
+      setShowEditGroupName(false);
+    } catch (error) {
+      console.error("Group name update error:", error);
+    }
+  };
+
+  const handleTransferAdmin = async (newAdminId: string) => {
+    if (!chatId || !isGroupAdmin) return;
+    try {
+      const currentHistory = chat?.groupMetadata?.adminHistory || [];
+      await updateDoc(doc(db, 'chats', chatId), {
+        'groupMetadata.adminId': newAdminId,
+        'groupMetadata.adminHistory': [...currentHistory, newAdminId]
+      });
+      setShowTransferAdmin(false);
+    } catch (error) {
+      console.error("Admin transfer error:", error);
+    }
+  };
+
+  const handleKickMember = async (targetId: string) => {
+    if (!chatId || !chat || !isGroupAdmin) return;
+    try {
+      const newParticipants = chat.participants.filter(id => id !== targetId);
+      const now = new Date();
+      let bannedUntil = null;
+      if (kickDuration > 0) {
+        let ms = 0;
+        if (kickDurationUnit === 'minutes') ms = kickDuration * 60 * 1000;
+        else if (kickDurationUnit === 'hours') ms = kickDuration * 3600 * 1000;
+        else ms = kickDuration * 86400 * 1000;
+        bannedUntil = new Date(now.getTime() + ms);
+      }
+      const bannedUser = allMembers.find(m => m.uid === targetId);
+      const newBanned = chat.groupMetadata?.bannedUsers || [];
+      if (bannedUser) {
+        newBanned.push({
+          uid: targetId,
+          displayName: bannedUser.displayName,
+          bannedUntil: bannedUntil,
+          bannedAt: now,
+          bannedBy: user?.uid || ''
+        });
+      }
+      await updateDoc(doc(db, 'chats', chatId), {
+        participants: newParticipants,
+        'groupMetadata.bannedUsers': newBanned,
+        activeParticipants: (chat as any).activeParticipants?.filter((id: string) => id !== targetId) || []
+      });
+      setShowKickMember(false);
+      setKickMemberId(null);
+      setKickDuration(0);
+    } catch (error) {
+      console.error("Kick member error:", error);
+    }
+  };
+
+  const handleUnbanMember = async (targetUid: string) => {
+    if (!chatId || !chat || !isGroupAdmin) return;
+    try {
+      const currentBanned = chat.groupMetadata?.bannedUsers || [];
+      const newBanned = currentBanned.filter(b => b.uid !== targetUid);
+      await updateDoc(doc(db, 'chats', chatId), {
+        'groupMetadata.bannedUsers': newBanned,
+        participants: [...chat.participants, targetUid]
+      });
+    } catch (error) {
+      console.error("Unban error:", error);
+    }
+  };
+
+  const handleAdminLeaveGroup = async () => {
+    if (!chatId || !chat || !user || chat.type !== 'group') return;
+    try {
+      const remainingParticipants = chat.participants.filter(id => id !== user.uid);
+      if (remainingParticipants.length < 2) {
+        // Auto-delete group: save data to admin panel first
+        await handleGroupAutoDelete(chatId);
+        return;
+      }
+      // Find most active user (or first participant) as new admin
+      let newAdminId = remainingParticipants[0];
+      const currentHistory = chat.groupMetadata?.adminHistory || [];
+      await updateDoc(doc(db, 'chats', chatId), {
+        participants: remainingParticipants,
+        'groupMetadata.adminId': newAdminId,
+        'groupMetadata.adminHistory': [...currentHistory, newAdminId]
+      });
+      // Let the snapshot listener handle state updates
+    } catch (error) {
+      console.error("Admin leave group error:", error);
+    }
+  };
+
+  const handleGroupAutoDelete = async (targetChatId: string) => {
+    try {
+      // Save all data to adminDeleteRequests with special type
+      const messagesSnap = await getDocs(collection(db, 'chats', targetChatId, 'messages'));
+      const messagesData = messagesSnap.docs.map(d => ({ msgId: d.id, ...d.data() }));
+      const chatDoc = await getDoc(doc(db, 'chats', targetChatId));
+      const chatData = chatDoc.data();
+      await addDoc(collection(db, 'adminDeleteRequests'), {
+        type: 'group-auto-delete',
+        chatId: targetChatId,
+        chatData: chatData || {},
+        messages: messagesData,
+        participantCount: chatData?.participants?.length || 0,
+        requestedBy: user?.uid || 'system',
+        timestamp: serverTimestamp(),
+        status: 'pending',
+        deletedAt: serverTimestamp()
+      });
+      // Delete messages and chat
+      for (const msg of messagesSnap.docs) {
+        await deleteDoc(doc(db, 'chats', targetChatId, 'messages', msg.id));
+      }
+      await deleteDoc(doc(db, 'chats', targetChatId));
+    } catch (error) {
+      console.error("Group auto-delete error:", error);
+    }
   };
 
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -158,28 +324,23 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
     setReactionMenu({ msgId, x: e.clientX, y: e.clientY });
   };
 
-  const MAX_DAILY_HOLD = 7;
-
   const amIHolding = chat?.heldBy === user?.uid;
   const isBeingHeld = !!chat?.heldBy && !amIHolding;
+
+  // Check if current user is banned from this group
+  const isBannedFromGroup = chat?.type === 'group' && chat?.groupMetadata?.bannedUsers?.some(b => {
+    if (b.uid !== user?.uid) return false;
+    if (!b.bannedUntil) return true; // permanent ban
+    return new Date(b.bannedUntil.seconds * 1000 || b.bannedUntil) > new Date();
+  });
 
   const handleHoldToggle = async () => {
     if (!chatId || !user || !chat) return;
     try {
       if (amIHolding) {
         await updateDoc(doc(db, 'chats', chatId), { heldBy: null, holdExpiresAt: null });
-        showCustomAlert('Bekleme Kaldırıldı', `Bu sohbet için bekleme kaldırıldı. Kalan hakkınız: ${MAX_DAILY_HOLD - holdDailyCount}/${MAX_DAILY_HOLD}`);
       } else {
-        if (holdDailyCount >= MAX_DAILY_HOLD) {
-          showCustomAlert('Limit Doldu', `Günlük ${MAX_DAILY_HOLD} kullanım hakkınız doldu. Yarını kadar bekleyin.`);
-          return;
-        }
-        const newCount = holdDailyCount + 1;
-        setHoldDailyCount(newCount);
-        localStorage.setItem('holdDailyCount_' + user.uid, String(newCount));
-        localStorage.setItem('holdDailyDate_' + user.uid, new Date().toDateString());
-        await updateDoc(doc(db, 'chats', chatId), { heldBy: user.uid, holdExpiresAt: new Date(Date.now() + 30*60*1000) });
-        showCustomAlert('Sohbet Beklemeye Alındı', `${otherUser?.displayName || 'Karşı taraf'} 30 dakika beklemeye alındı. Kalan hakkınız: ${MAX_DAILY_HOLD - newCount}/${MAX_DAILY_HOLD}`);
+        await updateDoc(doc(db, 'chats', chatId), { heldBy: user.uid, holdExpiresAt: new Date(Date.now() + 24*60*60*1000) });
       }
     } catch (err) {
       console.error("Hold toggle error:", err);
@@ -215,7 +376,19 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
             const userDoc = await getDoc(doc(db, 'users', otherId));
             if (userDoc.exists()) setOtherUser(userDoc.data() as UserProfile);
           }
-        } else {
+        } else if (chatData.type === 'group') {
+          // Auto-delete group if < 2 participants
+          const nonBannedParticipants = chatData.participants.filter((pId: string) => {
+            const bannedInfo = chatData.groupMetadata?.bannedUsers?.find(b => b.uid === pId);
+            if (!bannedInfo) return true;
+            if (!bannedInfo.bannedUntil) return false;
+            const bannedUntilMs = bannedInfo.bannedUntil?.seconds ? bannedInfo.bannedUntil.seconds * 1000 : new Date(bannedInfo.bannedUntil).getTime();
+            return bannedUntilMs <= Date.now();
+          });
+          if (nonBannedParticipants.length < 2 && user?.uid && nonBannedParticipants.includes(user.uid)) {
+            // The current user is one of the <2 remaining - trigger auto-delete
+            handleGroupAutoDelete(chatId).catch(console.error);
+          }
           // Group: Fetch all participant names for message display
           const newParticipantInfo = { ...participantInfo };
           for (const pId of chatData.participants) {
@@ -271,47 +444,6 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
     }
   }, [messages]);
 
-  // Hold daily count from localStorage
-  useEffect(() => {
-    if (!user) return;
-    try {
-      const stored = localStorage.getItem('holdDailyCount_' + user.uid);
-      const date = localStorage.getItem('holdDailyDate_' + user.uid);
-      const today = new Date().toDateString();
-      if (date === today && stored) {
-        setHoldDailyCount(parseInt(stored, 10));
-      } else {
-        setHoldDailyCount(0);
-        localStorage.setItem('holdDailyCount_' + user.uid, '0');
-        localStorage.setItem('holdDailyDate_' + user.uid, today);
-      }
-    } catch {}
-  }, [user]);
-
-  // Auto-release hold after 30 minutes
-  useEffect(() => {
-    if (!chatId || !chat?.heldBy || !chat?.holdExpiresAt) return;
-    const checkExpiry = async () => {
-      const expires = chat.holdExpiresAt?.toDate?.() || chat.holdExpiresAt;
-      if (expires && new Date() > new Date(expires)) {
-        await updateDoc(doc(db, 'chats', chatId), { heldBy: null, holdExpiresAt: null });
-      }
-    };
-    checkExpiry();
-  }, [chat?.heldBy, chat?.holdExpiresAt]);
-
-  const handleScroll = () => {
-    if (!scrollRef.current) return;
-    const { scrollTop, scrollHeight, clientHeight } = scrollRef.current;
-    setShowScrollToBottom(scrollHeight - scrollTop - clientHeight > 200);
-  };
-
-  const scrollToBottom = () => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
-    }
-  };
-
   const handleVideoSend = () => {
     videoInputRef.current?.click();
   };
@@ -320,15 +452,9 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
     const file = e.target.files?.[0];
     if (!file || !user || !chatId) return;
 
-    if (file.size > 4500 * 1024) {
-      showCustomAlert("Dosya Boyutu Sınırı", "Ses/video dosyası çok büyük (maksimum 4.5MB olmalıdır).");
+    if (file.size > 1500 * 1024) {
+      showCustomAlert("Dosya Boyutu Sınırı", "Ses/video dosyası çok büyük (maksimum 1.5MB olmalıdır).");
       return;
-    }
-
-    let pwd = '';
-    if (encryptMode) {
-      pwd = prompt('Şifreli video şifresini girin:') || '';
-      if (!pwd) { return; }
     }
 
     const reader = new FileReader();
@@ -340,13 +466,12 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
           senderId: user.uid,
           timestamp: serverTimestamp(),
           type: 'video',
-          status: 'sent',
-          ...(pwd ? { encrypted: true, imagePassword: btoa(pwd) } : {})
+          status: 'sent'
         });
 
         await updateDoc(doc(db, 'chats', chatId), {
           lastMessage: {
-            text: pwd ? '🔒 Şifreli Video' : '🎥 Video Mesajı',
+            text: '🎥 Video Mesajı',
             senderId: user.uid,
             senderName: user.displayName,
             timestamp: serverTimestamp()
@@ -366,18 +491,19 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const timerRef = useRef<any>(null);
-  const audioPwdRef = useRef<string>('');
+
+  // Video Recording State
+  const [isVideoRecording, setIsVideoRecording] = useState(false);
+  const [videoRecordingTime, setVideoRecordingTime] = useState(0);
+  const videoRecorderRef = useRef<MediaRecorder | null>(null);
+  const videoChunksRef = useRef<Blob[]>([]);
+  const videoTimerRef = useRef<any>(null);
+  const videoPreviewRef = useRef<HTMLVideoElement>(null);
+  const [videoPreviewStream, setVideoPreviewStream] = useState<MediaStream | null>(null);
+  const MAX_VIDEO_SECONDS = 15;
 
   const startRecording = async () => {
     try {
-      if (encryptMode) {
-        const pwd = prompt('Şifreli ses kaydı şifresini girin:') || '';
-        if (!pwd) { return; }
-        audioPwdRef.current = pwd;
-      } else {
-        audioPwdRef.current = '';
-      }
-
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const mediaRecorder = new MediaRecorder(stream);
       mediaRecorderRef.current = mediaRecorder;
@@ -393,11 +519,11 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
         reader.readAsDataURL(audioBlob);
         reader.onloadend = async () => {
           const base64Audio = reader.result as string;
-          if (base64Audio.length > 2400000) {
+          if (base64Audio.length > 800000) {
             showCustomAlert("Ses Kaydı Sınırı", "Ses mesajı çok uzun, lütfen daha kısa bir kayıt yapın.");
             return;
           }
-          await sendAudioMessage(base64Audio, audioPwdRef.current || undefined);
+          await sendAudioMessage(base64Audio);
         };
         stream.getTracks().forEach(track => track.stop());
       };
@@ -421,7 +547,78 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
     }
   };
 
-  const sendAudioMessage = async (audioUrl: string, pwd?: string) => {
+  const startVideoRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: { width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 15 } } });
+      setVideoPreviewStream(stream);
+      if (videoPreviewRef.current) {
+        videoPreviewRef.current.srcObject = stream;
+      }
+      const mediaRecorder = new MediaRecorder(stream, { mimeType: 'video/webm;codecs=vp8,opus' });
+      videoRecorderRef.current = mediaRecorder;
+      videoChunksRef.current = [];
+
+      mediaRecorder.ondataavailable = (e) => {
+        if (e.data.size > 0) videoChunksRef.current.push(e.data);
+      };
+
+      mediaRecorder.onstop = async () => {
+        stream.getTracks().forEach(track => track.stop());
+        setVideoPreviewStream(null);
+        const videoBlob = new Blob(videoChunksRef.current, { type: 'video/webm' });
+        const reader = new FileReader();
+        reader.readAsDataURL(videoBlob);
+        reader.onloadend = async () => {
+          const base64Video = reader.result as string;
+          if (base64Video.length > 1500 * 1024) {
+            showCustomAlert("Video Boyutu Sınırı", "Video çok büyük, lütfen daha kısa bir kayıt yapın.");
+            return;
+          }
+          try {
+            await addDoc(collection(db, 'chats', chatId, 'messages'), {
+              videoUrl: base64Video,
+              senderId: user.uid,
+              timestamp: serverTimestamp(),
+              type: 'video',
+              status: 'sent'
+            });
+            await updateDoc(doc(db, 'chats', chatId), {
+              lastMessage: { text: '🎥 Video Mesajı', senderId: user.uid, senderName: user.displayName, timestamp: serverTimestamp() },
+              updatedAt: serverTimestamp()
+            });
+          } catch (error) {
+            console.error("Video kaydı gönderme hatası:", error);
+          }
+        };
+      };
+
+      mediaRecorder.start();
+      setIsVideoRecording(true);
+      setVideoRecordingTime(0);
+      videoTimerRef.current = setInterval(() => {
+        setVideoRecordingTime(prev => {
+          const next = prev + 1;
+          if (next >= MAX_VIDEO_SECONDS) {
+            stopVideoRecording();
+            return MAX_VIDEO_SECONDS;
+          }
+          return next;
+        });
+      }, 1000);
+    } catch (error) {
+      console.error("Video kaydı başlatma hatası:", error);
+    }
+  };
+
+  const stopVideoRecording = () => {
+    if (videoRecorderRef.current && isVideoRecording) {
+      videoRecorderRef.current.stop();
+      setIsVideoRecording(false);
+      clearInterval(videoTimerRef.current);
+    }
+  };
+
+  const sendAudioMessage = async (audioUrl: string) => {
     if (!user || !chatId) return;
     try {
       await addDoc(collection(db, 'chats', chatId, 'messages'), {
@@ -429,13 +626,12 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
         senderId: user.uid,
         timestamp: serverTimestamp(),
         type: 'audio',
-        status: 'sent',
-        ...(pwd ? { encrypted: true, imagePassword: btoa(pwd) } : {})
+        status: 'sent'
       });
 
       await updateDoc(doc(db, 'chats', chatId), {
         lastMessage: {
-          text: pwd ? '🔒 Şifreli Ses' : '🎤 Ses Mesajı',
+          text: '🎤 Ses Mesajı',
           senderId: user.uid,
           senderName: user.displayName,
           timestamp: serverTimestamp()
@@ -499,41 +695,51 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
     const file = e.target.files?.[0];
     if (!file || !user || !chatId) return;
 
-    if (file.size > 2400 * 1024) {
-      showCustomAlert("Dosya Boyutu Sınırı", "Seçilen görsel dosyası çok büyük (maksimum 2.4MB olmalıdır).");
-      return;
-    }
+    const isVideo = file.type.startsWith('video/');
 
-    let pwd = '';
-    if (encryptMode) {
-      pwd = prompt('Şifreli görsel şifresini girin:') || '';
-      if (!pwd) { return; }
+    if (isVideo) {
+      if (file.size > 1500 * 1024) {
+        showCustomAlert("Dosya Boyutu Sınırı", "Video dosyası çok büyük (maksimum 1.5MB olmalıdır).");
+        return;
+      }
+    } else {
+      if (file.size > 800 * 1024) {
+        showCustomAlert("Dosya Boyutu Sınırı", "Seçilen dosya çok büyük (maksimum 800KB olmalıdır).");
+        return;
+      }
     }
 
     const reader = new FileReader();
     reader.onloadend = async () => {
-      const base64Image = reader.result as string;
+      const base64Data = reader.result as string;
       try {
-        await addDoc(collection(db, 'chats', chatId, 'messages'), {
-          imageUrl: base64Image,
-          senderId: user.uid,
-          timestamp: serverTimestamp(),
-          type: 'image',
-          status: 'sent',
-          ...(pwd ? { encrypted: true, imagePassword: btoa(pwd) } : {})
-        });
-
-        await updateDoc(doc(db, 'chats', chatId), {
-          lastMessage: {
-            text: pwd ? '🔒 Şifreli Görsel' : '📷 Fotoğraf',
+        if (isVideo) {
+          await addDoc(collection(db, 'chats', chatId, 'messages'), {
+            videoUrl: base64Data,
             senderId: user.uid,
-            senderName: user.displayName,
-            timestamp: serverTimestamp()
-          },
-          updatedAt: serverTimestamp()
-        });
+            timestamp: serverTimestamp(),
+            type: 'video',
+            status: 'sent'
+          });
+          await updateDoc(doc(db, 'chats', chatId), {
+            lastMessage: { text: '🎥 Video', senderId: user.uid, senderName: user.displayName, timestamp: serverTimestamp() },
+            updatedAt: serverTimestamp()
+          });
+        } else {
+          await addDoc(collection(db, 'chats', chatId, 'messages'), {
+            imageUrl: base64Data,
+            senderId: user.uid,
+            timestamp: serverTimestamp(),
+            type: 'image',
+            status: 'sent'
+          });
+          await updateDoc(doc(db, 'chats', chatId), {
+            lastMessage: { text: '📷 Fotoğraf', senderId: user.uid, senderName: user.displayName, timestamp: serverTimestamp() },
+            updatedAt: serverTimestamp()
+          });
+        }
       } catch (error) {
-        console.error("Resim gönderme hatası:", error);
+        console.error("Dosya gönderme hatası:", error);
       }
     };
     reader.readAsDataURL(file);
@@ -541,22 +747,15 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
   };
 
   const handleDeleteMessage = async (msgId: string) => {
-    if (!chatId || !user) return;
+    if (!chatId) return;
     showCustomConfirm(
       "Mesajı Sil",
-      "Bu mesajı silmek istediğinizden emin misiniz? Silinen mesaj yönetim onayına gönderilecektir.",
+      "Bu mesajı silmek istediğinizden emin misiniz? Silinen bu mesaj sadece sizin 'Sildiğim Mesajları Göster' seçeneğiniz açıkken görüntülenebilir.",
       async () => {
         try {
-          // Mesajı tamamen sil
-          await deleteDoc(doc(db, 'chats', chatId, 'messages', msgId));
-          // Yönetim paneline bildir
-          await addDoc(collection(db, 'pendingDeletions'), {
-            chatId,
-            messageId: msgId,
-            deletedBy: user.uid,
-            deletedByName: user.displayName,
-            deletedAt: serverTimestamp(),
-            status: 'pending'
+          await updateDoc(doc(db, 'chats', chatId, 'messages', msgId), {
+            isDeleted: true,
+            deletedAt: serverTimestamp()
           });
         } catch (error) {
           console.error("Delete message error:", error);
@@ -565,9 +764,44 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
     );
   };
 
+  const handleClearChat = async () => {
+    if (!chatId) return;
+    setIsHeaderMenuOpen(false);
+    showCustomConfirm(
+      "Sohbeti Temizle",
+      "Bu sohbetteki tüm mesajları silmek istediğinizden emin misiniz? Bu işlem geri alınamaz.",
+      async () => {
+        try {
+          const messagesRef = collection(db, 'chats', chatId, 'messages');
+          const q = query(messagesRef);
+          const querySnapshot = await getDocs(q);
+          const deletePromises = querySnapshot.docs.map(d => deleteDoc(doc(db, 'chats', chatId, 'messages', d.id)));
+          await Promise.all(deletePromises);
+          
+          // Update lastMessage
+          await updateDoc(doc(db, 'chats', chatId), {
+            lastMessage: {
+              text: 'Sohbet geçmişi temizlendi.',
+              senderId: user?.uid || '',
+              senderName: user?.displayName || '',
+              timestamp: serverTimestamp()
+            },
+            updatedAt: serverTimestamp()
+          });
+        } catch (error) {
+          console.error("Clear chat error:", error);
+        }
+      }
+    );
+  };
+
   const handleSend = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!inputText.trim() || !user || !chatId) return;
+    if (isBannedFromGroup) {
+      showCustomAlert('Banlandınız', 'Bu gruptan banlandığınız için mesaj gönderemezsiniz.');
+      return;
+    }
 
     const text = inputText;
     setInputText('');
@@ -677,7 +911,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
       </div>
 
       {/* Chat Header */}
-      <header className="bg-white border-b border-slate-200 px-4 sm:px-8 py-3 shrink-0 relative z-10">
+      <header className="bg-white border-b border-slate-200 px-8 py-3 shrink-0 relative z-10">
         {/* Row 1: Avatar + Name */}
         <div className="flex items-center">
           <div className="w-10 h-10 bg-gradient-to-br from-blue-400 to-indigo-500 rounded-full mr-4 shadow-sm overflow-hidden border-2 border-white shrink-0">
@@ -715,7 +949,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
         </div>
 
         {/* Row 2: Action Buttons */}
-        <div className="flex items-center gap-1.5 sm:gap-3 text-slate-500 relative mt-2 pl-0 sm:pl-14">
+        <div className="flex items-center gap-2 sm:gap-4 text-slate-400 relative mt-2 pl-14">
           {activeCallForChat && !activeCall && (
             <button 
               onClick={() => acceptCall()}
@@ -730,14 +964,14 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
             <>
               <button 
                 onClick={() => chat && startCall(chat.id, chat.participants, chat.type, 'audio')}
-                className="w-8 h-8 flex items-center justify-center rounded-xl bg-blue-50 text-blue-500 hover:bg-blue-100 hover:text-blue-700 transition-all active:scale-90"
+                className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-blue-50 hover:text-blue-600 transition-all active:scale-90"
                 title="Sesli Arama Başlat"
               >
                 <Phone size={16} />
               </button>
               <button 
                 onClick={() => chat && startCall(chat.id, chat.participants, chat.type, 'video')}
-                className="w-8 h-8 flex items-center justify-center rounded-xl bg-indigo-50 text-indigo-500 hover:bg-indigo-100 hover:text-indigo-700 transition-all active:scale-90"
+                className="w-8 h-8 flex items-center justify-center rounded-full bg-blue-500 text-white hover:bg-blue-600 transition-all active:scale-90 shadow-md shadow-blue-500/20"
                 title="Görüntülü Arama Başlat"
               >
                 <Video size={16} />
@@ -755,39 +989,29 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
           {/* Ara */}
           <button 
             onClick={() => setShowChatSearch(!showChatSearch)}
-            className={cn("w-8 h-8 flex items-center justify-center rounded-xl transition-all", showChatSearch ? "bg-sky-100 text-sky-600" : "bg-slate-100 text-slate-500 hover:bg-slate-200 hover:text-slate-700")}
+            className={cn("hover:text-blue-600 transition-colors p-1 rounded-full hover:bg-blue-50", showChatSearch && "text-blue-600 bg-blue-50")}
             title="Sohbet İçi Ara"
           >
-            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
           </button>
 
           {/* Toplu Seç */}
           <button 
             onClick={() => { setBatchMode(!batchMode); setSelectedMsgs(new Set()); }}
-            className={cn("w-8 h-8 flex items-center justify-center rounded-xl transition-all", batchMode ? "bg-emerald-100 text-emerald-600" : "bg-emerald-50 text-emerald-500 hover:bg-emerald-100 hover:text-emerald-700")}
+            className={cn("hover:text-slate-900 transition-colors p-1 rounded-full hover:bg-slate-100", batchMode && "text-blue-600 bg-blue-50")}
             title="Toplu Mesaj Seç"
           >
             <ListChecks size={18} />
           </button>
 
           {/* Beklemeye Al */}
-          {(chat?.type === 'private' || chat?.groupMetadata?.adminId === user?.uid) && (
+          {(chat?.type === 'private' || isGroupAdmin) && (
             <button 
               onClick={handleHoldToggle}
-              className={cn("w-8 h-8 flex items-center justify-center rounded-xl transition-all relative", amIHolding ? "bg-amber-100 text-amber-600" : "bg-amber-50 text-amber-500 hover:bg-amber-100 hover:text-amber-700")}
+              className={cn("transition-colors p-1 rounded-full hover:bg-amber-50 relative", amIHolding ? "text-amber-500 bg-amber-50" : "hover:text-amber-500")}
               title={amIHolding ? 'Beklemeden Çıkar' : 'Beklemeye Al'}
             >
               {amIHolding ? <Play size={18} /> : <Pause size={18} />}
-              {!amIHolding && holdDailyCount < MAX_DAILY_HOLD && (
-                <span className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-amber-500 text-white text-[8px] font-black rounded-full flex items-center justify-center shadow-sm">
-                  {MAX_DAILY_HOLD - holdDailyCount}
-                </span>
-              )}
-              {holdDailyCount >= MAX_DAILY_HOLD && !amIHolding && (
-                <span className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-red-500 text-white text-[7px] font-black rounded-full flex items-center justify-center shadow-sm">
-                  <X size={10} />
-                </span>
-              )}
             </button>
           )}
 
@@ -801,11 +1025,79 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
                 setShowProfile(true);
               }
             }}
-            className="w-8 h-8 flex items-center justify-center rounded-xl bg-purple-50 text-purple-500 hover:bg-purple-100 hover:text-purple-700 transition-all"
+            className="hover:text-blue-600 transition-colors p-1 rounded-full hover:bg-blue-50"
             title="Kullanıcı Bilgisi"
           >
             <Info size={18} />
           </button>
+
+          {/* Group Admin Button */}
+          {isGroupAdmin && (
+            <button 
+              onClick={() => { setShowGroupAdmin(true); loadGroupMembers(); }}
+              className="hover:text-amber-500 transition-colors p-1 rounded-full hover:bg-amber-50 text-slate-400"
+              title="Grup Yönetimi"
+            >
+              <Shield size={18} />
+            </button>
+          )}
+
+          <div className="relative ml-auto">
+            <button 
+              onClick={() => setIsHeaderMenuOpen(!isHeaderMenuOpen)}
+              className="hover:text-slate-900 transition-colors p-1 rounded-full hover:bg-slate-100"
+            >
+              <MoreVertical size={18} />
+            </button>
+
+            {isHeaderMenuOpen && (
+              <>
+                <div 
+                  className="fixed inset-0 z-40" 
+                  onClick={() => setIsHeaderMenuOpen(false)} 
+                />
+                <div className="absolute right-0 mt-2 w-56 bg-white border border-slate-150 rounded-2xl shadow-xl py-2 z-50 animate-in fade-in slide-in-from-top-1 duration-100">
+                  <div className="px-4 py-2 border-b border-slate-100">
+                    <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">Sohbet İşlemleri</p>
+                  </div>
+                  <button 
+                    onClick={handleClearChat}
+                    className="w-full text-left px-4 py-3 text-xs font-bold text-red-600 hover:bg-red-50 transition-colors flex items-center gap-2"
+                  >
+                    <Trash2 size={14} /> Sohbet Geçmişini Temizle
+                  </button>
+                  <button 
+                    onClick={() => {
+                      setShowDeletedMessages(!showDeletedMessages);
+                      setIsHeaderMenuOpen(false);
+                    }}
+                    className={cn(
+                      "w-full text-left px-4 py-3 text-xs font-bold transition-colors flex items-center gap-2",
+                      showDeletedMessages ? "text-amber-600 hover:bg-amber-50" : "text-blue-600 hover:bg-blue-50"
+                    )}
+                  >
+                    {showDeletedMessages ? <EyeOff size={14} /> : <Eye size={14} />}
+                    {showDeletedMessages ? ' Sildiğim Mesajları Gizle' : ' Sildiğim Mesajları Göster'}
+                  </button>
+                  {isGroupAdmin && (
+                    <button 
+                      onClick={() => {
+                        setIsHeaderMenuOpen(false);
+                        showCustomConfirm(
+                          'Gruptan Ayrıl',
+                          'Grubu başka bir yöneticiye devretmeden ayrılıyorsunuz. En aktif üye yönetici olacak. Devam etmek istiyor musunuz?',
+                          () => handleAdminLeaveGroup()
+                        );
+                      }}
+                      className="w-full text-left px-4 py-3 text-xs font-bold text-amber-600 hover:bg-amber-50 transition-colors flex items-center gap-2 border-t border-slate-100"
+                    >
+                      <LogOut size={14} /> Admin Olarak Ayrıl
+                    </button>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
         </div>
       </header>
 
@@ -842,8 +1134,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
       {/* Messages */}
       <div 
         ref={scrollRef}
-        onScroll={handleScroll}
-        className="flex-1 overflow-y-auto p-4 sm:p-10 space-y-4 sm:space-y-6 custom-scrollbar z-10"
+        className="flex-1 overflow-y-auto p-10 space-y-6 custom-scrollbar z-10"
       >
         <div className="flex justify-center mb-8">
           <span className="px-3 py-1 bg-slate-200 text-slate-500 rounded-full text-[10px] font-bold uppercase tracking-widest shadow-sm">BUGÜN</span>
@@ -851,44 +1142,12 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
 
         <AnimatePresence>
           {messages
+            .filter(msg => !msg.isDeleted || (showDeletedMessages && msg.senderId === user?.uid))
             .filter(msg => !chatSearchQuery || msg.text?.toLowerCase().includes(chatSearchQuery.toLowerCase()))
             .map((msg, idx) => {
               const isMe = msg.senderId === user?.uid;
               const sender = participantInfo[msg.senderId];
-
-              // Call history: centered system message
-              if (msg.type === 'call') {
-                return (
-                  <motion.div
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    key={msg.id || idx}
-                    className="self-center flex flex-col items-center gap-1 py-2 w-full max-w-[200px]"
-                  >
-                    <div className={cn(
-                      "w-10 h-10 rounded-full flex items-center justify-center",
-                      msg.callStatus === 'completed' ? "bg-blue-50 text-blue-600" :
-                      msg.callStatus === 'missed' ? "bg-red-50 text-red-500" :
-                      "bg-slate-100 text-slate-500"
-                    )}>
-                      {msg.callType === 'video' ? <Video size={20} /> : <Phone size={20} />}
-                    </div>
-                    <span className={cn(
-                      "text-[11px] font-bold text-center",
-                      msg.callStatus === 'completed' ? "text-blue-600" :
-                      msg.callStatus === 'missed' ? "text-red-500" :
-                      "text-slate-500"
-                    )}>
-                      {msg.callType === 'video' ? 'Görüntülü' : 'Sesli'} Arama
-                    </span>
-                    <span className="text-[10px] font-medium text-slate-400 text-center">
-                      {msg.callStatus === 'completed'
-                        ? `${Math.floor((msg.callDuration || 0) / 60)}:${String((msg.callDuration || 0) % 60).padStart(2, '0')}`
-                        : msg.callStatus === 'missed' ? 'Cevaplanmadı' : 'Reddedildi'}
-                    </span>
-                  </motion.div>
-                );
-              }
+              const isDeleted = msg.isDeleted === true;
 
               return (
               <motion.div 
@@ -913,8 +1172,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
                   />
                 )}
                 {!isMe && (
-                    <div className="w-8 h-8 rounded-full bg-slate-200 shrink-0 border border-white shadow-sm overflow-hidden cursor-pointer"
-                      onClick={() => setShowProfile(true)}>
+                    <div className="w-8 h-8 rounded-full bg-slate-200 shrink-0 border border-white shadow-sm overflow-hidden">
                       <img src={sender?.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${msg.senderId}`} alt="" className="w-full h-full object-cover" />
                     </div>
                   )}
@@ -923,21 +1181,27 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
                      isMe ? "items-end" : "items-start"
                   )}>
                     {!isMe && chat?.type === 'group' && (
-                      <span className="text-[10px] font-black text-slate-400 mb-1 ml-1 uppercase tracking-wider cursor-pointer"
-                        onClick={() => setShowProfile(true)}>
+                      <span className="text-[10px] font-black text-slate-400 mb-1 ml-1 uppercase tracking-wider">
                         {sender?.displayName || 'Bilinmeyen'}
                       </span>
                     )}
                     <div 
-                      onContextMenu={(e) => msg.id && onContextMenu(e, msg.id)}
+                      onContextMenu={(e) => msg.id && !isDeleted && onContextMenu(e, msg.id)}
                       className={cn(
                         "px-5 py-3 rounded-2xl shadow-sm border overflow-hidden relative group/bubble transition-all duration-300",
-                        isMe 
-                          ? "bg-blue-600 text-white border-blue-500 rounded-br-none shadow-blue-100" 
-                          : "bg-white text-slate-800 border-slate-100 rounded-bl-none"
+                        isDeleted
+                          ? "bg-slate-100 text-slate-400 border-slate-200/60 opacity-60 rounded-br-none"
+                          : isMe 
+                            ? "bg-blue-600 text-white border-blue-500 rounded-br-none shadow-blue-100" 
+                            : "bg-white text-slate-800 border-slate-100 rounded-bl-none"
                       )}
                     >
-                      
+                      {isDeleted && (
+                        <div className="text-[9px] font-black uppercase tracking-wider text-rose-500 flex items-center gap-1 mb-1.5 bg-rose-50 border border-rose-100 px-1.5 py-0.5 rounded w-max select-none">
+                          <Trash2 size={10} /> SİLDİĞİNİZ MESAJ
+                        </div>
+                      )}
+
                       {msg.type === 'text' && (
                         msg.encrypted && !isMe ? (
                           <button onClick={() => setDecryptModal(msg)}
@@ -945,12 +1209,18 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
                             🔒 Şifreli Mesaj (dokunun)
                           </button>
                         ) : (
-                          <p className="text-sm font-medium leading-relaxed">{msg.text}</p>
+                          <p className={cn(
+                            "text-sm font-medium leading-relaxed",
+                            isDeleted && "line-through text-slate-400 font-normal italic"
+                          )}>{msg.text}</p>
                         )
                       )}
                       
                       {msg.type === 'image' && msg.imageUrl && (
-                        <div className="relative rounded-lg overflow-hidden mb-1 min-w-[200px]">
+                        <div className={cn(
+                          "relative rounded-lg overflow-hidden mb-1 min-w-[200px]",
+                          isDeleted && "grayscale blur-[2px] opacity-40"
+                        )}>
                           {msg.encrypted && !isMe ? (
                             <>
                               <img src={msg.imageUrl} alt="" className="w-full h-auto object-cover blur-[12px]" />
@@ -964,14 +1234,17 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
                               src={msg.imageUrl} 
                               alt="Paylaşılan görsel" 
                               className="max-w-full h-auto object-cover hover:scale-105 transition-transform duration-500 cursor-pointer"
-                              onClick={() => window.open(msg.imageUrl, '_blank')}
+                              onClick={() => !isDeleted && window.open(msg.imageUrl, '_blank')}
                             />
                           )}
                         </div>
                       )}
 
                       {msg.type === 'video' && msg.videoUrl && (
-                        <div className="relative rounded-lg overflow-hidden mb-1 min-w-[240px] bg-black/5">
+                        <div className={cn(
+                          "relative rounded-lg overflow-hidden mb-1 min-w-[240px] bg-black/5",
+                          isDeleted && "grayscale blur-[2px] opacity-40"
+                        )}>
                           {msg.encrypted && !isMe ? (
                             <>
                               <video src={msg.videoUrl} className="max-w-full h-auto blur-[12px]" playsInline />
@@ -984,7 +1257,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
                             <video 
                               src={msg.videoUrl} 
                               className="max-w-full h-auto" 
-                              controls
+                              controls={!isDeleted}
                               playsInline
                             />
                           )}
@@ -992,7 +1265,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
                       )}
 
                       {msg.type === 'audio' && msg.audioUrl && (
-                        <div>
+                        <div className={cn(isDeleted && "grayscale opacity-40 pointer-events-none")}>
                           {msg.encrypted && !isMe ? (
                             <button onClick={() => setDecryptModal(msg)}
                               className="text-[10px] font-bold flex items-center gap-1 text-slate-500 hover:text-slate-700">🔒 Şifreli Ses Mesajı (dokunun)</button>
@@ -1004,18 +1277,17 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
 
                       <div className={cn(
                         "flex items-center justify-end mt-1.5 space-x-1",
-                        isMe ? "text-blue-100" : "text-slate-400"
+                        isMe && !isDeleted ? "text-blue-100" : "text-slate-400"
                       )}>
-                        {msg.encrypted && <span className="text-[10px]" title="Şifreli">🔒</span>}
                         <span className="text-[10px] font-medium">
                           {msg.timestamp ? format(msg.timestamp.toDate(), 'HH:mm') : ''}
                         </span>
-                        {isMe && <MessageStatus status={msg.status} />}
+                        {isMe && !isDeleted && <MessageStatus status={msg.status} />}
                       </div>
                     </div>
 
                     {/* Hover Actions: Reaction & Delete */}
-                    {msg.id && (
+                    {!isDeleted && msg.id && (
                       <div className={cn(
                         "absolute flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-200 bg-white border border-slate-200 p-1 rounded-full shadow-lg z-20",
                         isMe ? "right-full mr-3 top-1/2 -translate-y-1/2" : "left-full ml-3 top-1/2 -translate-y-1/2"
@@ -1087,16 +1359,6 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
         </AnimatePresence>
       </div>
 
-      {/* Scroll to Bottom Button */}
-      {showScrollToBottom && (
-        <button onClick={scrollToBottom}
-          className="absolute bottom-24 right-6 z-20 w-10 h-10 bg-white border border-slate-200 rounded-full shadow-lg flex items-center justify-center text-slate-500 hover:text-blue-600 hover:border-blue-200 transition-all animate-in fade-in slide-in-from-bottom-2 duration-200"
-          title="Sona Dön"
-        >
-          <ChevronDown size={20} />
-        </button>
-      )}
-
       {/* Batch Action Bar */}
       {batchMode && (
         <div className="p-3 bg-white border-t border-b border-slate-200 flex items-center justify-between shrink-0 z-10">
@@ -1109,18 +1371,10 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
             <button onClick={() => {
                 if (selectedMsgs.size === 0) return;
                 showCustomConfirm('Mesajları Sil', `${selectedMsgs.size} mesajı silmek istediğinize emin misiniz?`, async () => {
-                  if (!chat || !user) return;
+                  if (!chat) return;
                   for (const msgId of selectedMsgs) {
                     try {
-                      await deleteDoc(doc(db, 'chats', chatId, 'messages', msgId));
-                      await addDoc(collection(db, 'pendingDeletions'), {
-                        chatId,
-                        messageId: msgId,
-                        deletedBy: user.uid,
-                        deletedByName: user.displayName,
-                        deletedAt: serverTimestamp(),
-                        status: 'pending'
-                      });
+                      await updateDoc(doc(db, 'chats', chatId, 'messages', msgId), { isDeleted: true });
                     } catch(err) { console.error(err); }
                   }
                   setBatchMode(false);
@@ -1136,23 +1390,31 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
       )}
 
       {/* Hold Banner (bottom) */}
-      {isBeingHeld && (
+      {isBeingHeld && !isBannedFromGroup && (
         <div className="p-3 bg-amber-50 border-t border-amber-200 flex items-center gap-2 shrink-0">
           <Pause size={14} className="text-amber-600" />
           <span className="text-[10px] font-bold text-amber-700">Bu sohbet beklemeye alındı. Mesaj gönderemezsiniz.</span>
         </div>
       )}
 
-      {/* Input Area */}
-      <footer className="p-3 sm:p-6 bg-white border-t border-slate-200 shrink-0 z-10">
-        <div className="max-w-4xl mx-auto bg-slate-100 rounded-2xl p-2 focus-within:ring-2 focus-within:ring-blue-500 transition-all relative flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-0">
+      {/* Ban Banner */}
+      {isBannedFromGroup && (
+        <div className="p-3 bg-red-50 border-t border-red-200 flex items-center gap-2 shrink-0">
+          <Ban size={14} className="text-red-600" />
+          <span className="text-[10px] font-bold text-red-700">Bu gruptan banlandınız. Mesaj gönderemezsiniz.</span>
+        </div>
+      )}
 
+      {/* Input Area */}
+      <footer className="p-6 bg-white border-t border-slate-200 shrink-0 z-10">
+        <div className="max-w-4xl mx-auto flex items-center bg-slate-100 rounded-2xl p-2 focus-within:ring-2 focus-within:ring-blue-500 transition-all relative">
+          
           {/* Hidden inputs for real uploads */}
           <input 
             type="file" 
             ref={imageInputRef}
             onChange={handleImageFileSelect}
-            accept="image/*"
+            accept="image/*,video/*"
             className="hidden"
           />
           <input 
@@ -1162,32 +1424,6 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
             accept="video/*"
             className="hidden"
           />
-
-          {/* Mobile: Form (top) — Desktop: Form (right) */}
-          <form onSubmit={handleSend} className="flex-1 flex items-center order-1 sm:order-2 w-full sm:w-auto">
-            <input 
-              type="text" 
-              value={inputText}
-              onChange={(e) => setInputText(e.target.value)}
-              placeholder={isBeingHeld ? "Sohbet beklemeye alındı..." : "Mesaj yaz..."}
-              className="flex-1 bg-transparent border-none focus:ring-0 text-sm py-2 px-4 text-slate-900 placeholder:text-slate-400"
-            />
-            <button 
-              type="submit"
-              disabled={!inputText.trim()}
-              className={cn(
-                "p-2 rounded-xl transition-all flex items-center justify-center shadow-lg",
-                inputText.trim() 
-                  ? "bg-blue-600 text-white shadow-blue-200 hover:bg-blue-700" 
-                  : "bg-slate-200 text-slate-400 cursor-not-allowed shadow-none"
-              )}
-            >
-              <Send size={18} />
-            </button>
-          </form>
-
-          {/* Mobile: Buttons (bottom) — Desktop: Buttons (left) */}
-          <div className="flex items-center gap-0 order-2 sm:order-1 flex-wrap">
 
           <div className="relative">
             <button 
@@ -1223,20 +1459,63 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
             )}
           </div>
 
-          <button 
-            type="button" 
-            onClick={handleImageSend}
-            className="p-2 text-slate-400 hover:text-slate-600 transition-colors"
-          >
-            <Image size={20} />
-          </button>
-          <button 
-            type="button" 
-            onClick={handleVideoSend}
-            className="p-2 text-slate-400 hover:text-slate-600 transition-colors"
-          >
-            <Video size={20} />
-          </button>
+          <div className="relative">
+            <button 
+              type="button" 
+              onClick={() => { imageInputRef.current?.click(); setShowUploadMenu(false); }}
+              className="p-2 text-slate-400 hover:text-slate-600 transition-colors"
+              title="Fotoğraf/Video Yükle"
+            >
+              <Image size={20} />
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowUploadMenu(!showUploadMenu)}
+              className="p-1 text-slate-400 hover:text-slate-600 transition-colors absolute -bottom-1 -right-1 bg-white rounded-full shadow-sm border border-slate-200 w-4 h-4 flex items-center justify-center"
+              title="Dosya Seçenekleri"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+            </button>
+            {showUploadMenu && (
+              <>
+                <div className="fixed inset-0 z-30" onClick={() => setShowUploadMenu(false)} />
+                <div className="absolute bottom-12 left-0 w-44 bg-white border border-slate-150 rounded-2xl shadow-xl py-1 z-40 animate-in fade-in slide-in-from-bottom-2 duration-150">
+                  <button
+                    type="button"
+                    onClick={() => { imageInputRef.current?.click(); setShowUploadMenu(false); }}
+                    className="w-full text-left px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50 flex items-center gap-2 transition-colors"
+                  >
+                    <Image size={14} /> Fotoğraf Yükle
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { videoInputRef.current?.click(); setShowUploadMenu(false); }}
+                    className="w-full text-left px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50 flex items-center gap-2 transition-colors"
+                  >
+                    <Video size={14} /> Video Yükle
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+
+          {isVideoRecording ? (
+            <div className="flex items-center gap-3 px-4 py-1 bg-red-50 text-red-600 rounded-xl animate-in fade-in zoom-in-95 duration-200">
+              <video ref={videoPreviewRef} autoPlay playsInline muted className="w-10 h-10 rounded-lg object-cover bg-slate-200" />
+              <div className="w-2 h-2 bg-red-600 rounded-full animate-ping" />
+              <span className="text-xs font-black tabular-nums">{Math.floor(videoRecordingTime / 60)}:{String(videoRecordingTime % 60).padStart(2, '0')} / 0:15</span>
+              <button onClick={stopVideoRecording} className="p-1 px-2 bg-red-600 text-white rounded-lg text-[10px] font-bold uppercase tracking-wider">Durdur</button>
+            </div>
+          ) : (
+            <button 
+              type="button" 
+              onClick={startVideoRecording}
+              className="p-2 text-slate-400 hover:text-red-500 transition-colors"
+              title="Video Kaydet"
+            >
+              <Video size={20} />
+            </button>
+          )}
 
           {isRecording ? (
             <div className="flex items-center gap-3 px-4 py-1 bg-red-50 text-red-600 rounded-xl animate-in fade-in zoom-in-95 duration-200">
@@ -1266,7 +1545,28 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
           >
             <Lock size={18} />
           </button>
-          </div>{/* /buttons-wrapper */}
+
+          <form onSubmit={handleSend} className="flex-1 flex items-center">
+            <input 
+              type="text" 
+              value={inputText}
+              onChange={(e) => setInputText(e.target.value)}
+              placeholder={isBeingHeld ? "Sohbet beklemeye alındı..." : "Mesaj yaz..."}
+              className="flex-1 bg-transparent border-none focus:ring-0 text-sm py-2 px-4 text-slate-900 placeholder:text-slate-400"
+            />
+            <button 
+              type="submit"
+              disabled={!inputText.trim()}
+              className={cn(
+                "p-2 rounded-xl transition-all flex items-center justify-center shadow-lg",
+                inputText.trim() 
+                  ? "bg-blue-600 text-white shadow-blue-200 hover:bg-blue-700" 
+                  : "bg-slate-200 text-slate-400 cursor-not-allowed shadow-none"
+              )}
+            >
+              <Send size={18} />
+            </button>
+          </form>
         </div>
       </footer>
 
@@ -1357,9 +1657,163 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
         )}
       </AnimatePresence>
 
+      {/* Group Admin Modal */}
+      <AnimatePresence>
+        {showGroupAdmin && chat?.type === 'group' && (
+          <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-md" onClick={() => setShowGroupAdmin(false)}>
+            <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.9 }}
+              className="bg-white rounded-3xl shadow-2xl max-w-lg w-full border border-slate-100 max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
+              
+              {/* Header */}
+              <div className="p-6 border-b border-slate-100 flex items-center justify-between shrink-0">
+                <div className="flex items-center gap-3">
+                  <Shield size={22} className="text-amber-500" />
+                  <h3 className="text-lg font-black text-slate-900 tracking-tight">Grup Yönetimi</h3>
+                </div>
+                <button onClick={() => setShowGroupAdmin(false)} className="p-1 hover:bg-slate-100 rounded-full text-slate-400"><X size={20} /></button>
+              </div>
+
+              <div className="flex-1 overflow-y-auto custom-scrollbar p-6 space-y-6">
+                {/* Group Name Edit */}
+                <div className="bg-slate-50 rounded-2xl p-4 border border-slate-100">
+                  <h4 className="text-xs font-black text-slate-500 uppercase tracking-wider mb-3">Grup Adı</h4>
+                  {showEditGroupName ? (
+                    <div className="flex gap-2">
+                      <input type="text" value={editGroupName} onChange={e => setEditGroupName(e.target.value)}
+                        placeholder="Yeni grup adı..."
+                        className="flex-1 bg-white border-2 border-slate-200 rounded-xl px-4 py-2 text-sm font-bold outline-none focus:border-blue-500 transition-all"
+                        autoFocus onKeyDown={e => e.key === 'Enter' && handleEditGroupName()} />
+                      <button onClick={handleEditGroupName} className="px-4 py-2 bg-blue-600 text-white rounded-xl text-xs font-bold hover:bg-blue-700 transition-all">Kaydet</button>
+                      <button onClick={() => setShowEditGroupName(false)} className="px-4 py-2 bg-slate-200 text-slate-600 rounded-xl text-xs font-bold hover:bg-slate-300 transition-all">İptal</button>
+                    </div>
+                  ) : (
+                    <div className="flex items-center justify-between">
+                      <p className="text-sm font-bold text-slate-700">{chat.groupMetadata?.name}</p>
+                      <button onClick={() => { setEditGroupName(chat.groupMetadata?.name || ''); setShowEditGroupName(true); }}
+                        className="px-3 py-1.5 bg-blue-50 text-blue-600 rounded-xl text-[10px] font-bold hover:bg-blue-100 transition-all flex items-center gap-1">
+                        <Settings size={12} /> Düzenle
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                {/* Admin Transfer */}
+                <div className="bg-slate-50 rounded-2xl p-4 border border-slate-100">
+                  <h4 className="text-xs font-black text-slate-500 uppercase tracking-wider mb-3">Yönetici Devret</h4>
+                  {showTransferAdmin ? (
+                    <div className="space-y-2 max-h-40 overflow-y-auto">
+                      {loadingMembers ? (
+                        <p className="text-xs text-slate-400 text-center py-4">Yükleniyor...</p>
+                      ) : (
+                        allMembers.filter(m => m.uid !== user?.uid).map(m => (
+                          <button key={m.uid} onClick={() => handleTransferAdmin(m.uid)}
+                            className="w-full flex items-center gap-3 p-3 bg-white rounded-xl hover:bg-blue-50 border border-slate-200 hover:border-blue-200 transition-all text-left">
+                            <img src={m.photoURL} className="w-8 h-8 rounded-full object-cover" />
+                            <span className="text-sm font-bold text-slate-700">{m.displayName}</span>
+                          </button>
+                        ))
+                      )}
+                      <button onClick={() => setShowTransferAdmin(false)} className="w-full py-2 text-xs font-bold text-slate-500 hover:text-slate-700 transition-colors">İptal</button>
+                    </div>
+                  ) : (
+                    <button onClick={() => { loadGroupMembers(); setShowTransferAdmin(true); }}
+                      className="px-3 py-1.5 bg-amber-50 text-amber-600 rounded-xl text-[10px] font-bold hover:bg-amber-100 transition-all">
+                      Yöneticiyi Devret
+                    </button>
+                  )}
+                </div>
+
+                {/* Kick/Ban Member */}
+                <div className="bg-slate-50 rounded-2xl p-4 border border-slate-100">
+                  <h4 className="text-xs font-black text-slate-500 uppercase tracking-wider mb-3">Üyeler</h4>
+                  {loadingMembers ? (
+                    <p className="text-xs text-slate-400 text-center py-4">Yükleniyor...</p>
+                  ) : (
+                    <div className="space-y-2 max-h-60 overflow-y-auto">
+                      {allMembers.map(m => {
+                        const isAdmin = m.uid === chat.groupMetadata?.adminId;
+                        const isMe = m.uid === user?.uid;
+                        const bannedInfo = chat.groupMetadata?.bannedUsers?.find(b => b.uid === m.uid);
+                        return (
+                          <div key={m.uid} className={cn("flex items-center gap-3 p-3 rounded-xl border transition-all", 
+                            bannedInfo ? "bg-red-50 border-red-200" : "bg-white border-slate-100")}>
+                            <img src={m.photoURL} className="w-8 h-8 rounded-full object-cover" />
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-bold text-slate-700 truncate flex items-center gap-2">
+                                {m.displayName}
+                                {isAdmin && <span className="text-[8px] bg-amber-100 text-amber-600 px-1.5 py-0.5 rounded-full font-black uppercase tracking-wider">Admin</span>}
+                                {isMe && <span className="text-[8px] bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded-full font-black uppercase tracking-wider">Sen</span>}
+                              </p>
+                              {bannedInfo && (
+                                <p className="text-[10px] text-red-500 font-bold">
+                                  Banlı {bannedInfo.bannedUntil ? `(süre: ${bannedInfo.bannedUntil?.seconds ? new Date(bannedInfo.bannedUntil.seconds*1000).toLocaleDateString() : 'Süresiz'})` : '(Süresiz)'}
+                                </p>
+                              )}
+                            </div>
+                            {!isAdmin && !isMe && !bannedInfo && (
+                              <div className="flex gap-1">
+                                <button onClick={() => { setKickMemberId(m.uid); setShowKickMember(true); }}
+                                  className="px-2 py-1 bg-red-50 text-red-600 rounded-lg text-[9px] font-bold hover:bg-red-100 transition-all flex items-center gap-1">
+                                  <UserX size={10} /> At
+                                </button>
+                              </div>
+                            )}
+                            {bannedInfo && isGroupAdmin && (
+                              <button onClick={() => handleUnbanMember(m.uid)}
+                                className="px-2 py-1 bg-green-50 text-green-600 rounded-lg text-[9px] font-bold hover:bg-green-100 transition-all flex items-center gap-1">
+                                <UserCheck size={10} /> Ban Kaldır
+                              </button>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+
+                {/* Kick Duration Modal */}
+                {showKickMember && kickMemberId && (
+                  <div className="bg-amber-50 rounded-2xl p-4 border border-amber-200">
+                    <h4 className="text-xs font-black text-amber-700 uppercase tracking-wider mb-3">Kullanıcıyı Gruptan At</h4>
+                    <p className="text-[10px] text-amber-600 font-bold mb-3">Süreli ban eklemek istiyor musunuz? (0 = sadece at, süreli ban yok)</p>
+                    <div className="flex items-center gap-2 mb-4">
+                      <input type="number" value={kickDuration} onChange={e => setKickDuration(Number(e.target.value))} min={0}
+                        className="w-20 bg-white border-2 border-amber-200 rounded-xl px-3 py-2 text-sm font-bold text-center outline-none focus:border-amber-500 transition-all" />
+                      <select value={kickDurationUnit} onChange={e => setKickDurationUnit(e.target.value as any)}
+                        className="bg-white border-2 border-amber-200 rounded-xl px-3 py-2 text-sm font-bold outline-none focus:border-amber-500 transition-all">
+                        <option value="minutes">Dakika</option>
+                        <option value="hours">Saat</option>
+                        <option value="days">Gün</option>
+                      </select>
+                    </div>
+                    <div className="flex gap-2">
+                      <button onClick={() => handleKickMember(kickMemberId)}
+                        className="flex-1 py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold transition-all">
+                        {kickDuration > 0 ? 'Banla ve At' : 'Sadece At'}
+                      </button>
+                      <button onClick={() => { setShowKickMember(false); setKickMemberId(null); setKickDuration(0); }}
+                        className="flex-1 py-2.5 bg-slate-200 text-slate-600 rounded-xl text-xs font-bold hover:bg-slate-300 transition-all">
+                        İptal
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Footer Info */}
+              <div className="p-4 border-t border-slate-100 bg-slate-50 rounded-b-3xl shrink-0">
+                <p className="text-[9px] text-slate-400 font-bold text-center">
+                  Sadece grup yöneticisi bu ayarları değiştirebilir
+                </p>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
       {/* Profile Modal */}
       {showProfile && otherUser && (
-        <ProfileModal user={otherUser} onClose={() => setShowProfile(false)} readOnly />
+        <ProfileModal user={otherUser} onClose={() => setShowProfile(false)} />
       )}
     </div>
   );
