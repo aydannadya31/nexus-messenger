@@ -5,10 +5,11 @@ import { useAuth } from './AuthProvider';
 import { useToast } from '../lib/toast';
 import { Chat, UserProfile } from '../types';
 import { cn } from '../lib/utils';
-import { LogOut, MessageSquarePlus, Search, User as UserIcon, ChevronUp, Settings, Radio, X, MoreVertical, UserPlus, Users } from 'lucide-react';
+import { LogOut, MessageSquarePlus, Search, User as UserIcon, ChevronUp, Settings, Radio, X, MoreVertical, UserPlus, Users, Shield } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import ProfileModal from './ProfileModal';
 import FriendRequestsModal from './FriendRequestsModal';
+import { AdminPanel } from './AdminPanel';
 
 const StatusBullet: React.FC<{ status?: string; className?: string }> = ({ status, className }) => {
   const colors = {
@@ -47,6 +48,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
   const [showFriendRequests, setShowFriendRequests] = useState(false);
   const [pendingRequestCount, setPendingRequestCount] = useState(0);
   const [broadcastUnread, setBroadcastUnread] = useState(false);
+  const [showAdminPanel, setShowAdminPanel] = useState(false);
   const [sidebarView, setSidebarView] = useState<'friends' | 'groups'>('friends');
   const [friendsList, setFriendsList] = useState<string[]>([]);
   const [friendProfiles, setFriendProfiles] = useState<Record<string, UserProfile>>({});
@@ -343,6 +345,16 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
               <MessageSquarePlus size={20} />
             </button>
             <span className="text-[8px] text-slate-400 font-bold text-center">Yön. Msj</span>
+          </div>
+          <div className="flex flex-col items-center gap-0.5">
+            <button 
+              onClick={() => setShowAdminPanel(true)}
+              className="p-2.5 bg-slate-100/50 hover:bg-amber-100 rounded-xl text-slate-400 hover:text-amber-600 transition-all active:scale-95"
+              title="Admin Paneli"
+            >
+              <Shield size={20} />
+            </button>
+            <span className="text-[8px] text-slate-400 font-bold text-center">Admin</span>
           </div>
           <div className="flex flex-col items-center gap-0.5">
             <button 
@@ -645,6 +657,11 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
 
       {/* Friend Requests Modal */}
       {showFriendRequests && <FriendRequestsModal onClose={() => setShowFriendRequests(false)} />}
+
+      {/* Admin Panel */}
+      {showAdminPanel && (
+        <AdminPanel onClose={() => setShowAdminPanel(false)} />
+      )}
 
       {/* Admin Message Dialog */}
       {showAdminMsg && (
