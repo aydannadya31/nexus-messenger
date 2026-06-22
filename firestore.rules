@@ -85,7 +85,8 @@ service cloud.firestore {
         allow update: if (isParticipant(chatId) || isAdmin()) && (
           (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status']) && request.resource.data.status in ['delivered', 'read']) ||
           (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['reactions'])) ||
-          (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['deletedBy']))
+          (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['deletedBy'])) ||
+          (isAdmin() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['blockedByAdmin', 'blockedByAdminAt']))
         );
       }
     }

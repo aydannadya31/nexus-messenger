@@ -3,7 +3,7 @@ import { collection, query, getDocs, doc, getDoc, where, orderBy, deleteDoc, upd
 import { db } from '../lib/firebase';
 import { useToast } from '../lib/toast';
 import { UserProfile, Message, Chat } from '../types';
-import { X, Search, Shield, UserX, UserCheck, Trash2, Clock, MessageSquare, Ban, Mail, Plus, Trash } from 'lucide-react';
+import { X, Search, Shield, UserX, UserCheck, Trash2, Clock, MessageSquare, Ban, Mail, Plus, Trash, Eye, EyeOff, Play, Pause } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useAuth } from './AuthProvider';
 import { motion, AnimatePresence } from 'motion/react';
@@ -300,6 +300,32 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
     }
   };
 
+  const toggleBlockMessage = async (chatId: string, msgId: string, currentlyBlocked: boolean | undefined) => {
+    try {
+      const msgRef = doc(db, 'chats', chatId, 'messages', msgId);
+      if (currentlyBlocked) {
+        await updateDoc(msgRef, { blockedByAdmin: false, blockedByAdminAt: null });
+        setUserMessages(prev => prev.map(m =>
+          m.chatId === chatId && m.msg.id === msgId
+            ? { ...m, msg: { ...m.msg, blockedByAdmin: false, blockedByAdminAt: null } as any }
+            : m
+        ));
+        addToast('Mesaj engeli kaldırıldı.', 'success');
+      } else {
+        await updateDoc(msgRef, { blockedByAdmin: true, blockedByAdminAt: serverTimestamp() });
+        setUserMessages(prev => prev.map(m =>
+          m.chatId === chatId && m.msg.id === msgId
+            ? { ...m, msg: { ...m.msg, blockedByAdmin: true, blockedByAdminAt: serverTimestamp() } as any }
+            : m
+        ));
+        addToast('Mesaj engellendi.', 'success');
+      }
+    } catch (err) {
+      console.error('Toggle block error:', err);
+      addToast('Engelleme işlemi başarısız.', 'error');
+    }
+  };
+
   const banUser = async (u: UserProfile) => {
     const now = new Date();
     let ms = 0;
@@ -577,19 +603,39 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                     {userMessages.length === 0 ? (
                       <p className="text-center text-slate-600 text-sm font-bold py-10">Mesaj bulunamadı</p>
                     ) : (
-                      userMessages.map(({ chatId, msg, chatName }) => {
+                      userMessages.slice(0, 200).map(({ chatId, msg, chatName }) => {
                         const isDeleted = (msg.deletedBy?.length || 0) > 0;
+                        const isBlocked = msg.blockedByAdmin === true;
                         return (
-                          <div key={`${chatId}-${msg.id}`} className={cn("bg-slate-800/50 rounded-2xl p-4 border transition-all", isDeleted ? "border-red-900/50" : "border-slate-700/50")}>
+                          <div key={`${chatId}-${msg.id}`} className={cn(
+                            "bg-slate-800/50 rounded-2xl p-4 border transition-all",
+                            isDeleted ? "border-red-900/50" : isBlocked ? "border-amber-600/50" : "border-slate-700/50"
+                          )}>
                             <div className="flex items-center justify-between mb-2">
                               <span className="text-[10px] text-blue-400 font-bold">{chatName}</span>
                               <div className="flex items-center gap-2">
                                 {msg.timestamp && (
                                   <span className="text-[10px] text-slate-500">{format(msg.timestamp.toDate(), 'dd.MM HH:mm')}</span>
                                 )}
+                                {/* Block/Unblock button */}
+                                {!isDeleted && (
+                                  <button
+                                    onClick={() => toggleBlockMessage(chatId, msg.id!, isBlocked)}
+                                    className={cn(
+                                      "px-2 py-1 rounded-lg text-[10px] font-bold transition-all flex items-center gap-1",
+                                      isBlocked
+                                        ? "bg-green-600 hover:bg-green-700 text-white"
+                                        : "bg-amber-600 hover:bg-amber-700 text-white"
+                                    )}
+                                    title={isBlocked ? "Engeli Kaldır" : "Mesajı Engelle"}
+                                  >
+                                    {isBlocked ? <EyeOff size={10} /> : <Eye size={10} />}
+                                    {isBlocked ? 'Engel Kaldır' : 'Engelle'}
+                                  </button>
+                                )}
                                 {isDeleted && (
                                   <button
-                                    onClick={() => permanentlyDeleteMessage(chatId, msg.id)}
+                                    onClick={() => permanentlyDeleteMessage(chatId, msg.id!)}
                                     className="px-2 py-1 bg-red-600 hover:bg-red-700 text-white rounded-lg text-[10px] font-bold transition-all flex items-center gap-1"
                                   >
                                     <Trash2 size={10} /> Kalıcı Sil
@@ -597,9 +643,56 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                                 )}
                               </div>
                             </div>
-                            <p className={cn("text-sm text-slate-300", isDeleted && "line-through text-red-400")}>
-                              {isDeleted ? '[SİLİNMİŞ] ' : ''}{msg.text || (msg.type === 'audio' ? '🎤 Ses Mesajı' : msg.type === 'image' ? '📷 Fotoğraf' : msg.type === 'video' ? '🎥 Video' : '')}
-                            </p>
+
+                            {/* Blocked message warning */}
+                            {isBlocked ? (
+                              <div className="bg-amber-900/40 border border-amber-700/50 rounded-xl p-3 mb-2">
+                                <p className="text-[11px] text-red-400 font-bold text-center">
+                                  AI Destekli Sistem tarafından içerik zararlı bulunmuş ve kaldırılmıştır.
+                                </p>
+                              </div>
+                            ) : null}
+
+                            {/* Admin her zaman içeriği görebilir */}
+                            {msg.type === 'text' && msg.text && (
+                              <p className={cn("text-sm text-slate-300", isDeleted && "line-through text-red-400")}>
+                                {isDeleted ? '[SİLİNMİŞ] ' : ''}{msg.text}
+                              </p>
+                            )}
+
+                            {msg.type === 'image' && msg.imageUrl && (
+                              <div className={cn("relative rounded-lg overflow-hidden", isDeleted && "grayscale blur-[2px] opacity-40")}>
+                                <img
+                                  src={msg.imageUrl}
+                                  alt="Görsel"
+                                  className="max-w-full h-auto object-cover rounded-lg cursor-pointer max-h-64"
+                                  onClick={() => window.open(msg.imageUrl!, '_blank')}
+                                />
+                              </div>
+                            )}
+
+                            {msg.type === 'video' && msg.videoUrl && (
+                              <div className={cn("relative rounded-lg overflow-hidden", isDeleted && "grayscale blur-[2px] opacity-40")}>
+                                <video
+                                  src={msg.videoUrl}
+                                  className="max-w-full h-auto rounded-lg max-h-64"
+                                  controls
+                                  playsInline
+                                />
+                              </div>
+                            )}
+
+                            {msg.type === 'audio' && msg.audioUrl && (
+                              <div className={cn(isDeleted && "grayscale opacity-40 pointer-events-none")}>
+                                <audio src={msg.audioUrl} controls className="w-full h-10" />
+                              </div>
+                            )}
+
+                            {!msg.type || (msg.type === 'text' && !msg.text) ? (
+                              <p className={cn("text-sm text-slate-300", isDeleted && "line-through text-red-400")}>
+                                {isDeleted ? '[SİLİNMİŞ] ' : ''}Bilinmeyen mesaj türü
+                              </p>
+                            ) : null}
                           </div>
                         );
                       })

@@ -112,6 +112,16 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
   const [editGroupName, setEditGroupName] = useState('');
   const [showEditGroupName, setShowEditGroupName] = useState(false);
   const [showTransferAdmin, setShowTransferAdmin] = useState(false);
+
+  // System admin check
+  const [isSystemAdmin, setIsSystemAdmin] = useState(false);
+
+  useEffect(() => {
+    if (!user) return;
+    getDoc(doc(db, 'adminUsers', user.uid)).then(snap => {
+      setIsSystemAdmin(snap.exists());
+    }).catch(() => setIsSystemAdmin(false));
+  }, [user]);
   const [showKickMember, setShowKickMember] = useState(false);
   const [kickMemberId, setKickMemberId] = useState<string | null>(null);
   const [kickDuration, setKickDuration] = useState<number>(0);
@@ -1202,6 +1212,14 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
                         </div>
                       )}
 
+                      {msg.blockedByAdmin && !isSystemAdmin ? (
+                        <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 my-1">
+                          <p className="text-[11px] text-red-600 font-bold text-center">
+                            AI Destekli Sistem tarafından içerik zararlı bulunmuş ve kaldırılmıştır.
+                          </p>
+                        </div>
+                      ) : (<>
+
                       {msg.type === 'text' && (
                         msg.encrypted && !isMe ? (
                           <button onClick={() => setDecryptModal(msg)}
@@ -1284,6 +1302,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
                         </span>
                         {isMe && !isDeleted && <MessageStatus status={msg.status} />}
                       </div>
+                    </>)}
                     </div>
 
                     {/* Hover Actions: Reaction & Delete */}
