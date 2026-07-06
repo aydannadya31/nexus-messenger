@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Zeka Ajanı</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <!-- Üst Menü -->
+    <header class="topbar">
+        <div class="topbar-left">
+            <button class="btn-icon" id="menuToggle" title="Menü">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M3 12h18M3 6h18M3 18h18"/>
+                </svg>
+            </button>
+            <h1 class="app-title">Zeka Ajanı</h1>
+        </div>
+        <div class="topbar-center">
+            <span class="status-badge" id="statusBadge">● Çevrimiçi</span>
+            <span class="model-badge" id="modelBadge">Groq</span>
+        </div>
+        <div class="topbar-right">
+            <button class="btn-icon" id="newChatBtn" title="Yeni Sohbet">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M12 5v14M5 12h14"/>
+                </svg>
+            </button>
+            <button class="btn-icon" id="settingsBtn" title="Ayarlar">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/>
+                </svg>
+            </button>
+        </div>
+    </header>
+
+    <div class="app-container">
+        <!-- Sol Panel - Sohbet Listesi -->
+        <aside class="sidebar" id="sidebar">
+            <div class="sidebar-header">
+                <h2>Sohbetler</h2>
+                <button class="btn-sm" id="newChatBtn2">+ Yeni</button>
+            </div>
+            <div class="conversation-list" id="conversationList">
+                <div class="loading-msg">Sohbetler yükleniyor...</div>
+            </div>
+        </aside>
+
+        <!-- Ana Alan -->
+        <main class="main-content">
+            <!-- Sohbet Alanı -->
+            <div class="chat-container" id="chatContainer">
+                <div class="chat-messages" id="chatMessages">
+                    <div class="welcome-screen" id="welcomeScreen">
+                        <div class="welcome-icon">
+                            <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                                <path d="M12 2a4 4 0 014 4v2a4 4 0 01-8 0V6a4 4 0 014-4z"/>
+                                <path d="M16 14H8a4 4 0 00-4 4v2h16v-2a4 4 0 00-4-4z"/>
+                            </svg>
+                        </div>
+                        <h2>Zeka Ajanı'na Hoş Geldiniz</h2>
+                        <p>Ben sizin kişisel yapay zeka asistanınızım.</p>
+                        <p class="welcome-hint">Bir şey sormak için aşağıdaki kutuyu kullanın.</p>
+                        <div class="welcome-features">
+                            <div class="feature-item">💬 Sohbet & Soru-Cevap</div>
+                            <div class="feature-item">📁 Dosya İşlemleri</div>
+                            <div class="feature-item">🌐 Web Scraping</div>
+                            <div class="feature-item">⚡ Otomasyon</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Mesaj Girişi -->
+                <div class="chat-input-container">
+                    <div class="chat-input-wrapper">
+                        <textarea class="chat-input" id="chatInput"
+                                  placeholder="Mesajınızı yazın..." rows="1"
+                                  maxlength="10000"></textarea>
+                        <div class="input-actions">
+                            <button class="btn-icon" id="attachBtn" title="Dosya Ekle">
+                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/>
+                                </svg>
+                            </button>
+                            <button class="btn-send" id="sendBtn" title="Gönder">
+                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/>
+                                </svg>
+                            </button>
+                        </div>
+                    </div>
+                    <p class="input-footer">Zeka Ajanı hatalar yapabilir. Önemli bilgileri doğrulayın.</p>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Ayarlar Modalı -->
+    <div class="modal-overlay" id="settingsModal">
+        <div class="modal">
+            <div class="modal-header">
+                <h2>⚙️ Ayarlar</h2>
+                <button class="btn-icon modal-close" id="settingsClose">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M18 6L6 18M6 6l12 12"/>
+                    </svg>
+                </button>
+            </div>
+            <div class="modal-body">
+                <!-- API Anahtarları -->
+                <section class="settings-section">
+                    <h3>🔑 API Anahtarları</h3>
+                    <div class="form-group">
+                        <label>Groq API Anahtarı</label>
+                        <input type="password" class="form-input" id="inputGroqKey"
+                               placeholder="gsk_... ile başlayan API anahtarı">
+                        <small class="form-hint">Ücretsiz: console.groq.com</small>
+                    </div>
+                    <div class="form-group">
+                        <label>OpenRouter API Anahtarı</label>
+                        <input type="password" class="form-input" id="inputOpenRouterKey"
+                               placeholder="sk-or-v1-... ile başlayan API anahtarı">
+                        <small class="form-hint">Ücretsiz: openrouter.ai</small>
+                    </div>
+                </section>
+
+                <!-- Model Ayarları -->
+                <section class="settings-section">
+                    <h3>🤖 Model Sağlayıcı</h3>
+                    <div class="form-group">
+                        <label>Birincil Sağlayıcı</label>
+                        <select class="form-input" id="inputProvider">
+                            <option value="groq">Groq</option>
+                            <option value="openrouter">OpenRouter</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Groq Model</label>
+                        <select class="form-input" id="inputGroqModel">
+                            <option value="llama3-8b-8192">Llama 3.1 8B (Hızlı)</option>
+                            <option value="llama3-70b-8192">Llama 3.1 70B (Güçlü)</option>
+                            <option value="mixtral-8x7b-32768">Mixtral 8x7B (Uzun)</option>
+                            <option value="gemma2-9b-it">Gemma 2 9B (Hafif)</option>
+                        </select>
+                    </div>
+                </section>
+
+                <!-- Etik Kurallar -->
+                <section class="settings-section">
+                    <h3>⚖️ Etik Kurallar</h3>
+                    <div class="ethics-rules" id="ethicsRulesList">
+                        <p class="text-muted">Henüz etik kuralı tanımlanmamış.</p>
+                    </div>
+                    <div class="ethics-add-form">
+                        <input type="text" class="form-input" id="ethicsRuleInput"
+                               placeholder="Yeni etik kuralı..." maxlength="500">
+                        <button class="btn-sm" id="addEthicsRuleBtn">Ekle</button>
+                    </div>
+                </section>
+
+                <!-- Sistem Durumu -->
+                <section class="settings-section">
+                    <h3>📊 Sistem Durumu</h3>
+                    <div class="system-status" id="systemStatus">
+                        <div class="status-row">
+                            <span>Sunucu:</span>
+                            <span class="status-ok">● Bağlı</span>
+                        </div>
+                        <div class="status-row">
+                            <span>Groq API:</span>
+                            <span class="status-wait">Kontrol ediliyor...</span>
+                        </div>
+                        <div class="status-row">
+                            <span>OpenRouter API:</span>
+                            <span class="status-wait">Kontrol ediliyor...</span>
+                        </div>
+                        <div class="status-row">
+                            <span>Etik Kuralları:</span>
+                            <span id="ethicsCount">0</span>
+                        </div>
+                    </div>
+                </section>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" id="settingsClose2">Kapat</button>
+                <button class="btn btn-primary" id="settingsSave">Kaydet</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
