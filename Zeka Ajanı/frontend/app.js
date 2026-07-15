@@ -9,7 +9,8 @@ class ZekaAjani {
         this.currentConversationId = null;
         this.conversations = [];
         this.isLoading = false;
-        this.apiBase = 'http://localhost:8000/api';
+        // API URL: önce window.API_URL'yi dene, yoksa /api (same-origin)
+        this.apiBase = window.API_URL || '/api';
 
         // === DOM Referansları ===
         this.elements = {
@@ -38,7 +39,29 @@ class ZekaAjani {
             addEthicsRuleBtn: document.getElementById('addEthicsRuleBtn'),
             ethicsCount: document.getElementById('ethicsCount'),
             systemStatus: document.getElementById('systemStatus'),
+            archivedToggle: document.getElementById('archivedToggle'),
+            archivedList: document.getElementById('archivedList'),
+            archivedCount: document.getElementById('archivedCount'),
+            repoList: document.getElementById('repoList'),
+            repoCount: document.getElementById('repoCount'),
+            repoModal: document.getElementById('repoModal'),
+            repoModalTitle: document.getElementById('repoModalTitle'),
+            repoModalClose: document.getElementById('repoModalClose'),
+            repoModalCancel: document.getElementById('repoModalCancel'),
+            repoModalSave: document.getElementById('repoModalSave'),
+            repoNameInput: document.getElementById('repoNameInput'),
+            repoUrlInput: document.getElementById('repoUrlInput'),
+            repoIconPicker: document.getElementById('repoIconPicker'),
+            repoBadgeInput: document.getElementById('repoBadgeInput'),
+            aiImageBtn: document.getElementById('aiImageBtn'),
+            aiImageOverlay: document.getElementById('aiImageOverlay'),
+            aiImageClose: document.getElementById('aiImageClose'),
+            aiImageFrame: document.getElementById('aiImageFrame'),
         };
+
+        // === Canlı Projeler ===
+        this.repos = [];
+        this.editingRepoId = null;
 
         this.init();
     }
@@ -46,7 +69,9 @@ class ZekaAjani {
     init() {
         this.bindEvents();
         this.loadConversations();
+        this.loadArchivedConversations();
         this.checkHealth();
+        this.loadRepoSites();
     }
 
     bindEvents() {
@@ -82,10 +107,53 @@ class ZekaAjani {
         });
         this.elements.settingsSave.addEventListener('click', () => this.saveSettings());
 
-        // Etik kural ekleme
         this.elements.addEthicsRuleBtn.addEventListener('click', () => this.addEthicsRule());
         this.elements.ethicsRuleInput.addEventListener('keydown', (e) => {
             if (e.key === 'Enter') this.addEthicsRule();
+        });
+
+        // Repo modal
+        this.elements.repoModalClose.addEventListener('click', () => this.closeRepoModal());
+        this.elements.repoModalCancel.addEventListener('click', () => this.closeRepoModal());
+        this.elements.repoModal.addEventListener('click', (e) => {
+            if (e.target === this.elements.repoModal) this.closeRepoModal();
+        });
+        this.elements.repoModalSave.addEventListener('click', () => this.saveRepo());
+
+        // Repo icon picker
+        this.elements.repoIconPicker.addEventListener('click', (e) => {
+            const btn = e.target.closest('.repo-icon-option');
+            if (!btn) return;
+            this.elements.repoIconPicker.querySelectorAll('.repo-icon-option').forEach(b => b.classList.remove('selected'));
+            btn.classList.add('selected');
+        });
+        this.elements.repoIconPicker.querySelector('#repoIconCustom').addEventListener('input', (e) => {
+            this.elements.repoIconPicker.querySelectorAll('.repo-icon-option').forEach(b => b.classList.remove('selected'));
+        });
+
+        this.elements.archivedToggle.addEventListener('click', () => {
+            const list = this.elements.archivedList;
+            const arrow = this.elements.archivedToggle.querySelector('.archived-arrow');
+            if (list.style.display === 'none' || !list.style.display) {
+                list.style.display = 'block';
+                arrow.textContent = '▼';
+            } else {
+                list.style.display = 'none';
+                arrow.textContent = '▶';
+            }
+        });
+
+        // AI Görsel
+        this.elements.aiImageBtn.addEventListener('click', () => this.openAIImage());
+        this.elements.aiImageClose.addEventListener('click', () => this.closeAIImage());
+        this.elements.aiImageOverlay.addEventListener('click', (e) => {
+            if (e.target === this.elements.aiImageOverlay) this.closeAIImage();
+        });
+        // ESC ile kapat
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && this.elements.aiImageOverlay.classList.contains('active')) {
+                this.closeAIImage();
+            }
         });
     }
 
@@ -260,19 +328,6 @@ class ZekaAjani {
     formatContent(content) {
         if (!content) return '';
 
-        content = content.replace(
-            /(https?:\/\/[^\s]+?\.(?:jpg|jpeg|png|gif|webp)(?:\?[^\s]*)?)/gi,
-            '<img src="$1" alt="görsel" class="chat-image" onclick="window.open(this.src)" style="max-width:100%;border-radius:8px;cursor:pointer;margin:8px 0">'
-        );
-
-        if (content.includes('tbm=isch') || content.includes('google.com/search')) {
-            const match = content.match(/q=([^&\s]+)/);
-            if (match) {
-                const query = decodeURIComponent(match[1].replace(/\+/g, ' '));
-                this.searchAndShowImages(query);
-            }
-        }
-
         // Kod bloklarını formatla (```)
         content = content.replace(/```(\w*)\n?([\s\S]*?)```/g, (_, lang, code) => {
             const langClass = lang ? ` class="language-${lang}"` : '';
@@ -285,44 +340,10 @@ class ZekaAjani {
         // Kalın (**)
         content = content.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
 
-        content = content.replace(
-            /(https?:\/\/[^\s<]+)/g,
-            '<a href="$1" target="_blank" rel="noopener">$1</a>'
-        );
-
         // Yeni satırları <br>'e çevir
         content = content.replace(/\n/g, '<br>');
 
         return content;
-    }
-
-    async searchAndShowImages(query) {
-        try {
-            const data = await this.api('POST', '/web/images', { query });
-            if (data.success && data.results.length > 0) {
-                const gallery = document.createElement('div');
-                gallery.className = 'image-gallery';
-                gallery.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px;margin:12px 0';
-
-                data.results.forEach(img => {
-                    const wrapper = document.createElement('div');
-                    wrapper.style.cssText = 'border-radius:8px;overflow:hidden;background:var(--bg-card);border:1px solid var(--border)';
-                    wrapper.innerHTML = `
-                        <img src="${this.escapeHtml(img.thumbnail)}"
-                             alt="${this.escapeHtml(img.title || query)}"
-                             style="width:100%;height:150px;object-fit:cover;display:block"
-                             onclick="window.open(this.src)"
-                             loading="lazy">
-                    `;
-                    gallery.appendChild(wrapper);
-                });
-
-                this.elements.chatMessages.appendChild(gallery);
-                this.scrollToBottom();
-            }
-        } catch (e) {
-            console.error('Görsel arama hatası:', e);
-        }
     }
 
     escapeHtml(text) {
@@ -353,6 +374,174 @@ class ZekaAjani {
         }, 50);
     }
 
+    // === Sağ Sidebar (Projelerim) ===
+
+    async loadRepoSites() {
+        try {
+            const data = await this.api('GET', '/repos');
+            this.repos = data.repos || [];
+        } catch (e) {
+            console.error('Projeler yüklenemedi:', e);
+            this.repos = [];
+        }
+        this.renderRepoSites();
+    }
+
+    renderRepoSites() {
+        const list = this.elements.repoList;
+        const sites = this.repos;
+
+        const groups = {};
+        sites.forEach(site => {
+            const badge = site.badge || 'Diğer';
+            if (!groups[badge]) groups[badge] = [];
+            groups[badge].push(site);
+        });
+
+        let html = '';
+        const order = ['Domain', 'Pages', 'Vercel', 'Render', 'Web', 'App', 'Site', 'Diğer'];
+        order.forEach(label => {
+            if (!groups[label]) return;
+            html += `<div class="repo-section-label">
+                <span>${label}</span>
+                <button class="conv-btn add-repo-btn" data-badge="${label}" title="Proje ekle">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M12 5v14M5 12h14"/>
+                    </svg>
+                </button>
+            </div>`;
+            groups[label].forEach(site => {
+                html += `
+                    <div class="repo-link" data-id="${site.id}">
+                        <a href="${site.url}" target="_blank" rel="noopener"
+                           class="repo-link-inner" title="${site.name}">
+                            <span class="repo-icon">${site.icon}</span>
+                            <span class="repo-name">${site.name}</span>
+                        </a>
+                        <span class="repo-badge">${site.badge}</span>
+                        <span class="repo-actions">
+                            <button class="conv-btn edit-btn" data-id="${site.id}" title="Düzenle">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                                </svg>
+                            </button>
+                            <button class="conv-btn delete-btn" data-id="${site.id}" title="Sil">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/>
+                                </svg>
+                            </button>
+                        </span>
+                    </div>
+                `;
+            });
+        });
+
+        list.innerHTML = html;
+        this.elements.repoCount.textContent = `${sites.length} proje`;
+
+        // Ekleme butonları
+        list.querySelectorAll('.add-repo-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                this.openRepoModal(null, btn.dataset.badge);
+            });
+        });
+
+        // Düzenleme butonları
+        list.querySelectorAll('.edit-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const repo = this.repos.find(r => r.id === parseInt(btn.dataset.id));
+                if (repo) this.openRepoModal(repo);
+            });
+        });
+
+        // Silme butonları
+        list.querySelectorAll('.delete-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                this.deleteRepoSite(parseInt(btn.dataset.id));
+            });
+        });
+    }
+
+    // === Repo CRUD ===
+
+    openRepoModal(repo = null, defaultBadge = null) {
+        this.editingRepoId = repo ? repo.id : null;
+        this.elements.repoModalTitle.textContent = repo ? '✏️ Proje Düzenle' : '🌐 Proje Ekle';
+        this.elements.repoNameInput.value = repo ? repo.name : '';
+        this.elements.repoUrlInput.value = repo ? repo.url : '';
+
+        // İkon seçimi
+        const icon = repo ? repo.icon : '🌐';
+        this.elements.repoIconPicker.querySelectorAll('.repo-icon-option').forEach(btn => {
+            btn.classList.toggle('selected', btn.dataset.icon === icon);
+        });
+        this.elements.repoIconPicker.querySelector('#repoIconCustom').value = '';
+
+        // Etiket seçimi
+        if (repo) {
+            this.elements.repoBadgeInput.value = repo.badge;
+        } else if (defaultBadge) {
+            this.elements.repoBadgeInput.value = defaultBadge;
+        } else {
+            this.elements.repoBadgeInput.value = 'Site';
+        }
+
+        this.elements.repoModal.classList.add('active');
+        this.elements.repoNameInput.focus();
+    }
+
+    closeRepoModal() {
+        this.elements.repoModal.classList.remove('active');
+        this.editingRepoId = null;
+    }
+
+    getSelectedIcon() {
+        const selected = this.elements.repoIconPicker.querySelector('.repo-icon-option.selected');
+        if (selected) return selected.dataset.icon;
+        const custom = this.elements.repoIconPicker.querySelector('#repoIconCustom').value.trim();
+        return custom || '🌐';
+    }
+
+    async saveRepo() {
+        const name = this.elements.repoNameInput.value.trim();
+        const url = this.elements.repoUrlInput.value.trim();
+        if (!name) { this.showToast('Proje adı gerekli'); return; }
+        if (!url) { this.showToast('URL gerekli'); return; }
+
+        const icon = this.getSelectedIcon();
+        const badge = this.elements.repoBadgeInput.value;
+        const isEdit = this.editingRepoId !== null;
+
+        try {
+            if (isEdit) {
+                await this.api('PUT', `/repos/${this.editingRepoId}`, { name, url, icon, badge });
+                this.showToast('Proje güncellendi');
+            } else {
+                await this.api('POST', '/repos', { name, url, icon, badge });
+                this.showToast('Proje eklendi');
+            }
+            this.closeRepoModal();
+            await this.loadRepoSites();
+        } catch (e) {
+            this.showError('Proje kaydedilemedi');
+        }
+    }
+
+    async deleteRepoSite(repoId) {
+        const repo = this.repos.find(r => r.id === repoId);
+        if (!confirm(`"${repo ? repo.name : 'bu proje'}" silinsin mi?`)) return;
+        try {
+            await this.api('DELETE', `/repos/${repoId}`);
+            this.showToast('Proje silindi');
+            await this.loadRepoSites();
+        } catch (e) {
+            this.showError('Proje silinemedi');
+        }
+    }
+
     // === Sidebar ===
 
     renderConversationList() {
@@ -366,18 +555,149 @@ class ZekaAjani {
         list.innerHTML = this.conversations.map(conv => `
             <div class="conversation-item ${conv.id === this.currentConversationId ? 'active' : ''}"
                  data-id="${conv.id}">
-                <div class="conv-title">${this.escapeHtml(conv.title)}</div>
-                <div class="conv-meta">${new Date(conv.updated_at).toLocaleString('tr-TR')}</div>
+                <div class="conv-info">
+                    <div class="conv-title">${this.escapeHtml(conv.title)}</div>
+                    <div class="conv-meta">${new Date(conv.updated_at).toLocaleString('tr-TR')}</div>
+                </div>
+                <div class="conv-actions">
+                    <button class="conv-btn archive-btn" data-id="${conv.id}" title="Arşivle">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M21 8v13H3V8M1 3h22v5H1zM10 12h4"/>
+                        </svg>
+                    </button>
+                    <button class="conv-btn delete-btn" data-id="${conv.id}" title="Sil">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/>
+                        </svg>
+                    </button>
+                </div>
             </div>
         `).join('');
 
-        // Click eventleri
         list.querySelectorAll('.conversation-item').forEach(el => {
+            el.addEventListener('click', (e) => {
+                if (e.target.closest('.conv-btn')) return;
+                this.openConversation(parseInt(el.dataset.id));
+                this.elements.sidebar.classList.remove('open');
+            });
+        });
+
+        list.querySelectorAll('.archive-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                this.archiveConversation(parseInt(btn.dataset.id));
+            });
+        });
+
+        list.querySelectorAll('.delete-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                this.deleteConversation(parseInt(btn.dataset.id));
+            });
+        });
+    }
+
+    async deleteConversation(convId) {
+        if (!confirm('Bu sohbeti silmek istediğinize emin misiniz?')) return;
+        try {
+            await this.api('DELETE', `/chat/conversations/${convId}`);
+            this.conversations = this.conversations.filter(c => c.id !== convId);
+            if (this.currentConversationId === convId) {
+                this.currentConversationId = null;
+                this.elements.chatMessages.innerHTML = '';
+                if (this.conversations.length > 0) {
+                    this.openConversation(this.conversations[0].id);
+                }
+            }
+            this.renderConversationList();
+            this.showToast('Sohbet silindi');
+        } catch (e) {
+            this.showError('Sohbet silinemedi');
+        }
+    }
+
+    async archiveConversation(convId) {
+        try {
+            await this.api('POST', `/chat/conversations/${convId}/archive`);
+            this.conversations = this.conversations.filter(c => c.id !== convId);
+            if (this.currentConversationId === convId) {
+                this.currentConversationId = null;
+                this.elements.chatMessages.innerHTML = '';
+                if (this.conversations.length > 0) {
+                    this.openConversation(this.conversations[0].id);
+                }
+            }
+            this.renderConversationList();
+            this.loadArchivedConversations();
+            this.showToast('Sohbet arşivlendi');
+        } catch (e) {
+            this.showError('Sohbet arşivlenemedi');
+        }
+    }
+
+    async loadArchivedConversations() {
+        try {
+            const data = await this.api('GET', '/chat/conversations/archived');
+            this.archivedConversations = data.conversations;
+            this.renderArchivedList();
+        } catch (e) {
+            this.archivedConversations = [];
+            console.error('Arşivlenenler yüklenemedi:', e);
+        }
+    }
+
+    renderArchivedList() {
+        const list = this.elements.archivedList;
+        const countEl = this.elements.archivedCount;
+        const archived = this.archivedConversations || [];
+
+        countEl.textContent = archived.length;
+
+        if (archived.length === 0) {
+            list.innerHTML = '<div class="archived-empty">Arşivlenen sohbet yok</div>';
+            return;
+        }
+
+        list.innerHTML = archived.map(conv => `
+            <div class="archived-item" data-id="${conv.id}">
+                <div class="archived-item-info" data-id="${conv.id}">
+                    <div class="archived-item-title">${this.escapeHtml(conv.title)}</div>
+                    <div class="archived-item-meta">${new Date(conv.updated_at).toLocaleString('tr-TR')}</div>
+                </div>
+                <button class="conv-btn unarchive-btn" data-id="${conv.id}" title="Arşivden Çıkar">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M21 8v13H3V8M1 3h22v5H1zM12 8v9M8 13l4 4 4-4"/>
+                    </svg>
+                </button>
+            </div>
+        `).join('');
+
+        list.querySelectorAll('.archived-item-info').forEach(el => {
             el.addEventListener('click', () => {
                 this.openConversation(parseInt(el.dataset.id));
                 this.elements.sidebar.classList.remove('open');
             });
         });
+
+        list.querySelectorAll('.unarchive-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                this.unarchiveConversation(parseInt(btn.dataset.id));
+            });
+        });
+    }
+
+    async unarchiveConversation(convId) {
+        try {
+            await this.api('POST', `/chat/conversations/${convId}/unarchive`);
+            this.conversations.unshift({...this.archivedConversations.find(c => c.id === convId), is_archived: 0});
+            this.archivedConversations = this.archivedConversations.filter(c => c.id !== convId);
+            this.renderConversationList();
+            this.renderArchivedList();
+            this.showToast('Sohbet arşivden çıkarıldı');
+        } catch (e) {
+            this.showError('Arşivden çıkarılamadı');
+        }
     }
 
     // === Sağlık Kontrolü ===
@@ -441,6 +761,17 @@ class ZekaAjani {
 
     closeSettings() {
         this.elements.settingsModal.classList.remove('active');
+    }
+
+    // AI Image Overlay
+    openAIImage() {
+        this.elements.aiImageOverlay.classList.add('active');
+        this.elements.aiImageFrame.src = 'https://null.perchance.org/image-ai';
+    }
+
+    closeAIImage() {
+        this.elements.aiImageOverlay.classList.remove('active');
+        this.elements.aiImageFrame.src = 'about:blank';
     }
 
     async saveSettings() {

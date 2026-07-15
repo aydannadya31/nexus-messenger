@@ -45,6 +45,25 @@
             <div class="conversation-list" id="conversationList">
                 <div class="loading-msg">Sohbetler yükleniyor...</div>
             </div>
+            <div class="sidebar-divider"></div>
+            <div class="archived-section">
+                <button class="archived-toggle" id="archivedToggle">
+                    <span class="archived-arrow">▶</span>
+                    <span>Arşivlenenler</span>
+                    <span class="archived-badge" id="archivedCount">0</span>
+                </button>
+                <div class="archived-list" id="archivedList"></div>
+            </div>
+            <div class="sidebar-footer">
+                <button class="sidebar-tool-btn" id="aiImageBtn" title="Perchance AI ile görsel oluştur">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+                        <circle cx="8.5" cy="8.5" r="1.5"/>
+                        <polyline points="21 15 16 10 5 21"/>
+                    </svg>
+                    AI Görsel
+                </button>
+            </div>
         </aside>
 
         <!-- Ana Alan -->
@@ -94,7 +113,19 @@
                 </div>
             </div>
         </main>
-    </div>
+
+        <!-- Sağ Sidebar - Projelerim -->
+        <aside class="right-sidebar" id="rightSidebar">
+        <div class="right-sidebar-header">
+            <h2>🌐 Projelerim</h2>
+        </div>
+        <div class="right-sidebar-list" id="repoList">
+            <div class="loading-msg">Yükleniyor...</div>
+        </div>
+            <div class="right-sidebar-footer">
+                <span class="repo-count" id="repoCount">0 site canlı</span>
+            </div>
+        </aside>
 
     <!-- Ayarlar Modalı -->
     <div class="modal-overlay" id="settingsModal">
@@ -189,6 +220,83 @@
         </div>
     </div>
 
-    <script src="app.js"></script>
+    <!-- Repo Ekle/Düzenle Modalı -->
+    <div class="modal-overlay" id="repoModal">
+        <div class="modal modal-sm">
+            <div class="modal-header">
+                <h2 id="repoModalTitle">🌐 Proje Ekle</h2>
+                <button class="btn-icon modal-close" id="repoModalClose">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M18 6L6 18M6 6l12 12"/>
+                    </svg>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label>Proje Adı</label>
+                    <input type="text" class="form-input" id="repoNameInput"
+                           placeholder="Örn: Moda Burada" maxlength="100">
+                </div>
+                <div class="form-group">
+                    <label>URL</label>
+                    <input type="url" class="form-input" id="repoUrlInput"
+                           placeholder="Örn: https://modaburada.gt.tc">
+                </div>
+                <div class="form-group">
+                    <label>İkon</label>
+                    <div class="repo-icon-picker" id="repoIconPicker">
+                        <button class="repo-icon-option selected" data-icon="🌐">🌐</button>
+                        <button class="repo-icon-option" data-icon="🛍️">🛍️</button>
+                        <button class="repo-icon-option" data-icon="🖼️">🖼️</button>
+                        <button class="repo-icon-option" data-icon="🤖">🤖</button>
+                        <button class="repo-icon-option" data-icon="👗">👗</button>
+                        <button class="repo-icon-option" data-icon="💬">💬</button>
+                        <button class="repo-icon-option" data-icon="🎬">🎬</button>
+                        <button class="repo-icon-option" data-icon="🎥">🎥</button>
+                        <button class="repo-icon-option" data-icon="📈">📈</button>
+                        <button class="repo-icon-option" data-icon="⚡">⚡</button>
+                        <button class="repo-icon-option" data-icon="🧪">🧪</button>
+                        <button class="repo-icon-option" data-icon="📊">📊</button>
+                        <button class="repo-icon-option" data-icon="🎮">🎮</button>
+                        <button class="repo-icon-option" data-icon="📝">📝</button>
+                        <button class="repo-icon-option" data-icon="🔧">🔧</button>
+                        <button class="repo-icon-option" data-icon="🎨">🎨</button>
+                        <button class="repo-icon-option" data-icon="📱">📱</button>
+                        <button class="repo-icon-option" data-icon="💻">💻</button>
+                        <input type="text" class="repo-icon-custom" id="repoIconCustom"
+                               placeholder="Özel emoji..." maxlength="2">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>Etiket</label>
+                    <select class="form-input" id="repoBadgeInput">
+                        <option value="Site">Site</option>
+                        <option value="Domain">Domain</option>
+                        <option value="Pages">Pages</option>
+                        <option value="Vercel">Vercel</option>
+                        <option value="Render">Render</option>
+                        <option value="Web">Web</option>
+                        <option value="App">App</option>
+                        <option value="Diğer">Diğer</option>
+                    </select>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" id="repoModalCancel">İptal</button>
+                <button class="btn btn-primary" id="repoModalSave">Kaydet</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- AI Image Overlay -->
+    <div class="ai-image-overlay" id="aiImageOverlay">
+        <div class="ai-image-header">
+            <span class="ai-image-title">AI Görsel Oluşturucu</span>
+            <button class="ai-image-close" id="aiImageClose">&times;</button>
+        </div>
+        <iframe class="ai-image-frame" id="aiImageFrame" src="about:blank" sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-downloads" loading="lazy"></iframe>
+    </div>
+
+    <script src="app.js?v=2"></script>
 </body>
 </html>
