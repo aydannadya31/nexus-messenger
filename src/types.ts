@@ -8,6 +8,16 @@ export interface UserProfile {
   about?: string;
   uin?: string;
   onlineStatus?: 'online' | 'away' | 'busy';
+  profileCompleted?: boolean;
+  nickname?: string;
+  country?: string;
+  birthDate?: string;
+  phone?: string;
+  location?: string;
+  showBirthDate?: boolean;
+  showPhone?: boolean;
+  showLocation?: boolean;
+  bannedUntil?: any;
 }
 
 export interface Chat {
@@ -18,6 +28,16 @@ export interface Chat {
     name: string;
     photoURL?: string;
     createdBy: string;
+    adminId?: string;
+    adminHistory?: string[];
+    bannedUsers?: Array<{
+      uid: string;
+      displayName: string;
+      bannedUntil?: any;
+      bannedAt?: any;
+      bannedBy?: string;
+    }>;
+    password?: string;
   };
   lastMessage?: {
     text: string;
@@ -28,6 +48,8 @@ export interface Chat {
   updatedAt: any;
   heldBy?: string | null;
   holdExpiresAt?: any;
+  groupCountry?: string;
+  muted?: boolean;
 }
 
 export interface Message {
@@ -49,6 +71,8 @@ export interface Message {
   callDuration?: number;
   callStatus?: 'missed' | 'completed' | 'rejected';
   callerId?: string;
+  blockedByAdmin?: boolean;
+  deletedBy?: string;
 }
 
 export interface Call {

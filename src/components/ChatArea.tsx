@@ -73,6 +73,7 @@ const DecryptContent: React.FC<{ msg: Message; onClose: () => void }> = ({ msg, 
 
 interface ChatAreaProps {
   chatId: string;
+  onBack?: () => void;
 }
 
 export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
