@@ -40,6 +40,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
   const [chatDetails, setChatDetails] = useState<Record<string, UserProfile>>({});
   const prevLastMessagesRef = useRef<Record<string, any>>({});
   const chatDetailsRef = useRef<Record<string, UserProfile>>({});
+  const selectedChatIdRef = useRef(selectedChatId);
+  selectedChatIdRef.current = selectedChatId;
   const [chatMenuOpen, setChatMenuOpen] = useState<string | null>(null);
   const [hiddenChats, setHiddenChats] = useState<string[]>([]);
   const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({});
@@ -141,7 +143,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
 
         if (hasPrevState && lastMsg && (!prevMsg || lastMsg.timestamp?.toMillis() > prevMsg.timestamp?.toMillis())) {
           if (lastMsg.senderId !== user.uid) {
-            if (chat.id !== selectedChatId) {
+            if (chat.id !== selectedChatIdRef.current) {
               setUnreadCounts(prev => ({ ...prev, [chat.id]: (prev[chat.id] || 0) + 1 }));
             }
             try {

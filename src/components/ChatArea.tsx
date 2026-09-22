@@ -11,6 +11,9 @@ import { format } from 'date-fns';
 import { motion, AnimatePresence } from 'motion/react';
 import { encryptMessage, decryptMessage } from '../lib/crypto';
 
+const toBase64 = (str: string) => btoa(unescape(encodeURIComponent(str)));
+const fromBase64 = (b64: string) => decodeURIComponent(escape(atob(b64)));
+
 const DecryptContent: React.FC<{ msg: Message; onClose: () => void }> = ({ msg, onClose }) => {
   const [pwd, setPwd] = useState('');
   const [decrypted, setDecrypted] = useState<{ text?: string; imageUrl?: string; videoUrl?: string; audioUrl?: string } | null>(null);
@@ -18,7 +21,7 @@ const DecryptContent: React.FC<{ msg: Message; onClose: () => void }> = ({ msg, 
 
   const handleSubmit = () => {
     if (!msg.imagePassword) return;
-    if (btoa(pwd) === msg.imagePassword) {
+    if (toBase64(pwd) === msg.imagePassword) {
       setDecrypted({ text: msg.text, imageUrl: msg.imageUrl, videoUrl: msg.videoUrl, audioUrl: msg.audioUrl });
       setError('');
     } else {
@@ -833,7 +836,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
 
     if (encryptMode && pwd) {
       messageData.encrypted = true;
-      messageData.imagePassword = btoa(pwd);
+      messageData.imagePassword = toBase64(pwd);
     }
 
     try {
