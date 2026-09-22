@@ -42,6 +42,12 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
   const chatDetailsRef = useRef<Record<string, UserProfile>>({});
   const selectedChatIdRef = useRef(selectedChatId);
   selectedChatIdRef.current = selectedChatId;
+
+  useEffect(() => {
+    if (user && 'Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission();
+    }
+  }, [user]);
   const [chatMenuOpen, setChatMenuOpen] = useState<string | null>(null);
   const [hiddenChats, setHiddenChats] = useState<string[]>([]);
   const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({});
@@ -146,20 +152,30 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
             if (chat.id !== selectedChatIdRef.current) {
               setUnreadCounts(prev => ({ ...prev, [chat.id]: (prev[chat.id] || 0) + 1 }));
             }
-            try {
-              const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
-              const oscillator = audioCtx.createOscillator();
-              const gainNode = audioCtx.createGain();
-              oscillator.connect(gainNode);
-              gainNode.connect(audioCtx.destination);
-              oscillator.type = 'sine';
-              oscillator.frequency.setValueAtTime(880, audioCtx.currentTime);
-              oscillator.frequency.setValueAtTime(660, audioCtx.currentTime + 0.1);
-              gainNode.gain.setValueAtTime(0.3, audioCtx.currentTime);
-              gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.3);
-              oscillator.start(audioCtx.currentTime);
-              oscillator.stop(audioCtx.currentTime + 0.3);
-            } catch(e) { console.log('Audio error:', e); }
+            // Skip sound for muted chats or if last sound was <2s ago
+            const lastSoundTime = parseInt(localStorage.getItem('lastNotifSound') || '0', 10);
+            const now = Date.now();
+            if (!chat.muted && now - lastSoundTime > 2000) {
+              localStorage.setItem('lastNotifSound', String(now));
+              try {
+                const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+                const oscillator = audioCtx.createOscillator();
+                const gainNode = audioCtx.createGain();
+                oscillator.connect(gainNode);
+                gainNode.connect(audioCtx.destination);
+                oscillator.type = 'sine';
+                oscillator.frequency.setValueAtTime(880, audioCtx.currentTime);
+                oscillator.frequency.setValueAtTime(660, audioCtx.currentTime + 0.1);
+                gainNode.gain.setValueAtTime(0.3, audioCtx.currentTime);
+                gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.3);
+                oscillator.start(audioCtx.currentTime);
+                oscillator.stop(audioCtx.currentTime + 0.3);
+              } catch(e) { console.log('Audio error:', e); }
+              if (Notification.permission === 'granted' && chat.id !== selectedChatIdRef.current) {
+                const senderName = lastMsg.senderName || 'Birisi';
+                new Notification(senderName, { body: lastMsg.text || 'Yeni mesaj', icon: '/favicon.ico' });
+              }
+            }
           }
         }
       }
@@ -521,6 +537,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
                             <span className="text-[8px] px-1 py-0.5 bg-slate-100 text-slate-500 font-bold uppercase tracking-tighter shrink-0">
                               {chat.participants.length} üye
                             </span>
+                            {chat.muted && <span className="text-[10px]" title="Sessize alındı">🔕</span>}
                           </div>
                           {chat.lastMessage?.timestamp && (
                             <span className="text-[10px] font-medium ml-2 text-slate-400">{formatDistanceToNow(chat.updatedAt.toDate(), { addSuffix: false })}</span>
@@ -611,7 +628,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
             <div className="flex items-center space-x-3 group cursor-pointer" onClick={() => setShowProfileModal(true)}>
               <div className="relative">
                 <img 
-                  src={profile?.photoURL || user?.photoURL || ''} 
+                  src={profile?.photoURL || user?.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user?.uid || 'default'}`} 
                   alt="Profile" 
                   className="w-10 h-10 rounded-xl bg-slate-900 object-cover shadow-sm group-hover:ring-2 group-hover:ring-blue-500/20 transition-all"
                 />

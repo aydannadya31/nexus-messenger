@@ -1,12 +1,12 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
-import { collection, query, onSnapshot, orderBy, addDoc, serverTimestamp, doc, updateDoc, setDoc, getDoc, where, deleteDoc, getDocs } from 'firebase/firestore';
+import { collection, query, onSnapshot, orderBy, addDoc, serverTimestamp, doc, updateDoc, setDoc, getDoc, where, deleteDoc, getDocs, writeBatch } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { useAuth } from './AuthProvider';
 import { useCall } from './CallProvider';
 import { Chat, Message, UserProfile, Call } from '../types';
 import { cn } from '../lib/utils';
 import ProfileModal from './ProfileModal';
-import { Image, MoreVertical, Send, Smile, Phone, Video, MessageSquarePlus, Clock, Play, Mic, Square, Pause, Trash2, ListChecks, X, Info, Eye, EyeOff, Lock, LogOut, Shield, UserX, UserCheck, Ban, Settings } from 'lucide-react';
+import { Image, MoreVertical, Send, Smile, Phone, Video, MessageSquarePlus, Clock, Play, Mic, Square, Pause, Trash2, ListChecks, X, Info, Eye, EyeOff, Lock, LogOut, Shield, UserX, UserCheck, Ban, Settings, Reply, Pencil } from 'lucide-react';
 import { format } from 'date-fns';
 import { motion, AnimatePresence } from 'motion/react';
 import { encryptMessage, decryptMessage } from '../lib/crypto';
@@ -107,6 +107,8 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
   } | null>(null);
   const [encryptMode, setEncryptMode] = useState(false);
   const [decryptModal, setDecryptModal] = useState<Message | null>(null);
+  const [editingMsg, setEditingMsg] = useState<Message | null>(null);
+  const [replyTo, setReplyTo] = useState<Message | null>(null);
 
   // Upload menu state
   const [showUploadMenu, setShowUploadMenu] = useState(false);
@@ -399,8 +401,8 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
             const bannedUntilMs = bannedInfo.bannedUntil?.seconds ? bannedInfo.bannedUntil.seconds * 1000 : new Date(bannedInfo.bannedUntil).getTime();
             return bannedUntilMs <= Date.now();
           });
-          if (nonBannedParticipants.length < 2 && user?.uid && nonBannedParticipants.includes(user.uid)) {
-            // The current user is one of the <2 remaining - trigger auto-delete
+          if (nonBannedParticipants.length < 2 && user?.uid && nonBannedParticipants.includes(user.uid) && !autoDeleteInProgress.current) {
+            autoDeleteInProgress.current = true;
             handleGroupAutoDelete(chatId).catch(console.error);
           }
           // Group: Fetch all participant names for message display
@@ -422,23 +424,23 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
       orderBy('timestamp', 'asc')
     );
 
-    const unsubMsgs = onSnapshot(q, (snapshot) => {
+    const unsubMsgs = onSnapshot(q, async (snapshot) => {
       const msgs = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Message));
       setMessages(msgs);
 
       // Mark incoming messages as read
-      msgs.forEach(async (msg) => {
-        if (msg.senderId !== user.uid && msg.status !== 'read') {
-          try {
-            await updateDoc(doc(db, 'chats', chatId, 'messages', msg.id), {
-              status: 'read'
-            });
-          } catch (error) {
-            // Silently fail if rules prevent it (e.g. if we are not a participant anymore)
-            console.warn("Could not mark message as read", error);
-          }
+      const unreadMsgs = msgs.filter(m => m.senderId !== user.uid && m.status !== 'read');
+      if (unreadMsgs.length > 0) {
+        try {
+          const batch = writeBatch(db);
+          unreadMsgs.forEach(msg => {
+            batch.update(doc(db, 'chats', chatId, 'messages', msg.id), { status: 'read' });
+          });
+          await batch.commit();
+        } catch (error) {
+          console.warn("Could not mark messages as read", error);
         }
-      });
+      }
     });
 
     const handleClickOutside = () => setReactionMenu(null);
@@ -513,6 +515,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
   const videoChunksRef = useRef<Blob[]>([]);
   const videoTimerRef = useRef<any>(null);
   const videoPreviewRef = useRef<HTMLVideoElement>(null);
+  const autoDeleteInProgress = useRef(false);
   const [videoPreviewStream, setVideoPreviewStream] = useState<MediaStream | null>(null);
   const MAX_VIDEO_SECONDS = 15;
 
@@ -820,6 +823,20 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
     const text = inputText;
     setInputText('');
 
+    if (editingMsg?.id) {
+      try {
+        await updateDoc(doc(db, 'chats', chatId, 'messages', editingMsg.id), {
+          text,
+          edited: true,
+          editedAt: serverTimestamp()
+        });
+      } catch (error) {
+        console.error("Error editing message:", error);
+      }
+      setEditingMsg(null);
+      return;
+    }
+
     let pwd = '';
     if (encryptMode) {
       pwd = prompt('Şifreli mesaj şifresini girin:') || '';
@@ -834,6 +851,14 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
       status: 'sent'
     };
 
+    if (replyTo?.id) {
+      messageData.replyTo = {
+        id: replyTo.id,
+        text: replyTo.text,
+        senderId: replyTo.senderId
+      };
+    }
+
     if (encryptMode && pwd) {
       messageData.encrypted = true;
       messageData.imagePassword = toBase64(pwd);
@@ -842,7 +867,6 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
     try {
       await addDoc(collection(db, 'chats', chatId, 'messages'), messageData);
       
-      // Update chat last message
       await updateDoc(doc(db, 'chats', chatId), {
         lastMessage: {
           text: encryptMode && pwd ? '🔒 Şifreli Mesaj' : text,
@@ -856,6 +880,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
       console.error("Error sending message:", error);
     }
     setEncryptMode(false);
+    setReplyTo(null);
   };
 
   const getChatHeaderInfo = () => {
@@ -1224,6 +1249,15 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
                         </div>
                       ) : (<>
 
+                      {msg.replyTo && (
+                        <div className={cn(
+                          "text-[10px] font-medium mb-1.5 px-2 py-1 rounded border-l-2",
+                          isMe ? "bg-blue-700/30 border-blue-300 text-blue-100" : "bg-slate-100 border-slate-300 text-slate-500"
+                        )}>
+                          <span className="font-bold">{msg.replyTo.senderId === user?.uid ? 'Sen' : (participantInfo[msg.replyTo.senderId]?.displayName || 'Bilinmeyen')}</span>: {(msg.replyTo.text || '').slice(0, 60)}{(msg.replyTo.text || '').length > 60 ? '...' : ''}
+                        </div>
+                      )}
+
                       {msg.type === 'text' && (
                         msg.encrypted && !isMe ? (
                           <button onClick={() => setDecryptModal(msg)}
@@ -1304,6 +1338,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
                         <span className="text-[10px] font-medium">
                           {msg.timestamp ? format(msg.timestamp.toDate(), 'HH:mm') : ''}
                         </span>
+                        {msg.edited && <span className="text-[9px] italic opacity-60 ml-0.5">(düzenlendi)</span>}
                         {isMe && !isDeleted && <MessageStatus status={msg.status} />}
                       </div>
                     </>)}
@@ -1328,6 +1363,35 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
                         >
                           <Smile size={14} />
                         </button>
+
+                        {msg.type === 'text' && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setReplyTo(msg);
+                            }}
+                            className="p-1 px-1.5 text-slate-400 hover:text-blue-500 active:scale-110 transition-all rounded-full flex items-center justify-center cursor-pointer"
+                            title="Yanıtla"
+                          >
+                            <Reply size={13} />
+                          </button>
+                        )}
+
+                        {isMe && msg.type === 'text' && !msg.encrypted && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setEditingMsg(msg);
+                              setInputText(msg.text || '');
+                            }}
+                            className="p-1 px-1.5 text-slate-400 hover:text-amber-500 active:scale-110 transition-all rounded-full flex items-center justify-center cursor-pointer"
+                            title="Düzenle"
+                          >
+                            <Pencil size={13} />
+                          </button>
+                        )}
                         
                         {isMe && (
                           <button
@@ -1425,6 +1489,18 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
         <div className="p-3 bg-red-50 border-t border-red-200 flex items-center gap-2 shrink-0">
           <Ban size={14} className="text-red-600" />
           <span className="text-[10px] font-bold text-red-700">Bu gruptan banlandınız. Mesaj gönderemezsiniz.</span>
+        </div>
+      )}
+
+      {(editingMsg || replyTo) && !isBeingHeld && !isBannedFromGroup && (
+        <div className="px-6 py-2 bg-blue-50 border-t border-blue-100 flex items-center gap-2 shrink-0">
+          {editingMsg ? (
+            <><Pencil size={12} className="text-blue-500" /><span className="text-[11px] font-bold text-blue-600">Mesajı düzenle</span></>
+          ) : (
+            <><Reply size={12} className="text-blue-500" /><span className="text-[11px] font-bold text-blue-600">Yanıtla: {(replyTo?.text || '').slice(0, 50)}{(replyTo?.text || '').length > 50 ? '...' : ''}</span></>
+          )}
+          <button onClick={() => { setEditingMsg(null); setReplyTo(null); setInputText(''); }}
+            className="ml-auto p-0.5 text-blue-400 hover:text-blue-600"><X size={14} /></button>
         </div>
       )}
 

@@ -86,6 +86,7 @@ service cloud.firestore {
           (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status']) && request.resource.data.status in ['delivered', 'read']) ||
           (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['reactions'])) ||
           (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['deletedBy'])) ||
+          (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['text', 'edited', 'editedAt']) && request.auth.uid == resource.data.senderId) ||
           (isAdmin() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['blockedByAdmin', 'blockedByAdminAt']))
         );
       }

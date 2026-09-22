@@ -73,6 +73,9 @@ export interface Message {
   callerId?: string;
   blockedByAdmin?: boolean;
   deletedBy?: string;
+  replyTo?: { id: string; text?: string; senderId: string };
+  edited?: boolean;
+  editedAt?: any;
 }
 
 export interface Call {
