@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
-import { collection, query, onSnapshot, orderBy, addDoc, serverTimestamp, doc, updateDoc, setDoc, getDoc, where, deleteDoc, getDocs, writeBatch } from 'firebase/firestore';
+import { collection, query, onSnapshot, orderBy, addDoc, serverTimestamp, doc, updateDoc, setDoc, getDoc, where, deleteDoc, getDocs, writeBatch, arrayUnion } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { useAuth } from './AuthProvider';
 import { useCall } from './CallProvider';
@@ -782,8 +782,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
       async () => {
         try {
           await updateDoc(doc(db, 'chats', chatId, 'messages', msgId), {
-            isDeleted: true,
-            deletedAt: serverTimestamp()
+            deletedBy: arrayUnion(user?.uid || ''),
           });
         } catch (error) {
           console.error("Delete message error:", error);
@@ -794,6 +793,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
 
   const handleClearChat = async () => {
     if (!chatId) return;
+    if (chat?.type === 'group' && !isGroupAdmin) return;
     setIsHeaderMenuOpen(false);
     showCustomConfirm(
       "Sohbeti Temizle",
@@ -1110,16 +1110,18 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
                   <div className="px-4 py-2 border-b border-slate-100">
                     <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">Sohbet İşlemleri</p>
                   </div>
+                  {(chat?.type !== 'group' || isGroupAdmin) && (
                   <button 
                     onClick={handleClearChat}
                     className="w-full text-left px-4 py-3 text-xs font-bold text-red-600 hover:bg-red-50 transition-colors flex items-center gap-2"
                   >
                     <Trash2 size={14} /> Sohbet Geçmişini Temizle
                   </button>
+                  )}
                   <button 
                     onClick={() => {
                       const lines = messages
-                        .filter(m => !m.isDeleted)
+                        .filter(m => !(m.deletedBy && user?.uid && (m.deletedBy as string[]).includes(user.uid)))
                         .map(m => {
                           const sender = participantInfo[m.senderId];
                           const name = sender?.displayName || m.senderId.slice(0, 8);
@@ -1219,12 +1221,12 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
 
         <AnimatePresence>
           {messages
-            .filter(msg => !msg.isDeleted || (showDeletedMessages && msg.senderId === user?.uid))
+            .filter(msg => !(msg.deletedBy && user?.uid && (msg.deletedBy as string[]).includes(user.uid)) || showDeletedMessages)
             .filter(msg => !chatSearchQuery || msg.text?.toLowerCase().includes(chatSearchQuery.toLowerCase()))
             .map((msg, idx) => {
               const isMe = msg.senderId === user?.uid;
               const sender = participantInfo[msg.senderId];
-              const isDeleted = msg.isDeleted === true;
+              const isDeleted = msg.deletedBy && user?.uid && (msg.deletedBy as string[]).includes(user.uid);
 
               return (
               <motion.div 
@@ -1499,7 +1501,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
                   if (!chat) return;
                   for (const msgId of selectedMsgs) {
                     try {
-                      await updateDoc(doc(db, 'chats', chatId, 'messages', msgId), { isDeleted: true });
+                      await updateDoc(doc(db, 'chats', chatId, 'messages', msgId), { deletedBy: arrayUnion(user?.uid || '') });
                     } catch(err) { console.error(err); }
                   }
                   setBatchMode(false);

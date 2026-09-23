@@ -72,7 +72,7 @@ export interface Message {
   callStatus?: 'missed' | 'completed' | 'rejected';
   callerId?: string;
   blockedByAdmin?: boolean;
-  deletedBy?: string;
+  deletedBy?: string[];
   replyTo?: { id: string; text?: string; senderId: string };
   edited?: boolean;
   editedAt?: any;

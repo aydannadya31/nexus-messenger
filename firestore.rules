@@ -110,22 +110,22 @@ service cloud.firestore {
       }
     }
 
-    // Admin users (managed client-side with password hash verification)
+    // Admin users — only existing admins can grant admin access (bootstrap via Firebase Console)
     match /adminUsers/{uid} {
-      allow read, create: if isSignedIn() && request.auth.uid == uid;
-      allow delete: if isSignedIn() && request.auth.uid == uid;
+      allow read: if isSignedIn() && request.auth.uid == uid;
+      allow create, delete: if isAdmin();
     }
 
-    // Admin config (password hash - any authenticated user can read, any can create for first setup)
+    // Admin config — only admins can manage. Bootstrap first admin via Firebase Console.
     match /config/{doc} {
       allow read: if isSignedIn();
-      allow create: if isSignedIn();
-      allow update, delete: if isAdmin();
+      allow create, update, delete: if isAdmin();
     }
 
-    // Admin messages (only admins can send/read)
+    // Admin messages — any user can create (send to admin), only admins can read/manage
     match /adminMessages/{docId} {
-      allow read, write: if isAdmin();
+      allow read, delete: if isAdmin();
+      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
     }
 
     // Admin settings (only admins can send/read)

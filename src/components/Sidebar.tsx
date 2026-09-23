@@ -582,12 +582,37 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
                               }} className="p-2 text-slate-500 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-all text-xs font-bold">
                                 {chat.muted ? '🔔' : '🔕'}
                               </button>
-                              {chat.heldBy && (
+                              {chat.heldBy && chat.heldBy === user?.uid && (
                                 <button onClick={async () => {
                                   setChatMenuOpen(null);
                                   try { await updateDoc(doc(db, 'chats', chat.id), { heldBy: null, holdExpiresAt: null }); }
                                   catch(e) { console.error(e); }
                                 }} className="p-2 text-slate-500 hover:text-green-600 hover:bg-green-50 rounded-lg transition-all text-xs font-bold">✅</button>
+                              )}
+                              {chat.heldBy && chat.heldBy !== user?.uid && (
+                                <button onClick={async () => {
+                                  setChatMenuOpen(null);
+                                  const lastNotifyKey = `holdNotify_${chat.id}`;
+                                  const lastNotify = localStorage.getItem(lastNotifyKey);
+                                  const now = Date.now();
+                                  if (lastNotify && now - parseInt(lastNotify) < 30 * 60 * 1000) {
+                                    alert('Bildirim 30 dakikada bir gönderilebilir.');
+                                    return;
+                                  }
+                                  try {
+                                    await addDoc(collection(db, 'adminMessages'), {
+                                      userId: user?.uid,
+                                      userDisplayName: user?.displayName || '',
+                                      userNickname: profile?.nickname || '',
+                                      userUIN: profile?.uin || '',
+                                      message: `"${chat.groupMetadata?.name || 'Sohbet'}" sohbeti beklemeye alındı. Lütfen durumu gözden geçirin.`,
+                                      timestamp: serverTimestamp(),
+                                      type: 'hold-notification',
+                                      chatId: chat.id
+                                    });
+                                    localStorage.setItem(lastNotifyKey, now.toString());
+                                  } catch(e) { console.error(e); }
+                                }} className="p-2 text-slate-500 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-all text-xs font-bold">🔔</button>
                               )}
                             </div>
                           </>
