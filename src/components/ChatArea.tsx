@@ -961,7 +961,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
       </div>
 
       {/* Chat Header */}
-      <header className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700 px-8 py-3 shrink-0 relative z-10 transition-colors">
+      <header className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700 px-8 py-3 shrink-0 relative transition-colors">
         {/* Row 1: Avatar + Name */}
         <div className="flex items-center">
           <div className="w-10 h-10 bg-gradient-to-br from-blue-400 to-indigo-500 rounded-full mr-4 shadow-sm overflow-hidden border-2 border-white shrink-0">
