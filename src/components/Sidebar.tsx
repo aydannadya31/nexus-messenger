@@ -5,7 +5,7 @@ import { useAuth } from './AuthProvider';
 import { useToast } from '../lib/toast';
 import { Chat, UserProfile } from '../types';
 import { cn } from '../lib/utils';
-import { LogOut, MessageSquarePlus, Search, User as UserIcon, ChevronUp, Settings, Radio, X, MoreVertical, UserPlus, Users, Shield } from 'lucide-react';
+import { LogOut, MessageSquarePlus, Search, User as UserIcon, ChevronUp, Settings, Radio, X, MoreVertical, UserPlus, Users, Shield, Moon, Sun } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import ProfileModal from './ProfileModal';
 import FriendRequestsModal from './FriendRequestsModal';
@@ -31,9 +31,11 @@ interface SidebarProps {
   selectedChatId?: string;
   onStartNewChat: () => void;
   onOpenBroadcast: () => void;
+  darkMode?: boolean;
+  onToggleDark?: () => void;
 }
 
-export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, onStartNewChat, onOpenBroadcast }) => {
+export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, onStartNewChat, onOpenBroadcast, darkMode, onToggleDark }) => {
   const { user, profile } = useAuth();
   const { addToast } = useToast();
   const [chats, setChats] = useState<Chat[]>([]);
@@ -309,9 +311,9 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
   });
 
   return (
-    <div className="flex flex-col h-full bg-white sm:border-r border-slate-200 w-full sm:max-w-[350px]">
+    <div className="flex flex-col h-full bg-white dark:bg-slate-900 sm:border-r border-slate-200 dark:border-slate-700 w-full sm:max-w-[350px] transition-colors">
        {/* Sidebar Header */}
-      <header className="p-4 sm:p-6 space-y-3 sm:space-y-4 z-10 bg-white border-b border-slate-200">
+      <header className="p-4 sm:p-6 space-y-3 sm:space-y-4 z-10 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700 transition-colors">
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-bold tracking-tight text-slate-900">A+F/C.B Messenger</h1>
         </div>
@@ -383,6 +385,16 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
             </button>
             <span className="text-[8px] text-slate-400 font-bold text-center">Çıkış</span>
           </div>
+          <div className="flex flex-col items-center gap-0.5">
+            <button 
+              onClick={onToggleDark}
+              className="p-2.5 bg-slate-100/50 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-xl text-slate-400 hover:text-amber-500 transition-all active:scale-95"
+              title={darkMode ? 'Açık Tema' : 'Karanlık Tema'}
+            >
+              {darkMode ? <Sun size={20} /> : <Moon size={20} />}
+            </button>
+            <span className="text-[8px] text-slate-400 font-bold text-center">{darkMode ? 'Açık' : 'Karanlık'}</span>
+          </div>
         </div>
         
         {/* Search */}
@@ -393,7 +405,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
             placeholder="Ara veya yeni sohbet başlat" 
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full bg-slate-100/50 border border-slate-100 rounded-2xl py-2 pl-8 pr-3 text-sm text-slate-900 focus:border-blue-500 focus:ring-1 focus:ring-blue-500/30 transition-all outline-none"
+            className="w-full bg-slate-100/50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700 rounded-2xl py-2 pl-8 pr-3 text-sm text-slate-900 dark:text-slate-100 focus:border-blue-500 focus:ring-1 focus:ring-blue-500/30 transition-all outline-none"
           />
         </div>
       </header>
@@ -401,12 +413,12 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
       {/* Content Area with Tabs */}
       <div className="flex-1 overflow-y-auto custom-scrollbar pb-20">
         {/* Tab Navigation */}
-        <div className="flex gap-1 px-4 sm:px-6 py-3 border-b border-slate-100 bg-white sticky top-0 z-20">
+        <div className="flex gap-1 px-4 sm:px-6 py-3 border-b border-slate-100 dark:border-slate-700 bg-white dark:bg-slate-900 sticky top-0 z-20 transition-colors">
           <button
             onClick={() => setSidebarView('friends')}
             className={cn(
               "flex-1 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all relative",
-              sidebarView === 'friends' ? "bg-slate-900 text-white shadow-sm" : "bg-slate-100 text-slate-500 hover:bg-slate-200"
+              sidebarView === 'friends' ? "bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 shadow-sm" : "bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700"
             )}
           >
             Arkadaşlar
@@ -416,7 +428,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
             onClick={() => setSidebarView('groups')}
             className={cn(
               "flex-1 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all",
-              sidebarView === 'groups' ? "bg-slate-900 text-white shadow-sm" : "bg-slate-100 text-slate-500 hover:bg-slate-200"
+              sidebarView === 'groups' ? "bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 shadow-sm" : "bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700"
             )}
           >
             Gruplar
@@ -428,8 +440,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
         <div 
           onClick={() => { markBroadcastRead(); onSelectChat('__broadcast__'); }}
           className={cn(
-            "group px-4 sm:px-6 py-3 sm:py-4 flex items-center gap-3 sm:gap-4 cursor-pointer border-b border-slate-100 transition-colors",
-            selectedChatId === '__broadcast__' ? "bg-blue-50 border-r-4 border-blue-500" : "hover:bg-slate-50"
+            "group px-4 sm:px-6 py-3 sm:py-4 flex items-center gap-3 sm:gap-4 cursor-pointer border-b border-slate-100 dark:border-slate-700 transition-colors",
+            selectedChatId === '__broadcast__' ? "bg-blue-50 dark:bg-blue-900/30 border-r-4 border-blue-500" : "hover:bg-slate-50 dark:hover:bg-slate-800"
           )}
         >
           <div className="w-12 h-12 bg-blue-600 rounded-full flex-shrink-0 flex items-center justify-center shadow-sm relative">

@@ -22,6 +22,15 @@ import ToastContainer from './components/Toast';
 import { cn } from './lib/utils';
 import { MessageSquare, Ban } from 'lucide-react';
 
+function useDarkMode() {
+  const [dark, setDark] = useState(() => localStorage.getItem('theme') === 'dark');
+  useEffect(() => {
+    document.documentElement.classList.toggle('dark', dark);
+    localStorage.setItem('theme', dark ? 'dark' : 'light');
+  }, [dark]);
+  return { dark, toggle: () => setDark(d => !d) };
+}
+
 function NexusApp() {
   const { user, profile, loading } = useAuth();
   const { activeCall, incomingCall } = useCall();
@@ -31,6 +40,7 @@ function NexusApp() {
   const [showMobileSidebar, setShowMobileSidebar] = useState(true);
   const [banned, setBanned] = useState<{ until: Date; reason?: string } | null>(null);
   const [showProfileSetup, setShowProfileSetup] = useState(false);
+  const { dark, toggle: toggleDark } = useDarkMode();
 
   useEffect(() => {
     if (user && profile && !profile.profileCompleted && !showProfileSetup) {
@@ -144,6 +154,8 @@ function NexusApp() {
           }}
           onStartNewChat={() => setIsNewChatModalOpen(true)}
           onOpenBroadcast={() => setIsBroadcastModalOpen(true)}
+          darkMode={dark}
+          onToggleDark={toggleDark}
         />
       </div>
 

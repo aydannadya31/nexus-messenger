@@ -6,7 +6,7 @@ import { useCall } from './CallProvider';
 import { Chat, Message, UserProfile, Call } from '../types';
 import { cn } from '../lib/utils';
 import ProfileModal from './ProfileModal';
-import { Image, MoreVertical, Send, Smile, Phone, Video, MessageSquarePlus, Clock, Play, Mic, Square, Pause, Trash2, ListChecks, X, Info, Eye, EyeOff, Lock, LogOut, Shield, UserX, UserCheck, Ban, Settings, Reply, Pencil } from 'lucide-react';
+import { Image, MoreVertical, Send, Smile, Phone, Video, MessageSquarePlus, Clock, Play, Mic, Square, Pause, Trash2, ListChecks, X, Info, Eye, EyeOff, Lock, LogOut, Shield, UserX, UserCheck, Ban, Settings, Reply, Pencil, Download } from 'lucide-react';
 import { format } from 'date-fns';
 import { motion, AnimatePresence } from 'motion/react';
 import { encryptMessage, decryptMessage } from '../lib/crypto';
@@ -74,6 +74,16 @@ const DecryptContent: React.FC<{ msg: Message; onClose: () => void }> = ({ msg, 
   );
 };
 
+const emojiCategories: Record<string, string[]> = {
+  sik: ['😀','😂','🤣','😍','🥰','😘','😎','🥳','😤','😭','😱','🤔','🫡','😴','🙄','😏','🤤','🤩','🥺','😈','💀','🤡','👻','👽','🤖'],
+  ele: ['👍','👎','👏','🙏','🤝','💪','🫶','✌️','👋','🫰','🤞','👊','✊','🤟','🦾'],
+  kal: ['❤️','🧡','💛','💚','💙','💜','🖤','🤍','💔','❤️‍🔥','💕','💖','💗','💓','💝'],
+  dog: ['🐶','🐱','🐭','🐹','🐰','🦊','🐻','🐼','🐨','🐯','🦁','🐮','🐷','🐸','🐵','🐔','🐧','🐦','🦅','🦆'],
+  yiye: ['🍕','🍔','🍟','🌭','🍿','🍩','🍪','🎂','🍰','🧁','🍫','🍬','☕','🍵','🧃','🥤','🍺','🍷'],
+  nes: ['⚽','🏀','🏈','🎮','🎯','🎲','🏆','🎪','🎨','🎬','🎤','🎧','🎸','🎹','🎺','🎵','🔔','📱','💻','📷'],
+  diger: ['🎉','🎊','🎈','🎁','🎀','⭐','🌟','✨','💫','🔥','🌈','☀️','🌙','❄️','🌸','🌺','🎶','💫','💎','🏆'],
+};
+
 interface ChatAreaProps {
   chatId: string;
   onBack?: () => void;
@@ -107,6 +117,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
   } | null>(null);
   const [encryptMode, setEncryptMode] = useState(false);
   const [decryptModal, setDecryptModal] = useState<Message | null>(null);
+  const [emojiCategory, setEmojiCategory] = useState<string>('sik');
   const [editingMsg, setEditingMsg] = useState<Message | null>(null);
   const [replyTo, setReplyTo] = useState<Message | null>(null);
 
@@ -930,8 +941,8 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
 
   if (!chatId) {
     return (
-      <div className="flex-1 flex flex-col items-center justify-center bg-slate-50 text-slate-400">
-        <div className="w-24 h-24 bg-white rounded-full flex items-center justify-center mb-6 shadow-xl shadow-slate-200/50 border border-slate-100">
+      <div className="flex-1 flex flex-col items-center justify-center bg-slate-50 dark:bg-slate-900 text-slate-400 dark:text-slate-500">
+        <div className="w-24 h-24 bg-white dark:bg-slate-800 rounded-full flex items-center justify-center mb-6 shadow-xl shadow-slate-200/50 dark:shadow-slate-900/50 border border-slate-100 dark:border-slate-700">
           <MessageSquarePlus size={44} className="text-blue-500/40" />
         </div>
         <h2 className="text-3xl font-black text-slate-900 tracking-tight">Sync Platform</h2>
@@ -943,14 +954,14 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
   }
 
   return (
-    <div className="flex-1 flex flex-col bg-slate-50 relative overflow-hidden">
+    <div className="flex-1 flex flex-col bg-slate-50 dark:bg-slate-950 relative overflow-hidden transition-colors">
       {/* Background Decoration */}
       <div className="absolute inset-0 pointer-events-none">
          <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-blue-100/30 blur-[100px] rounded-full" />
       </div>
 
       {/* Chat Header */}
-      <header className="bg-white border-b border-slate-200 px-8 py-3 shrink-0 relative z-10">
+      <header className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700 px-8 py-3 shrink-0 relative z-10 transition-colors">
         {/* Row 1: Avatar + Name */}
         <div className="flex items-center">
           <div className="w-10 h-10 bg-gradient-to-br from-blue-400 to-indigo-500 rounded-full mr-4 shadow-sm overflow-hidden border-2 border-white shrink-0">
@@ -1107,6 +1118,33 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
                   </button>
                   <button 
                     onClick={() => {
+                      const lines = messages
+                        .filter(m => !m.isDeleted)
+                        .map(m => {
+                          const sender = participantInfo[m.senderId];
+                          const name = sender?.displayName || m.senderId.slice(0, 8);
+                          const time = m.timestamp?.toDate?.() ? m.timestamp.toDate().toLocaleString('tr-TR') : '';
+                          const text = m.text || (m.imageUrl ? '[fotoğraf]' : m.videoUrl ? '[video]' : m.audioUrl ? '[ses]' : '[medya]');
+                          const edited = m.edited ? ' (düzenlendi)' : '';
+                          return `[${time}] ${name}: ${text}${edited}`;
+                        });
+                      const chatName = chat?.groupMetadata?.name || chatId;
+                      const header = `${chatName}\nDışa Aktarım Tarihi: ${new Date().toLocaleString('tr-TR')}\nToplam Mesaj: ${lines.length}\n${'─'.repeat(40)}\n\n`;
+                      const blob = new Blob([header + lines.join('\n')], { type: 'text/plain;charset=utf-8' });
+                      const url = URL.createObjectURL(blob);
+                      const a = document.createElement('a');
+                      a.href = url;
+                      a.download = `sohbet-${chatName.replace(/[^a-zA-Z0-9ığüşöçİĞÜŞÖÇ]/g, '_')}-${new Date().toISOString().slice(0,10)}.txt`;
+                      a.click();
+                      URL.revokeObjectURL(url);
+                      setIsHeaderMenuOpen(false);
+                    }}
+                    className="w-full text-left px-4 py-3 text-xs font-bold text-blue-600 hover:bg-blue-50 transition-colors flex items-center gap-2"
+                  >
+                    <Download size={14} /> Sohbeti İndir (.txt)
+                  </button>
+                  <button 
+                    onClick={() => {
                       setShowDeletedMessages(!showDeletedMessages);
                       setIsHeaderMenuOpen(false);
                     }}
@@ -1142,11 +1180,11 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
 
       {/* Search Bar */}
       {showChatSearch && (
-        <div className="p-3 bg-white border-b border-slate-200 shrink-0 z-10">
+        <div className="p-3 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700 shrink-0 z-10 transition-colors">
           <div className="relative">
             <input type="text" value={chatSearchQuery} onChange={e => setChatSearchQuery(e.target.value)}
               placeholder="Mesajlarda ara..."
-              className="w-full bg-slate-100 border-none rounded-xl py-2.5 pl-10 pr-4 text-sm outline-none"
+              className="w-full bg-slate-100 dark:bg-slate-800 border-none rounded-xl py-2.5 pl-10 pr-4 text-sm text-slate-900 dark:text-slate-100 outline-none transition-colors"
               autoFocus
             />
             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
@@ -1505,8 +1543,8 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
       )}
 
       {/* Input Area */}
-      <footer className="p-6 bg-white border-t border-slate-200 shrink-0 z-10">
-        <div className="max-w-4xl mx-auto flex items-center bg-slate-100 rounded-2xl p-2 focus-within:ring-2 focus-within:ring-blue-500 transition-all relative">
+      <footer className="p-6 bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-700 shrink-0 z-10 transition-colors">
+        <div className="max-w-4xl mx-auto flex items-center bg-slate-100 dark:bg-slate-800 rounded-2xl p-2 focus-within:ring-2 focus-within:ring-blue-500 transition-all relative">
           
           {/* Hidden inputs for real uploads */}
           <input 
@@ -1539,20 +1577,26 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
             {isEmojiMenuOpen && (
               <>
                 <div className="fixed inset-0 z-30" onClick={() => setIsEmojiMenuOpen(false)} />
-                <div className="absolute bottom-12 left-0 w-64 bg-white border border-slate-150 rounded-2xl shadow-xl p-3 z-40 grid grid-cols-5 gap-1.5 animate-in fade-in slide-in-from-bottom-2 duration-155">
-                  {['😀', '😂', '😍', '👍', '🔥', '🎉', '❤️', '🤔', '😎', '👏', '🙏', '😭', '😡', '😮', '🚀'].map(emoji => (
-                    <button
-                      type="button"
-                      key={emoji}
-                      onClick={() => {
-                        setInputText(prev => prev + emoji);
-                        setIsEmojiMenuOpen(false);
-                      }}
-                      className="w-10 h-10 flex items-center justify-center text-lg hover:bg-slate-50 active:scale-125 transition-all rounded-xl"
-                    >
-                      {emoji}
-                    </button>
-                  ))}
+                <div className="absolute bottom-12 left-0 w-72 bg-white border border-slate-200 rounded-2xl shadow-xl z-40 animate-in fade-in slide-in-from-bottom-2 duration-150 flex flex-col" style={{maxHeight: '320px'}}>
+                  <div className="flex gap-1 p-2 border-b border-slate-100 overflow-x-auto shrink-0">
+                    {([
+                      ['sik','😀'], ['ele','👋'], ['kal','❤️'], ['dog','🐶'], ['yiye','🍕'], ['nes','🎮'], ['diger','🎉']
+                    ] as [string,string][]).map(([k, icon]) => (
+                      <button key={k} onClick={() => setEmojiCategory(k)}
+                        className={`text-[10px] px-2 py-1 rounded-full font-bold shrink-0 transition-colors ${emojiCategory === k ? 'bg-blue-100 text-blue-600' : 'text-slate-400 hover:bg-slate-100'}`}>
+                        {icon}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="grid grid-cols-7 gap-0.5 p-2 overflow-y-auto flex-1">
+                    {(emojiCategories[emojiCategory] || []).map(emoji => (
+                      <button type="button" key={emoji}
+                        onClick={() => { setInputText(prev => prev + emoji); setIsEmojiMenuOpen(false); }}
+                        className="w-9 h-9 flex items-center justify-center text-lg hover:bg-slate-100 active:scale-125 transition-all rounded-lg">
+                        {emoji}
+                      </button>
+                    ))}
+                  </div>
                 </div>
               </>
             )}

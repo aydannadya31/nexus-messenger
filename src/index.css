@@ -1,5 +1,7 @@
 @import "tailwindcss";
 
+@custom-variant dark (&:where(.dark, .dark *));
+
 @theme {
   --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
 }
@@ -7,6 +9,7 @@
 @layer base {
   body {
     @apply bg-slate-50 text-slate-900 antialiased h-screen overflow-hidden font-sans;
+    @apply dark:bg-slate-950 dark:text-slate-100 transition-colors duration-300;
   }
 }
 
@@ -18,7 +21,7 @@
     @apply bg-transparent;
   }
   .custom-scrollbar::-webkit-scrollbar-thumb {
-    @apply bg-slate-200 rounded-full hover:bg-slate-300 transition-colors;
+    @apply bg-slate-200 dark:bg-slate-700 rounded-full hover:bg-slate-300 dark:hover:bg-slate-600 transition-colors;
   }
   .mirror {
     transform: scaleX(-1);
