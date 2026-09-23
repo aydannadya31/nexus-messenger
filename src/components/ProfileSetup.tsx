@@ -88,14 +88,14 @@ export const ProfileSetup: React.FC<ProfileSetupProps> = ({
   }, [initialDisplayName, initialNickname, initialAbout, initialCountry]);
 
   const handleSave = async () => {
-    if (!setupDisplayName.trim() || !setupCountry || saving) return;
+    if (!setupDisplayName.trim() || !setupNickname.trim() || !setupCountry || saving) return;
     setSaving(true);
     const uin = `${setupCountry}-${Math.floor(10000000 + Math.random() * 90000000)}`;
     setSetupUIN(uin);
     try {
       await onSave({
         displayName: setupDisplayName.trim(),
-        nickname: setupNickname.trim() || setupDisplayName.trim(),
+        nickname: setupNickname.trim(),
         about: setupAbout.trim(),
         country: setupCountry,
         uin,
@@ -141,7 +141,7 @@ export const ProfileSetup: React.FC<ProfileSetupProps> = ({
                 </div>
 
                 <div className="space-y-2">
-                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Takma Ad (opsiyonel)</label>
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Takma Ad *</label>
                   <input type="text" value={setupNickname} onChange={e => setSetupNickname(e.target.value)}
                     className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl px-4 py-3 text-sm font-bold text-slate-900 outline-none focus:border-purple-500 transition-all"
                     placeholder="Sohbette görünecek isim" />
@@ -171,7 +171,7 @@ export const ProfileSetup: React.FC<ProfileSetupProps> = ({
                   <p className="text-[9px] text-amber-600 font-bold">⚠ Ülke bilgisi kaydedildikten sonra asla değiştirilemez!</p>
                 </div>
 
-                <button disabled={!setupDisplayName.trim() || !setupCountry || saving}
+                <button disabled={!setupDisplayName.trim() || !setupNickname.trim() || !setupCountry || saving}
                   onClick={handleSave}
                   className="w-full py-4 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 text-white rounded-2xl font-black uppercase tracking-wider text-sm transition-all shadow-xl shadow-blue-200"
                 >

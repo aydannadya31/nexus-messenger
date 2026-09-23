@@ -379,9 +379,11 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
     if (!chatId || !user) return;
 
     // Listen for calls for this specific chat
+    // participants array-contains zorunlu: firestore.rules list izni bunu ister (permission-denied fix)
     const callsQuery = query(
       collection(db, 'calls'),
       where('chatId', '==', chatId),
+      where('participants', 'array-contains', user.uid),
       where('status', 'in', ['calling', 'ongoing'])
     );
 
@@ -785,6 +787,16 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
           await updateDoc(doc(db, 'chats', chatId, 'messages', msgId), {
             deletedBy: arrayUnion(user?.uid || ''),
           });
+          // Silinen mesaj sidebar'daki son mesaj önizlemesinde de görünüyorsa temizle
+          const chatSnap = await getDoc(doc(db, 'chats', chatId));
+          if (chatSnap.exists()) {
+            const last = chatSnap.data()?.lastMessage;
+            const msgSnap = await getDoc(doc(db, 'chats', chatId, 'messages', msgId));
+            const msgText = msgSnap.data()?.text;
+            if (last?.text && msgText && last.text === msgText && last.senderId === user?.uid) {
+              await updateDoc(doc(db, 'chats', chatId), { lastMessage: null });
+            }
+          }
         } catch (error) {
           console.error("Delete message error:", error);
         }
@@ -1213,7 +1225,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
             )}
           </div>
           <div className="mt-1 text-[9px] text-slate-400 font-bold">
-            {messages.filter(m => m.text?.toLowerCase().includes(chatSearchQuery.toLowerCase())).length} sonuç
+            {messages.filter(m => !(m.deletedBy && user?.uid && (m.deletedBy as string[]).includes(user.uid)) && m.text?.toLowerCase().includes(chatSearchQuery.toLowerCase())).length} sonuç
           </div>
         </div>
       )}

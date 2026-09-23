@@ -35,6 +35,10 @@ const ProfileModal: React.FC<ProfileModalProps> = ({ user, onClose, readOnly }) 
   const isReadOnly = readOnly === true;
 
   const handleSave = async () => {
+    if (!displayName.trim() || !nickname.trim()) {
+      addToast('İsim ve takma ad boş olamaz.', 'error');
+      return;
+    }
     setSaving(true);
     try {
       let finalPhotoURL = photoURL;
@@ -238,7 +242,7 @@ const ProfileModal: React.FC<ProfileModalProps> = ({ user, onClose, readOnly }) 
               onChange={(e) => setNickname(e.target.value)}
               readOnly={isReadOnly}
               className={cn("w-full bg-slate-50 border-2 border-slate-100 rounded-2xl px-4 py-3 text-sm font-bold text-slate-900 focus:border-purple-500 focus:ring-4 focus:ring-purple-500/10 outline-none transition-all placeholder:text-slate-300", isReadOnly && "opacity-70 cursor-default")}
-              placeholder="Takma adınız (opsiyonel)..."
+              placeholder="Takma adınız..."
             />
           </div>
 

@@ -167,8 +167,9 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({ onClose, onChatCreat
       if (opened) return;
       await addDoc(collection(db, 'friendRequests'), {
         from: user.uid, to: otherUser.uid,
-        fromName: user.displayName || user.email, toName: otherUser.displayName || otherUser.email,
-        fromPhoto: user.photoURL || '', toPhoto: otherUser.photoURL || '',
+        fromName: profile?.displayName || profile?.nickname || user.displayName || user.email,
+        toName: otherUser.displayName || otherUser.nickname || otherUser.email,
+        fromPhoto: profile?.photoURL || user.photoURL || '', toPhoto: otherUser.photoURL || '',
         status: 'pending', timestamp: serverTimestamp()
       });
       setFriendStatus(prev => ({ ...prev, [otherUser.uid]: 'pending_sent' }));
@@ -237,7 +238,7 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({ onClose, onChatCreat
     if (!adminId) return;
     await addDoc(collection(db, 'groupJoinRequests'), {
       chatId: group.id, chatName: group.groupMetadata?.name || '', from: user.uid,
-      fromName: user.displayName || user.email, status: 'pending', timestamp: serverTimestamp()
+        fromName: profile?.displayName || profile?.nickname || user.displayName || user.email, status: 'pending', timestamp: serverTimestamp()
     });
     addToast('Gruba katılma isteği yöneticiye gönderildi!', 'success');
     onClose();
@@ -261,9 +262,11 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({ onClose, onChatCreat
   );
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-md">
+    <div className="fixed inset-0 z-[60]">
+      <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-md" onClick={onClose} />
+      <div className="relative z-10 flex items-center justify-center min-h-full p-4 pointer-events-none">
       <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}
-        className="bg-white border border-slate-200 rounded-3xl w-full max-w-md overflow-hidden shadow-2xl flex flex-col max-h-[90vh]">
+        className="bg-white border border-slate-200 rounded-3xl w-full max-w-md overflow-hidden shadow-2xl flex flex-col max-h-[90vh] pointer-events-auto">
         
         <div className="p-6 border-b border-slate-100 flex items-center justify-between shrink-0">
           <h2 className="text-xl font-bold text-slate-900 tracking-tight">Kullanıcı Listesi</h2>
@@ -456,6 +459,7 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({ onClose, onChatCreat
           )}
         </div>
       </motion.div>
+      </div>
     </div>
   );
 };
