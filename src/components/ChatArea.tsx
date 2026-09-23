@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
+import { jsPDF } from 'jspdf';
 import { collection, query, onSnapshot, orderBy, addDoc, serverTimestamp, doc, updateDoc, setDoc, getDoc, where, deleteDoc, getDocs, writeBatch, arrayUnion } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { useAuth } from './AuthProvider';
@@ -1120,30 +1121,45 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
                   )}
                   <button 
                     onClick={() => {
+                      const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+                      const fixTr = s => s.replace(/ğ/g,'g').replace(/Ğ/g,'G').replace(/ş/g,'s').replace(/Ş/g,'S').replace(/İ/g,'I').replace(/ı/g,'i').replace(/ç/g,'c').replace(/Ç/g,'C').replace(/ö/g,'o').replace(/Ö/g,'O').replace(/ü/g,'u').replace(/Ü/g,'U');
                       const lines = messages
                         .filter(m => !(m.deletedBy && user?.uid && (m.deletedBy as string[]).includes(user.uid)))
                         .map(m => {
                           const sender = participantInfo[m.senderId];
                           const name = sender?.displayName || m.senderId.slice(0, 8);
                           const time = m.timestamp?.toDate?.() ? m.timestamp.toDate().toLocaleString('tr-TR') : '';
-                          const text = m.text || (m.imageUrl ? '[fotoğraf]' : m.videoUrl ? '[video]' : m.audioUrl ? '[ses]' : '[medya]');
-                          const edited = m.edited ? ' (düzenlendi)' : '';
+                          const text = m.text || (m.imageUrl ? '[fotograf]' : m.videoUrl ? '[video]' : m.audioUrl ? '[ses]' : '[medya]');
+                          const edited = m.edited ? ' (duzenlendi)' : '';
                           return `[${time}] ${name}: ${text}${edited}`;
                         });
-                      const chatName = chat?.groupMetadata?.name || chatId;
-                      const header = `${chatName}\nDışa Aktarım Tarihi: ${new Date().toLocaleString('tr-TR')}\nToplam Mesaj: ${lines.length}\n${'─'.repeat(40)}\n\n`;
-                      const blob = new Blob([header + lines.join('\n')], { type: 'text/plain;charset=utf-8' });
-                      const url = URL.createObjectURL(blob);
-                      const a = document.createElement('a');
-                      a.href = url;
-                      a.download = `sohbet-${chatName.replace(/[^a-zA-Z0-9ığüşöçİĞÜŞÖÇ]/g, '_')}-${new Date().toISOString().slice(0,10)}.txt`;
-                      a.click();
-                      URL.revokeObjectURL(url);
+                      const chatName = fixTr(chat?.groupMetadata?.name || chatId);
+                      const fileSafe = chatName.replace(/[^a-zA-Z0-9]/g, '_');
+                      doc.setFont('helvetica', 'bold');
+                      doc.setFontSize(16);
+                      doc.text(chatName, 15, 20);
+                      doc.setFont('helvetica', 'normal');
+                      doc.setFontSize(10);
+                      doc.text(`Disa Aktarim: ${new Date().toLocaleString('tr-TR')}  |  Toplam Mesaj: ${lines.length}`, 15, 28);
+                      doc.setDrawColor(200);
+                      doc.line(15, 31, 195, 31);
+                      doc.setFontSize(9);
+                      let y = 38;
+                      for (const line of lines) {
+                        const wrapped = doc.splitTextToSize(fixTr(line), 180);
+                        for (const wl of wrapped) {
+                          if (y > 275) { doc.addPage(); y = 20; }
+                          doc.text(wl, 15, y);
+                          y += 4.5;
+                        }
+                        y += 1;
+                      }
+                      doc.save(`sohbet-${fileSafe}-${new Date().toISOString().slice(0,10)}.pdf`);
                       setIsHeaderMenuOpen(false);
                     }}
                     className="w-full text-left px-4 py-3 text-xs font-bold text-blue-600 hover:bg-blue-50 transition-colors flex items-center gap-2"
                   >
-                    <Download size={14} /> Sohbeti İndir (.txt)
+                    <Download size={14} /> Sohbeti İndir (.pdf)
                   </button>
                   <button 
                     onClick={() => {
