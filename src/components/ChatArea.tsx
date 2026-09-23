@@ -1956,7 +1956,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
 
       {/* Profile Modal */}
       {showProfile && otherUser && (
-        <ProfileModal user={otherUser} onClose={() => setShowProfile(false)} />
+        <ProfileModal user={otherUser} onClose={() => setShowProfile(false)} readOnly />
       )}
     </div>
   );
