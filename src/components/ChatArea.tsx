@@ -504,17 +504,17 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
     if (!chatId || !user) return;
 
     // Listen for calls for this specific chat
-    // participants array-contains zorunlu: firestore.rules list izni bunu ister (permission-denied fix)
     const callsQuery = query(
       collection(db, 'calls'),
-      where('chatId', '==', chatId),
       where('participants', 'array-contains', user.uid),
       where('status', 'in', ['calling', 'ongoing'])
     );
 
     const unsubCalls = onSnapshot(callsQuery, (snapshot) => {
-      const call = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Call))[0];
-      setActiveCallForChat(call || null);
+      const call = snapshot.docs
+        .map(d => ({ id: d.id, ...d.data() } as Call))
+        .find(c => c.chatId === chatId) || null;
+      setActiveCallForChat(call);
     });
 
     // Fetch chat metadata

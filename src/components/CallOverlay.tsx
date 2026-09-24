@@ -20,16 +20,24 @@ export const CallOverlay = () => {
   const [callerInfo, setCallerInfo] = useState<UserProfile | null>(null);
   const [isInviting, setIsInviting] = useState(false);
   const [localUserInfo, setLocalUserInfo] = useState<UserProfile | null>(null);
+  const [mediaError, setMediaError] = useState<string | null>(null);
 
   const pcs = useRef<Record<string, RTCPeerConnection>>({});
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const newVideoTrackRef = useRef<MediaStreamTrack | null>(null);
+  const localStreamRef = useRef<MediaStream | null>(null);
+  const pendingSignalsRef = useRef<CallSignal[]>([]);
+  const pendingCandidatesRef = useRef<Record<string, RTCIceCandidateInit[]>>({});
+  const signalChainRef = useRef<Promise<void>>(Promise.resolve());
 
   const configuration: RTCConfiguration = {
     iceServers: [
       { urls: 'stun:stun.l.google.com:19302' },
       { urls: 'stun:stun1.l.google.com:19302' },
       { urls: 'stun:stun2.l.google.com:19302' },
+      { urls: 'turn:openrelay.metered.ca:80', username: 'openrelayproject', credential: 'openrelayproject' },
+      { urls: 'turn:openrelay.metered.ca:443', username: 'openrelayproject', credential: 'openrelayproject' },
+      { urls: 'turn:openrelay.metered.ca:443?transport=tcp', username: 'openrelayproject', credential: 'openrelayproject' },
     ],
     iceCandidatePoolSize: 10,
   };
@@ -117,7 +125,7 @@ export const CallOverlay = () => {
     };
 
     pc.onconnectionstatechange = () => {
-      if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed' || pc.connectionState === 'closed') {
+      if (pc.connectionState === 'failed' || pc.connectionState === 'closed') {
         cleanupPeer(pId);
       }
     };
@@ -137,28 +145,110 @@ export const CallOverlay = () => {
     return pc;
   }, [activeCall?.id, user?.uid, localStream, cleanupPeer]);
 
-  // Initialize Local Media
   useEffect(() => {
-    if (activeCall && !localStream) {
-      const startMedia = async () => {
-        try {
-          const constraints: MediaStreamConstraints = {
-            audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
-          };
-          if (activeCall.mediaType === 'video') {
-            constraints.video = { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } };
-          }
-          const stream = await navigator.mediaDevices.getUserMedia(constraints);
-          setLocalStream(stream);
-        } catch (err) {
-          console.error("Media access error:", err);
-        }
-      };
-      startMedia();
-    }
-  }, [activeCall?.id, activeCall?.mediaType]);
+    if (!activeCall || localStream) return;
+    let cancelled = false;
 
-  // Global Signaling Listener
+    const tryGet = async (c: MediaStreamConstraints) => {
+      try { return await navigator.mediaDevices.getUserMedia(c); } catch { return null; }
+    };
+
+    const startMedia = async () => {
+      const audio: MediaTrackConstraints = { echoCancellation: true, noiseSuppression: true, autoGainControl: true };
+      const video: MediaTrackConstraints = { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } };
+      let stream: MediaStream | null = null;
+      let fail: 'audio' | 'video' | null = null;
+
+      if (activeCall.mediaType === 'video') {
+        stream = await tryGet({ audio, video });
+        if (!stream) stream = await tryGet({ video });
+        if (!stream) { stream = await tryGet({ audio }); fail = stream ? 'video' : 'audio'; }
+        if (!stream) fail = 'video';
+      } else {
+        stream = await tryGet({ audio });
+        if (!stream) fail = 'audio';
+      }
+
+      if (cancelled) {
+        stream?.getTracks().forEach(t => t.stop());
+        return;
+      }
+      if (!stream) {
+        stream = new MediaStream();
+        setMediaError(activeCall.mediaType === 'video'
+          ? 'Kamera veya mikrofon bulunamadı — görüşme sesli/görüntüsüz devam ediyor.'
+          : 'Mikrofon bulunamadı veya izin verilmedi — tarafınız sesiz kalacak.');
+      } else if (fail === 'video' && activeCall.mediaType === 'video') {
+        setMediaError('Kamera açılamadı — görüntüsüz devam ediliyor.');
+      } else if (fail === 'audio') {
+        setMediaError('Mikrofon bulunamadı veya izin verilmedi.');
+      }
+      if (stream.getVideoTracks().length === 0 && activeCall.mediaType === 'video') setIsVideoOff(true);
+      setLocalStream(stream);
+    };
+
+    startMedia();
+    return () => { cancelled = true; };
+  }, [activeCall?.id, activeCall?.mediaType]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    localStreamRef.current = localStream;
+    if (!localStream) return;
+    const pending = pendingSignalsRef.current.splice(0);
+    pending.forEach(signal => {
+      signalChainRef.current = signalChainRef.current.then(() => handleSignal(signal));
+    });
+  }, [localStream]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const flushCandidates = async (pId: string, pc: RTCPeerConnection) => {
+    const queued = pendingCandidatesRef.current[pId] || [];
+    delete pendingCandidatesRef.current[pId];
+    for (const c of queued) {
+      try { await pc.addIceCandidate(new RTCIceCandidate(c)); } catch { /* ignore */ }
+    }
+  };
+
+  const handleSignal = async (signal: CallSignal) => {
+    if (!activeCall || !user) return;
+    const stream = localStreamRef.current;
+    const pc = pcs.current[signal.from] || await createPeerConnection(signal.from, false);
+    if (!pc) return;
+
+    if (signal.type === 'offer') {
+      await pc.setRemoteDescription(new RTCSessionDescription(signal.data));
+      await flushCandidates(signal.from, pc);
+      if (stream) {
+        stream.getTracks().forEach(track => {
+          if (!pc.getSenders().some(s => s.track === track)) {
+            try { pc.addTrack(track, stream); } catch { /* already added */ }
+          }
+        });
+      }
+      const answer = await pc.createAnswer();
+      await pc.setLocalDescription(answer);
+      await addDoc(collection(db, 'calls', activeCall.id, 'signals'), {
+        from: user.uid,
+        to: signal.from,
+        type: 'answer',
+        data: { type: answer.type, sdp: answer.sdp },
+        createdAt: serverTimestamp()
+      });
+    } else if (signal.type === 'answer') {
+      if (!pc.currentRemoteDescription) {
+        await pc.setRemoteDescription(new RTCSessionDescription(signal.data));
+      }
+      await flushCandidates(signal.from, pc);
+    } else if (signal.type === 'candidate') {
+      if (!pc.remoteDescription) {
+        (pendingCandidatesRef.current[signal.from] ||= []).push(signal.data);
+      } else {
+        try { await pc.addIceCandidate(new RTCIceCandidate(signal.data)); } catch { /* ignore */ }
+      }
+    }
+
+    deleteDoc(doc(db, 'calls', activeCall.id, 'signals', signal.id)).catch(() => {});
+  };
+
   useEffect(() => {
     if (!activeCall || !user) return;
 
@@ -168,43 +258,20 @@ export const CallOverlay = () => {
     );
 
     const unsubscribe = onSnapshot(qSignals, (snapshot) => {
-      snapshot.docChanges().forEach(async (change) => {
-        if (change.type === 'added') {
-          const signal = { id: change.doc.id, ...change.doc.data() } as CallSignal;
-          const pc = pcs.current[signal.from] || await createPeerConnection(signal.from, false);
-          if (!pc) return;
-
-          if (signal.type === 'offer') {
-            await pc.setRemoteDescription(new RTCSessionDescription(signal.data));
-            const answer = await pc.createAnswer();
-            await pc.setLocalDescription(answer);
-            await addDoc(collection(db, 'calls', activeCall.id, 'signals'), {
-              from: user.uid,
-              to: signal.from,
-              type: 'answer',
-              data: { type: answer.type, sdp: answer.sdp },
-              createdAt: serverTimestamp()
-            });
-          } else if (signal.type === 'answer') {
-            await pc.setRemoteDescription(new RTCSessionDescription(signal.data));
-          } else if (signal.type === 'candidate') {
-            try {
-              await pc.addIceCandidate(new RTCIceCandidate(signal.data));
-            } catch (e) {
-              // Ignore
-            }
-          }
-          
-          // Delete signal after processing to keep collection clean
-          deleteDoc(doc(db, 'calls', activeCall.id, 'signals', signal.id));
+      snapshot.docChanges().forEach((change) => {
+        if (change.type !== 'added') return;
+        const signal = { id: change.doc.id, ...change.doc.data() } as CallSignal;
+        if (!localStreamRef.current) {
+          pendingSignalsRef.current.push(signal);
+          return;
         }
+        signalChainRef.current = signalChainRef.current.then(() => handleSignal(signal));
       });
     });
 
     return () => unsubscribe();
-  }, [activeCall?.id, user?.uid, createPeerConnection]);
+  }, [activeCall?.id, user?.uid, createPeerConnection]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Mesh Management: Connect to active participants
   useEffect(() => {
     if (!activeCall || !user || !localStream) return;
 
@@ -383,10 +450,11 @@ export const CallOverlay = () => {
                   className={cn("w-full h-full object-cover", !isVideoOff && "mirror")}
                 />
                 {/* Camera off / audio mode overlay: show avatar */}
-                {(isVideoOff || activeCall.mediaType === 'audio') && (
+                {(isVideoOff || activeCall.mediaType === 'audio' || !localStream?.getVideoTracks().length) && (
                   <AvatarOverlay
                     photoURL={localUserInfo?.photoURL}
                     displayName="Sen (Ben)"
+                    subtitle={mediaError || undefined}
                   />
                 )}
                 <div className="absolute bottom-4 left-4 flex items-center gap-2 bg-black/40 backdrop-blur-md px-3 py-1.5 rounded-xl border border-white/10 z-10">
@@ -403,8 +471,8 @@ export const CallOverlay = () => {
                   <div key={pId} className="relative bg-slate-900 rounded-[2rem] overflow-hidden shadow-inner group">
                     {stream ? (
                       (() => {
-                        const vTrack = stream.getVideoTracks().find(t => t.readyState === 'live');
-                        const showVideo = !!vTrack && vTrack.enabled && activeCall.mediaType === 'video';
+                        const vTrack = stream.getVideoTracks().find(t => t.readyState === 'live' && t.enabled);
+                        const showVideo = !!vTrack && activeCall.mediaType === 'video';
                         if (showVideo) {
                           return (
                             <video 
