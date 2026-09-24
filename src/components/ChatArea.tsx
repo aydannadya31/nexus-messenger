@@ -85,6 +85,24 @@ const emojiCategories: Record<string, string[]> = {
   diger: ['🎉','🎊','🎈','🎁','🎀','⭐','🌟','✨','💫','🔥','🌈','☀️','🌙','❄️','🌸','🌺','🎶','💫','💎','🏆'],
 };
 
+const loadHtmlImage = (url: string) => new Promise<HTMLImageElement>((resolve, reject) => {
+  const img = document.createElement('img');
+  img.crossOrigin = 'anonymous';
+  img.onload = () => resolve(img);
+  img.onerror = () => reject(new Error('image load failed'));
+  img.src = url;
+});
+
+const htmlImageToJpegDataUrl = (img: HTMLImageElement) => {
+  const c = document.createElement('canvas');
+  c.width = img.naturalWidth;
+  c.height = img.naturalHeight;
+  const ctx = c.getContext('2d');
+  if (!ctx) throw new Error('canvas ctx');
+  ctx.drawImage(img, 0, 0);
+  return c.toDataURL('image/jpeg', 0.85);
+};
+
 interface ChatAreaProps {
   chatId: string;
   onBack?: () => void;
@@ -1132,19 +1150,11 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
                   </button>
                   )}
                   <button 
-                    onClick={() => {
+                    onClick={async () => {
                       const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
                       const fixTr = s => s.replace(/ğ/g,'g').replace(/Ğ/g,'G').replace(/ş/g,'s').replace(/Ş/g,'S').replace(/İ/g,'I').replace(/ı/g,'i').replace(/ç/g,'c').replace(/Ç/g,'C').replace(/ö/g,'o').replace(/Ö/g,'O').replace(/ü/g,'u').replace(/Ü/g,'U');
-                      const lines = messages
-                        .filter(m => !(m.deletedBy && user?.uid && (m.deletedBy as string[]).includes(user.uid)))
-                        .map(m => {
-                          const sender = participantInfo[m.senderId];
-                          const name = sender?.displayName || m.senderId.slice(0, 8);
-                          const time = m.timestamp?.toDate?.() ? m.timestamp.toDate().toLocaleString('tr-TR') : '';
-                          const text = m.text || (m.imageUrl ? '[fotograf]' : m.videoUrl ? '[video]' : m.audioUrl ? '[ses]' : '[medya]');
-                          const edited = m.edited ? ' (duzenlendi)' : '';
-                          return `[${time}] ${name}: ${text}${edited}`;
-                        });
+                      const items = messages
+                        .filter(m => !(m.deletedBy && user?.uid && (m.deletedBy as string[]).includes(user.uid)));
                       const chatName = fixTr(chat?.groupMetadata?.name || chatId);
                       const fileSafe = chatName.replace(/[^a-zA-Z0-9]/g, '_');
                       doc.setFont('helvetica', 'bold');
@@ -1152,19 +1162,45 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
                       doc.text(chatName, 15, 20);
                       doc.setFont('helvetica', 'normal');
                       doc.setFontSize(10);
-                      doc.text(`Disa Aktarim: ${new Date().toLocaleString('tr-TR')}  |  Toplam Mesaj: ${lines.length}`, 15, 28);
+                      doc.text(`Disa Aktarim: ${new Date().toLocaleString('tr-TR')}  |  Toplam Mesaj: ${items.length}`, 15, 28);
                       doc.setDrawColor(200);
                       doc.line(15, 31, 195, 31);
                       doc.setFontSize(9);
                       let y = 38;
-                      for (const line of lines) {
+                      const pageBreak = () => { if (y > 275) { doc.addPage(); y = 20; } };
+                      const writeLine = (line: string) => {
                         const wrapped = doc.splitTextToSize(fixTr(line), 180);
-                        for (const wl of wrapped) {
-                          if (y > 275) { doc.addPage(); y = 20; }
-                          doc.text(wl, 15, y);
-                          y += 4.5;
+                        for (const wl of wrapped) { pageBreak(); doc.text(wl, 15, y); y += 4.5; }
+                      };
+                      for (const m of items) {
+                        const sender = participantInfo[m.senderId];
+                        const name = sender?.displayName || m.senderId.slice(0, 8);
+                        const time = m.timestamp?.toDate?.() ? m.timestamp.toDate().toLocaleString('tr-TR') : '';
+                        const text = m.text || (m.imageUrl ? '[fotograf]' : m.videoUrl ? '[video]' : m.audioUrl ? '[ses]' : '[medya]');
+                        const edited = m.edited ? ' (duzenlendi)' : '';
+                        writeLine(`[${time}] ${name}: ${text}${edited}`);
+                        if (m.imageUrl) {
+                          try {
+                            const img = await loadHtmlImage(m.imageUrl);
+                            const dataUrl = htmlImageToJpegDataUrl(img);
+                            const maxW = 120;
+                            const maxH = 90;
+                            const scale = Math.min(maxW / img.naturalWidth, maxH / img.naturalHeight, 1);
+                            const w = Math.max(img.naturalWidth * scale, 20);
+                            const h = Math.max(img.naturalHeight * scale, 15);
+                            if (y + h > 280) { doc.addPage(); y = 20; }
+                            doc.addImage(dataUrl, 'JPEG', 15, y, w, h);
+                            y += h + 3;
+                          } catch {
+                            writeLine(`[fotoğraf eklenemedi: ${m.imageUrl}]`);
+                          }
                         }
-                        y += 1;
+                        if (m.videoUrl || m.audioUrl) {
+                          const u = m.videoUrl || m.audioUrl;
+                          const kind = m.videoUrl ? 'Video' : 'Ses';
+                          const wrappedUrl = doc.splitTextToSize(`${kind} dosyasi: ${u}`, 180);
+                          for (const wl of wrappedUrl) { pageBreak(); doc.textWithLink(wl, 15, y, { url: u }); y += 4.5; }
+                        }
                       }
                       doc.save(`sohbet-${fileSafe}-${new Date().toISOString().slice(0,10)}.pdf`);
                       setIsHeaderMenuOpen(false);
