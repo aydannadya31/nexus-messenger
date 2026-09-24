@@ -249,6 +249,9 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
   // Upload menu state
   const [showUploadMenu, setShowUploadMenu] = useState(false);
   const [showCameraPicker, setShowCameraPicker] = useState(false);
+  const [showCameraPreview, setShowCameraPreview] = useState(false);
+  const cameraStreamRef = useRef<MediaStream | null>(null);
+  const cameraPreviewRef = useRef<HTMLVideoElement>(null);
 
   // Group admin state
   const [showGroupAdmin, setShowGroupAdmin] = useState(false);
@@ -657,23 +660,52 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
     }
   };
 
-  const capturePhoto = async (facing: 'user' | 'environment') => {
+  const stopCameraPreview = () => {
+    cameraStreamRef.current?.getTracks().forEach(t => t.stop());
+    cameraStreamRef.current = null;
+    setShowCameraPreview(false);
+  };
+
+  const openCameraPreview = async (facing: 'user' | 'environment') => {
     setShowCameraPicker(false);
+    setShowUploadMenu(false);
     if (!user || !chatId) return;
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: facing }, audio: false });
-      const video = document.createElement('video');
+      cameraStreamRef.current = stream;
+      setShowCameraPreview(true);
+    } catch (error) {
+      console.error("Photo capture error:", error);
+      showCustomAlert("Kamera Hatası", "Kamera açılamadı. Lütfen kamera izinlerini kontrol edin.");
+    }
+  };
+
+  useEffect(() => {
+    if (!showCameraPreview) return;
+    const video = cameraPreviewRef.current;
+    const stream = cameraStreamRef.current;
+    if (video && stream) {
       video.srcObject = stream;
-      video.muted = true;
-      await video.play();
-      if (video.readyState < 2) {
-        await new Promise<void>(r => { video.onloadeddata = () => r(); });
-      }
+      video.play().catch(() => {});
+    }
+  }, [showCameraPreview]);
+
+  useEffect(() => () => {
+    cameraStreamRef.current?.getTracks().forEach(t => t.stop());
+    cameraStreamRef.current = null;
+  }, []);
+
+  const takePhotoFromPreview = async () => {
+    if (!user || !chatId) return;
+    const video = cameraPreviewRef.current;
+    const stream = cameraStreamRef.current;
+    if (!video || !stream || !video.videoWidth) return;
+    try {
       const canvas = document.createElement('canvas');
       canvas.width = video.videoWidth;
       canvas.height = video.videoHeight;
       canvas.getContext('2d')?.drawImage(video, 0, 0);
-      stream.getTracks().forEach(t => t.stop());
+      stopCameraPreview();
       const blob: Blob | null = await new Promise(res => canvas.toBlob(res, 'image/jpeg', 0.85));
       if (!blob) return;
       const file = new File([blob], `photo_${Date.now()}.jpg`, { type: 'image/jpeg' });
@@ -700,7 +732,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
       setViewOnceMode(false);
     } catch (error) {
       console.error("Photo capture error:", error);
-      showCustomAlert("Kamera Hatası", "Kamera açılamadı. Lütfen kamera izinlerini kontrol edin.");
+      showCustomAlert("Kamera Hatası", "Fotoğraf gönderilemedi.");
     }
   };
 
@@ -712,10 +744,10 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
       if (cams.length >= 2) {
         setShowCameraPicker(true);
       } else {
-        await capturePhoto('user');
+        await openCameraPreview('user');
       }
     } catch {
-      await capturePhoto('user');
+      await openCameraPreview('user');
     }
   };
 
@@ -2024,21 +2056,16 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
           </div>
 
           <div className="relative">
-            <button 
-              type="button" 
-              onClick={() => { imageInputRef.current?.click(); setShowUploadMenu(false); }}
-              className="p-1.5 sm:p-2 text-slate-400 hover:text-slate-600 transition-colors shrink-0"
-              title="Fotoğraf/Video Yükle"
-            >
-              <Image size={20} />
-            </button>
             <button
               type="button"
               onClick={() => setShowUploadMenu(!showUploadMenu)}
-              className="p-1 text-slate-400 hover:text-slate-600 transition-colors absolute -bottom-1 -right-1 bg-white rounded-full shadow-sm border border-slate-200 w-4 h-4 flex items-center justify-center"
-              title="Dosya Seçenekleri"
+              className={cn(
+                "p-1.5 sm:p-2 text-slate-400 hover:text-slate-600 transition-colors shrink-0",
+                showUploadMenu && "bg-slate-200 text-slate-700"
+              )}
+              title="Fotoğraf/Video Seçenekleri"
             >
-              <svg xmlns="http://www.w3.org/2000/svg" width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+              <Image size={20} />
             </button>
             {showUploadMenu && (
               <>
@@ -2195,17 +2222,17 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
               </div>
               <div>
                 <h3 className="text-base font-black text-slate-900 dark:text-slate-100 leading-tight">Kamera Seç</h3>
-                <p className="text-xs text-slate-500 dark:text-slate-400 font-bold mt-2">Hangi kamera ile fotoğraf çekmek istersin?</p>
+                <p className="text-xs text-slate-500 dark:text-slate-400 font-bold mt-2">Seçtiğin kameranın önizlemesini görüp çek</p>
               </div>
               <div className="flex gap-3">
                 <button
-                  onClick={() => capturePhoto('user')}
+                  onClick={() => openCameraPreview('user')}
                   className="flex-1 py-2.5 rounded-xl text-xs font-bold bg-blue-600 hover:bg-blue-700 active:scale-95 text-white transition-all"
                 >
                   Ön Kamera
                 </button>
                 <button
-                  onClick={() => capturePhoto('environment')}
+                  onClick={() => openCameraPreview('environment')}
                   className="flex-1 py-2.5 rounded-xl text-xs font-bold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700 active:scale-95 transition-all border border-slate-200 dark:border-slate-700"
                 >
                   Arka Kamera
@@ -2217,6 +2244,36 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
               >
                 Vazgeç
               </button>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Camera Preview Modal */}
+      <AnimatePresence>
+        {showCameraPreview && (
+          <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-black rounded-3xl shadow-2xl overflow-hidden w-full max-w-md flex flex-col"
+            >
+              <video ref={cameraPreviewRef} autoPlay playsInline muted className="w-full aspect-[3/4] object-cover bg-black" />
+              <div className="flex items-center justify-between gap-3 px-4 py-3 bg-black">
+                <button
+                  onClick={stopCameraPreview}
+                  className="px-3 py-2 rounded-xl text-xs font-bold text-slate-300 hover:bg-white/10 transition-all"
+                >
+                  Vazgeç
+                </button>
+                <button
+                  onClick={takePhotoFromPreview}
+                  className="w-14 h-14 rounded-full bg-white border-4 border-slate-400 hover:scale-105 active:scale-95 transition-all shadow-lg"
+                  title="Çek"
+                />
+                <div className="w-14" />
+              </div>
             </motion.div>
           </div>
         )}
