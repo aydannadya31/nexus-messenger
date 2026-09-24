@@ -315,13 +315,13 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
        {/* Sidebar Header */}
       <header className="p-4 sm:p-6 space-y-3 sm:space-y-4 z-10 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700 transition-colors">
         <div className="flex items-center justify-between gap-2">
-          <h1 className="text-lg sm:text-2xl font-bold tracking-tight text-slate-900 truncate min-w-0">A+F/C.B Messenger</h1>
+          <h1 className="text-lg sm:text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-100 truncate min-w-0">A+F/C.B Messenger</h1>
         </div>
         <div className="flex items-center justify-between gap-1 flex-wrap">
           <div className="flex flex-col items-center gap-0.5">
             <button 
               onClick={() => { markBroadcastRead(); onOpenBroadcast(); }}
-              className="p-2.5 bg-blue-50 hover:bg-blue-100 rounded-xl text-blue-600 transition-all active:scale-95 group relative"
+              className="p-2.5 bg-blue-50 dark:bg-blue-950 hover:bg-blue-100 dark:hover:bg-blue-900 rounded-xl text-blue-600 dark:text-blue-400 transition-all active:scale-95 group relative"
               title="Broadcast"
             >
               <Radio size={20} />
@@ -334,7 +334,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
           <div className="flex flex-col items-center gap-0.5">
             <button 
               onClick={() => setShowFriendRequests(true)}
-              className="p-2.5 bg-green-50 hover:bg-green-100 rounded-xl text-green-600 transition-all active:scale-95 group relative"
+              className="p-2.5 bg-green-50 dark:bg-green-950 hover:bg-green-100 dark:hover:bg-green-900 rounded-xl text-green-600 dark:text-green-400 transition-all active:scale-95 group relative"
               title="Arkadaşlık İstekleri"
             >
               <UserPlus size={20} />
@@ -349,7 +349,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
           <div className="flex flex-col items-center gap-0.5">
             <button 
               onClick={onStartNewChat}
-              className="p-2.5 bg-blue-50 hover:bg-blue-100 rounded-xl text-blue-600 transition-all active:scale-95"
+              className="p-2.5 bg-blue-50 dark:bg-blue-950 hover:bg-blue-100 dark:hover:bg-blue-900 rounded-xl text-blue-600 dark:text-blue-400 transition-all active:scale-95"
               title="Kullanıcı Listesi"
             >
               <MessageSquarePlus size={20} />
@@ -379,7 +379,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
           <div className="flex flex-col items-center gap-0.5">
             <button 
               onClick={() => logout()}
-              className="p-2.5 bg-slate-100/50 hover:bg-slate-100 rounded-xl text-slate-400 hover:text-red-500 transition-all active:scale-95"
+              className="p-2.5 bg-slate-100/50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-xl text-slate-400 hover:text-red-500 transition-all active:scale-95"
             >
               <LogOut size={20} />
             </button>
@@ -451,8 +451,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
             )}
           </div>
           <div className="flex-1 min-w-0">
-            <h2 className="text-sm font-semibold truncate">📢 Broadcast Kanalı</h2>
-            <p className="text-xs text-slate-500 truncate mt-0.5">Tüm kullanıcılara açık kanal</p>
+            <h2 className="text-sm font-semibold truncate dark:text-slate-100">📢 Broadcast Kanalı</h2>
+            <p className="text-xs text-slate-500 dark:text-slate-400 truncate mt-0.5">Tüm kullanıcılara açık kanal</p>
           </div>
         </div>
 
@@ -469,7 +469,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
                     <div
                       key={uid}
                       onClick={() => handleFriendClick(uid)}
-                      className="flex items-center gap-4 p-4 rounded-2xl cursor-pointer transition-all border border-transparent hover:bg-slate-50 hover:border-slate-100 active:scale-[0.98]"
+                      className="flex items-center gap-4 p-4 rounded-2xl cursor-pointer transition-all border border-transparent hover:bg-slate-50 dark:hover:bg-slate-800 hover:border-slate-100 dark:hover:border-slate-700 active:scale-[0.98]"
                     >
                       <div className="w-12 h-12 bg-slate-200 rounded-full flex-shrink-0 relative shadow-sm">
                         <img src={fp.photoURL} alt={fp.displayName} className="w-full h-full object-cover rounded-full" />
@@ -479,22 +479,22 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
                       </div>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
-                          <h3 className="text-sm font-bold text-slate-900 truncate">{fp.displayName}</h3>
+                          <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100 truncate">{fp.displayName}</h3>
                           {fp.onlineStatus && (
                             <span className={cn(
                               "text-[8px] px-1 py-0.5 font-bold uppercase tracking-tighter shrink-0",
-                              fp.onlineStatus === 'online' ? "bg-green-100 text-green-600" : 
-                              fp.onlineStatus === 'away' ? "bg-amber-100 text-amber-600" : "bg-red-100 text-red-600"
+                              fp.onlineStatus === 'online' ? "bg-green-100 dark:bg-green-950 text-green-600 dark:text-green-400" : 
+                              fp.onlineStatus === 'away' ? "bg-amber-100 dark:bg-amber-950 text-amber-600 dark:text-amber-400" : "bg-red-100 dark:bg-red-950 text-red-600 dark:text-red-400"
                             )}>
                               {fp.onlineStatus === 'online' ? 'Çevrimiçi' : fp.onlineStatus === 'away' ? 'Uzakta' : 'Meşgul'}
                             </span>
                           )}
                         </div>
-                        <p className="text-[10px] text-slate-500 font-medium truncate">
+                        <p className="text-[10px] text-slate-500 dark:text-slate-400 font-medium truncate">
                           {fp.uin ? `#${fp.uin}` : fp.email}
                         </p>
                       </div>
-                      <div className="p-2 bg-blue-50 text-blue-600 rounded-xl transition-all active:scale-95">
+                      <div className="p-2 bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-400 rounded-xl transition-all active:scale-95">
                         <MessageSquarePlus size={16} />
                       </div>
                     </div>
@@ -503,7 +503,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
               </div>
             ) : (
               <div className="flex flex-col items-center justify-center py-16 text-center">
-                <div className="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center mb-4 text-slate-400">
+                <div className="w-16 h-16 bg-slate-100 dark:bg-slate-800 rounded-full flex items-center justify-center mb-4 text-slate-400">
                   <UserPlus size={28} />
                 </div>
                 <p className="text-sm font-bold text-slate-400 uppercase tracking-widest">Henüz arkadaşın yok</p>
@@ -531,7 +531,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
                       onClick={() => handleSelectChat(chat.id)}
                       className={cn(
                         "group px-4 sm:px-6 py-3 sm:py-4 flex items-center gap-3 sm:gap-4 cursor-pointer transition-colors",
-                        isSelected ? "bg-blue-50 border-r-4 border-blue-500" : "hover:bg-slate-50"
+                        isSelected ? "bg-blue-50 dark:bg-blue-950 border-r-4 border-blue-500" : "hover:bg-slate-50 dark:hover:bg-slate-800"
                       )}
                     >
                       <div className="w-12 h-12 bg-slate-200 rounded-full flex-shrink-0 relative shadow-sm">
@@ -545,8 +545,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
                       <div className="flex-1 min-w-0">
                         <div className="flex justify-between items-baseline">
                           <div className="flex items-center gap-2 min-w-0">
-                            <h2 className={cn("text-sm font-semibold truncate", isSelected ? "text-blue-600" : "text-slate-900")}>{info.name}</h2>
-                            <span className="text-[8px] px-1 py-0.5 bg-slate-100 text-slate-500 font-bold uppercase tracking-tighter shrink-0">
+                            <h2 className={cn("text-sm font-semibold truncate", isSelected ? "text-blue-600" : "text-slate-900 dark:text-slate-100")}>{info.name}</h2>
+                            <span className="text-[8px] px-1 py-0.5 bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 font-bold uppercase tracking-tighter shrink-0">
                               {chat.participants.length} üye
                             </span>
                             {chat.muted && <span className="text-[10px]" title="Sessize alındı">🔕</span>}
@@ -564,22 +564,22 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
                       </div>
                       <div className="relative shrink-0">
                         <button onClick={(e) => { e.stopPropagation(); setChatMenuOpen(chatMenuOpen === chat.id ? null : chat.id); }}
-                          className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-full transition-all sm:opacity-0 sm:group-hover:opacity-100">
+                          className="p-1.5 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-full transition-all sm:opacity-0 sm:group-hover:opacity-100">
                           <MoreVertical size={16} />
                         </button>
                         {chatMenuOpen === chat.id && (
                           <>
                             <div className="fixed inset-0 z-40" onClick={() => setChatMenuOpen(null)} />
-                            <div className="absolute right-0 top-full mt-1 flex items-center gap-1 bg-white border border-slate-200 rounded-xl shadow-xl px-2 py-1.5 z-50">
+                            <div className="absolute right-0 top-full mt-1 flex items-center gap-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl px-2 py-1.5 z-50">
                               <button onClick={() => { setChatMenuOpen(null); setShowGroupInfo(chat); }}
-                                className="p-2 text-slate-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all text-xs font-bold">ℹ️</button>
+                                className="p-2 text-slate-500 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950 rounded-lg transition-all text-xs font-bold">ℹ️</button>
                               <button onClick={() => { setChatMenuOpen(null); handleLeaveGroup(chat.id); }}
-                                className="p-2 text-slate-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all text-xs font-bold">🚪</button>
+                                className="p-2 text-slate-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950 rounded-lg transition-all text-xs font-bold">🚪</button>
                               <button onClick={async () => {
                                 setChatMenuOpen(null);
                                 try { await updateDoc(doc(db, 'chats', chat.id), { muted: !chat.muted }); }
                                 catch(e) { console.error(e); }
-                              }} className="p-2 text-slate-500 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-all text-xs font-bold">
+                          }} className="p-2 text-slate-500 hover:text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950 rounded-lg transition-all text-xs font-bold">
                                 {chat.muted ? '🔔' : '🔕'}
                               </button>
                               {chat.heldBy && chat.heldBy === user?.uid && (
@@ -587,7 +587,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
                                   setChatMenuOpen(null);
                                   try { await updateDoc(doc(db, 'chats', chat.id), { heldBy: null, holdExpiresAt: null }); }
                                   catch(e) { console.error(e); }
-                                }} className="p-2 text-slate-500 hover:text-green-600 hover:bg-green-50 rounded-lg transition-all text-xs font-bold">✅</button>
+                                }} className="p-2 text-slate-500 hover:text-green-600 hover:bg-green-50 dark:hover:bg-green-950 rounded-lg transition-all text-xs font-bold">✅</button>
                               )}
                               {chat.heldBy && chat.heldBy !== user?.uid && (
                                 <button onClick={async () => {
@@ -612,7 +612,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
                                     });
                                     localStorage.setItem(lastNotifyKey, now.toString());
                                   } catch(e) { console.error(e); }
-                                }} className="p-2 text-slate-500 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-all text-xs font-bold">🔔</button>
+                                }} className="p-2 text-slate-500 hover:text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950 rounded-lg transition-all text-xs font-bold">🔔</button>
                               )}
                             </div>
                           </>
@@ -624,7 +624,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
               })
             ) : (
               <div className="flex flex-col items-center justify-center py-16 text-center">
-                <div className="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center mb-4 text-slate-400">
+                <div className="w-16 h-16 bg-slate-100 dark:bg-slate-800 rounded-full flex items-center justify-center mb-4 text-slate-400">
                   <Users size={28} />
                 </div>
                 <p className="text-sm font-bold text-slate-400 uppercase tracking-widest">Henüz grupta değilsin</p>
@@ -639,9 +639,9 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
       </div>
 
       {/* Footer Profile */}
-      <footer className="p-3 sm:p-4 border-t border-slate-100 bg-white shrink-0 relative">
+      <footer className="p-3 sm:p-4 border-t border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 shrink-0 relative">
         {showStatusMenu && (
-          <div className="absolute bottom-full left-6 mb-2 bg-white rounded-2xl shadow-xl border border-slate-100 overflow-hidden z-20 w-40 animate-in fade-in slide-in-from-bottom-2">
+          <div className="absolute bottom-full left-6 mb-2 bg-white dark:bg-slate-800 rounded-2xl shadow-xl border border-slate-100 dark:border-slate-700 overflow-hidden z-20 w-40 animate-in fade-in slide-in-from-bottom-2">
             {(['online', 'away', 'busy'] as const).map(s => (
               <button
                 key={s}
@@ -649,7 +649,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
                   updateMyStatus(s);
                   setShowStatusMenu(false);
                 }}
-                className="w-full px-4 py-3 flex items-center gap-3 hover:bg-slate-50 transition-colors text-xs font-bold text-slate-700"
+                className="w-full px-4 py-3 flex items-center gap-3 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors text-xs font-bold text-slate-700 dark:text-slate-200"
               >
                 <div className={cn(
                   "w-2 h-2 rounded-full",
@@ -678,7 +678,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
                 </div>
               </div>
               <div className="flex flex-col min-w-0">
-                <span className="text-sm font-semibold text-slate-900 truncate max-w-[100px]">
+                <span className="text-sm font-semibold text-slate-900 dark:text-slate-100 truncate max-w-[100px]">
                   {profile?.displayName || user?.displayName}
                 </span>
                 <span className="text-[9px] font-black text-blue-500 tracking-tighter uppercase">
@@ -691,7 +691,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
             </div>
           <button 
             onClick={() => setShowStatusMenu(!showStatusMenu)}
-            className="flex items-center space-x-1.5 px-3 py-1.5 bg-slate-50 hover:bg-slate-100 rounded-xl transition-all border border-slate-100 active:scale-95"
+            className="flex items-center space-x-1.5 px-3 py-1.5 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-xl transition-all border border-slate-100 dark:border-slate-700 active:scale-95"
           >
             <span className={cn(
               "text-[10px] font-black uppercase tracking-wider",
@@ -722,10 +722,10 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
       {/* Admin Message Dialog */}
       {showAdminMsg && (
         <div className="fixed inset-0 z-[9999] bg-black/50 flex items-center justify-center p-4" onClick={() => { setShowAdminMsg(false); setAdminMsgText(''); }}>
-          <div className="bg-white rounded-3xl p-6 shadow-2xl max-w-sm w-full" onClick={e => e.stopPropagation()}>
+          <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 shadow-2xl max-w-sm w-full" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-base font-black text-slate-900">Yöneticiye Mesaj Gönder</h3>
-              <button onClick={() => { setShowAdminMsg(false); setAdminMsgText(''); }} className="p-1.5 hover:bg-slate-100 rounded-full text-slate-400">
+              <h3 className="text-base font-black text-slate-900 dark:text-slate-100">Yöneticiye Mesaj Gönder</h3>
+              <button onClick={() => { setShowAdminMsg(false); setAdminMsgText(''); }} className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full text-slate-400">
                 <X size={18} />
               </button>
             </div>
@@ -734,12 +734,12 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
               value={adminMsgText}
               onChange={e => setAdminMsgText(e.target.value)}
               placeholder="Mesajınız..."
-              className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-4 text-sm font-bold text-slate-900 outline-none min-h-[100px] resize-none"
+              className="w-full bg-slate-50 dark:bg-slate-800 border-2 border-slate-100 dark:border-slate-700 rounded-2xl p-4 text-sm font-bold text-slate-900 dark:text-slate-100 outline-none min-h-[100px] resize-none"
             />
             <div className="flex gap-3 mt-4">
               <button
                 onClick={() => { setShowAdminMsg(false); setAdminMsgText(''); }}
-                className="flex-1 py-2.5 bg-slate-100 text-slate-600 rounded-xl text-[10px] font-black uppercase tracking-wider"
+                className="flex-1 py-2.5 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 rounded-xl text-[10px] font-black uppercase tracking-wider"
               >
                 İptal
               </button>

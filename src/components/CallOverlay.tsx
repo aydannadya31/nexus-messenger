@@ -330,25 +330,25 @@ export const CallOverlay = () => {
             exit={{ opacity: 0, scale: 0.9 }}
             className="absolute inset-0 z-20 flex items-center justify-center bg-slate-950/70 pointer-events-auto"
           >
-            <div className="bg-white rounded-[2.5rem] p-8 shadow-2xl flex flex-col items-center gap-6 border border-slate-100">
+            <div className="bg-white dark:bg-slate-900 rounded-[2.5rem] p-8 shadow-2xl flex flex-col items-center gap-6 border border-slate-100 dark:border-slate-800">
               <div className="relative">
-                <div className="w-24 h-24 rounded-full bg-blue-100 overflow-hidden border-4 border-white shadow-lg">
+                <div className="w-24 h-24 rounded-full bg-blue-100 dark:bg-blue-950 overflow-hidden border-4 border-white dark:border-slate-700 shadow-lg">
                   <img src={callerInfo?.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${incomingCall.callerId}`} className="w-full h-full object-cover" />
                 </div>
-                <div className={cn("absolute -bottom-2 -right-2 p-2 rounded-full border-4 border-white", incomingCall.mediaType === 'video' ? "bg-green-500" : "bg-blue-500")}>
+                <div className={cn("absolute -bottom-2 -right-2 p-2 rounded-full border-4 border-white dark:border-slate-700", incomingCall.mediaType === 'video' ? "bg-green-500" : "bg-blue-500")}>
                   {incomingCall.mediaType === 'video' ? <Video size={16} className="text-white" /> : <Phone size={16} className="text-white" />}
                 </div>
               </div>
               
               <div className="text-center">
-                <h3 className="text-xl font-black text-slate-900 tracking-tight">{callerInfo?.displayName || 'Yükleniyor...'}</h3>
+                <h3 className="text-xl font-black text-slate-900 dark:text-slate-100 tracking-tight">{callerInfo?.displayName || 'Yükleniyor...'}</h3>
                 <p className="text-[10px] font-black text-blue-500 uppercase tracking-[0.2em] mt-1">{incomingCall.mediaType === 'video' ? 'Gelen Görüntülü Arama' : 'Gelen Sesli Arama'}</p>
               </div>
 
               <div className="flex gap-4">
                 <button 
                   onClick={rejectCall}
-                  className="w-14 h-14 bg-red-100 text-red-600 rounded-full flex items-center justify-center hover:bg-red-200 transition-colors active:scale-90"
+                  className="w-14 h-14 bg-red-100 dark:bg-red-950 text-red-600 dark:text-red-400 rounded-full flex items-center justify-center hover:bg-red-200 dark:hover:bg-red-900 transition-colors active:scale-90"
                 >
                   <PhoneOff size={24} />
                 </button>
@@ -402,27 +402,34 @@ export const CallOverlay = () => {
                 return (
                   <div key={pId} className="relative bg-slate-900 rounded-[2rem] overflow-hidden shadow-inner group">
                     {stream ? (
-                      <>
-                        <video 
-                          autoPlay 
-                          playsInline 
-                          ref={el => { 
-                            if (el) {
-                              el.srcObject = stream;
-                              if (el.paused) {
-                                el.play().catch(err => console.warn('[CallOverlay] Autoplay prevented:', err));
-                              }
-                            }
-                          }}
-                          className="w-full h-full object-cover"
-                        />
-                        {/* Always show avatar as fallback behind video */}
-                        <AvatarOverlay
-                          photoURL={info?.photoURL}
-                          displayName={info?.displayName || 'Katılımcı'}
-                          subtitle="Kamera Kapalı"
-                        />
-                      </>
+                      (() => {
+                        const vTrack = stream.getVideoTracks().find(t => t.readyState === 'live');
+                        const showVideo = !!vTrack && vTrack.enabled && activeCall.mediaType === 'video';
+                        if (showVideo) {
+                          return (
+                            <video 
+                              autoPlay 
+                              playsInline 
+                              ref={el => { 
+                                if (el) {
+                                  el.srcObject = stream;
+                                  if (el.paused) {
+                                    el.play().catch(err => console.warn('[CallOverlay] Autoplay prevented:', err));
+                                  }
+                                }
+                              }}
+                              className="w-full h-full object-cover"
+                            />
+                          );
+                        }
+                        return (
+                          <AvatarOverlay
+                            photoURL={info?.photoURL}
+                            displayName={info?.displayName || 'Katılımcı'}
+                            subtitle={activeCall.mediaType === 'audio' ? 'Sesli Görüşme' : 'Kamera Kapalı'}
+                          />
+                        );
+                      })()
                     ) : (
                       <AvatarOverlay
                         photoURL={info?.photoURL}
@@ -508,24 +515,24 @@ export const CallOverlay = () => {
                   initial={{ x: '100%' }}
                   animate={{ x: 0 }}
                   exit={{ x: '100%' }}
-                  className="absolute inset-y-0 right-0 w-full sm:w-80 bg-white shadow-2xl z-10 flex flex-col"
+                  className="absolute inset-y-0 right-0 w-full sm:w-80 bg-white dark:bg-slate-900 shadow-2xl z-10 flex flex-col"
                 >
-                  <div className="p-6 border-b border-slate-100 flex items-center justify-between">
-                    <h3 className="text-sm font-black text-slate-900 uppercase tracking-widest">Üye Ekle</h3>
-                    <button onClick={() => setIsInviting(false)} className="text-slate-400 hover:text-slate-900">
+                  <div className="p-6 border-b border-slate-100 dark:border-slate-700 flex items-center justify-between">
+                    <h3 className="text-sm font-black text-slate-900 dark:text-slate-100 uppercase tracking-widest">Üye Ekle</h3>
+                    <button onClick={() => setIsInviting(false)} className="text-slate-400 hover:text-slate-900 dark:hover:text-slate-100">
                       <X size={20} />
                     </button>
                   </div>
                   <div className="flex-1 overflow-y-auto p-4 space-y-2">
                     {activeCall.participants.filter(pId => !activeCall.activeParticipants.includes(pId)).map(pId => (
-                      <div key={pId} className="flex items-center justify-between p-3 rounded-2xl bg-slate-50 border border-slate-100">
+                      <div key={pId} className="flex items-center justify-between p-3 rounded-2xl bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700">
                         <div className="flex items-center gap-3">
                            <img src={participantInfo[pId]?.photoURL} className="w-8 h-8 rounded-lg" />
-                           <span className="text-xs font-bold text-slate-700">{participantInfo[pId]?.displayName}</span>
+                           <span className="text-xs font-bold text-slate-700 dark:text-slate-200">{participantInfo[pId]?.displayName}</span>
                         </div>
                         <button 
                           onClick={() => inviteToCall([pId])}
-                          className="text-[10px] font-black text-blue-600 hover:text-blue-700 uppercase tracking-tighter"
+                          className="text-[10px] font-black text-blue-600 dark:text-blue-400 hover:text-blue-700 uppercase tracking-tighter"
                         >
                           Hemen Ara
                         </button>
