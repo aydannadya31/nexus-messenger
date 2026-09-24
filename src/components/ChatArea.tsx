@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { jsPDF } from 'jspdf';
-import { collection, query, onSnapshot, orderBy, addDoc, serverTimestamp, doc, updateDoc, setDoc, getDoc, where, deleteDoc, getDocs, writeBatch, arrayUnion } from 'firebase/firestore';
+import { collection, query, onSnapshot, orderBy, addDoc, serverTimestamp, doc, updateDoc, setDoc, getDoc, where, deleteDoc, getDocs, writeBatch, arrayUnion, deleteField } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { useAuth } from './AuthProvider';
 import { useCall } from './CallProvider';
@@ -105,6 +105,106 @@ const htmlImageToJpegDataUrl = (img: HTMLImageElement, maxPx = 800) => {
   return c.toDataURL('image/jpeg', 0.85);
 };
 
+const fileToDataUrl = (file: File) => new Promise<string>((resolve, reject) => {
+  const r = new FileReader();
+  r.onload = () => resolve(r.result as string);
+  r.onerror = () => reject(new Error('file read failed'));
+  r.readAsDataURL(file);
+});
+
+const compressImageToDataUrl = async (file: File, maxLen = 800 * 1024): Promise<string> => {
+  const raw = await fileToDataUrl(file);
+  if (raw.length <= maxLen) return raw;
+  try {
+    const img = await loadHtmlImage(raw);
+    let maxPx = Math.max(img.naturalWidth, img.naturalHeight);
+    let quality = 0.85;
+    let best = raw;
+    for (let i = 0; i < 8; i++) {
+      const scale = Math.min(1, maxPx / Math.max(img.naturalWidth, img.naturalHeight, 1));
+      const c = document.createElement('canvas');
+      c.width = Math.max(1, Math.round(img.naturalWidth * scale));
+      c.height = Math.max(1, Math.round(img.naturalHeight * scale));
+      const ctx = c.getContext('2d');
+      if (!ctx) break;
+      ctx.drawImage(img, 0, 0, c.width, c.height);
+      const out = c.toDataURL('image/jpeg', quality);
+      if (out.length < best.length) best = out;
+      if (out.length <= maxLen) return out;
+      maxPx = Math.floor(maxPx * 0.7);
+      quality = Math.max(0.5, quality - 0.1);
+      if (maxPx < 160) break;
+    }
+    return best;
+  } catch {
+    return raw;
+  }
+};
+
+const compressVideoToDataUrl = async (file: File, maxLen = 1500 * 1024): Promise<string> => {
+  const raw = await fileToDataUrl(file);
+  if (raw.length <= maxLen) return raw;
+  try {
+    const url = URL.createObjectURL(file);
+    const video = document.createElement('video');
+    video.muted = true;
+    video.playsInline = true;
+    video.src = url;
+    await new Promise<void>((resolve, reject) => {
+      video.onloadedmetadata = () => resolve();
+      video.onerror = () => reject(new Error('video load failed'));
+    });
+    const duration = Math.min(video.duration || 0, 15);
+    const scale = Math.min(1, 480 / (video.videoWidth || 480));
+    const w = Math.max(1, Math.round((video.videoWidth || 480) * scale));
+    const h = Math.max(1, Math.round((video.videoHeight || 360) * scale));
+    const c = document.createElement('canvas');
+    c.width = w;
+    c.height = h;
+    const ctx = c.getContext('2d');
+    if (!ctx) { URL.revokeObjectURL(url); return raw; }
+    const stream = c.captureStream(15);
+    try {
+      const vs = (video as any).captureStream?.() as MediaStream | undefined;
+      if (vs) for (const t of vs.getAudioTracks()) stream.addTrack(t);
+    } catch { /* no audio track */ }
+    const mime = typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported('video/webm;codecs=vp9')
+      ? 'video/webm;codecs=vp9' : 'video/webm';
+    const rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 400000 });
+    const chunks: BlobPart[] = [];
+    rec.ondataavailable = e => { if (e.data.size) chunks.push(e.data); };
+    const stopped = new Promise<void>(res => { rec.onstop = () => res(); });
+    rec.start(200);
+    video.currentTime = 0;
+    await video.play();
+    await new Promise<void>(resolve => {
+      const draw = () => {
+        ctx.drawImage(video, 0, 0, w, h);
+        if (video.currentTime >= duration || video.ended) {
+          video.pause();
+          resolve();
+          return;
+        }
+        requestAnimationFrame(draw);
+      };
+      draw();
+    });
+    rec.stop();
+    await stopped;
+    URL.revokeObjectURL(url);
+    const blob = new Blob(chunks, { type: 'video/webm' });
+    const out = await new Promise<string>((resolve, reject) => {
+      const r = new FileReader();
+      r.onload = () => resolve(r.result as string);
+      r.onerror = () => reject(new Error('read failed'));
+      r.readAsDataURL(blob);
+    });
+    return out.length <= maxLen || out.length < raw.length ? out : raw;
+  } catch {
+    return raw;
+  }
+};
+
 interface ChatAreaProps {
   chatId: string;
   onBack?: () => void;
@@ -138,6 +238,9 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
     onConfirm?: () => void;
   } | null>(null);
   const [encryptMode, setEncryptMode] = useState(false);
+  const [viewOnceMode, setViewOnceMode] = useState(false);
+  const [viewOnceModal, setViewOnceModal] = useState<Message | null>(null);
+  const [viewOnceUnlocked, setViewOnceUnlocked] = useState(false);
   const [decryptModal, setDecryptModal] = useState<Message | null>(null);
   const [emojiCategory, setEmojiCategory] = useState<string>('sik');
   const [editingMsg, setEditingMsg] = useState<Message | null>(null);
@@ -503,49 +606,72 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
     return { encrypted: true, imagePassword: toBase64(pwd) };
   };
 
+  const viewOnceFields = () => (viewOnceMode ? { viewOnce: true } : {});
+
+  const openViewOnce = (msg: Message) => {
+    setViewOnceUnlocked(!msg.encrypted);
+    setViewOnceModal(msg);
+  };
+
+  const closeViewOnce = async () => {
+    const msg = viewOnceModal;
+    setViewOnceModal(null);
+    setViewOnceUnlocked(false);
+    if (msg && !msg.viewOnceOpened && msg.id && chatId) {
+      try {
+        await updateDoc(doc(db, 'chats', chatId, 'messages', msg.id), {
+          viewOnceOpened: true,
+          text: deleteField(),
+          imageUrl: deleteField(),
+          videoUrl: deleteField(),
+          audioUrl: deleteField(),
+        });
+      } catch (error) {
+        console.error('ViewOnce burn error:', error);
+      }
+    }
+  };
+
   const handleVideoSend = () => {
     videoInputRef.current?.click();
   };
 
-  const handleVideoFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleVideoFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    e.target.value = '';
     if (!file || !user || !chatId) return;
 
-    if (file.size > 1500 * 1024) {
-      showCustomAlert("Dosya Boyutu Sınırı", "Ses/video dosyası çok büyük (maksimum 1.5MB olmalıdır).");
-      return;
-    }
-
-    const reader = new FileReader();
-    reader.onloadend = async () => {
-      const base64Video = reader.result as string;
-      const enc = askEncryptFields();
-      if (enc === null) return;
-      try {
-        await addDoc(collection(db, 'chats', chatId, 'messages'), {
-          videoUrl: base64Video,
-          senderId: user.uid,
-          timestamp: serverTimestamp(),
-          type: 'video',
-          status: 'sent',
-          ...enc
-        });
-
-        await updateDoc(doc(db, 'chats', chatId), {
-          lastMessage: {
-            text: enc.encrypted ? '🔒 Video Mesajı' : '🎥 Video Mesajı',
-            senderId: user.uid,
-            senderName: user.displayName,
-            timestamp: serverTimestamp()
-          },
-          updatedAt: serverTimestamp()
-        });
-      } catch (error) {
-        console.error("Video gönderme hatası:", error);
+    const enc = askEncryptFields();
+    if (enc === null) return;
+    try {
+      const base64Video = await compressVideoToDataUrl(file);
+      if (base64Video.length > 1500 * 1024) {
+        showCustomAlert("Dosya Boyutu Sınırı", "Video sıkıştırıldığında hala çok büyük (maksimum 1.5MB). Lütfen daha kısa bir video seçin.");
+        return;
       }
-    };
-    reader.readAsDataURL(file);
-    e.target.value = '';
+      await addDoc(collection(db, 'chats', chatId, 'messages'), {
+        videoUrl: base64Video,
+        senderId: user.uid,
+        timestamp: serverTimestamp(),
+        type: 'video',
+        status: 'sent',
+        ...enc,
+        ...viewOnceFields()
+      });
+
+      await updateDoc(doc(db, 'chats', chatId), {
+        lastMessage: {
+          text: viewOnceMode ? '👁 Tek kullanımlık mesaj' : enc.encrypted ? '🔒 Video Mesajı' : '🎥 Video Mesajı',
+          senderId: user.uid,
+          senderName: user.displayName,
+          timestamp: serverTimestamp()
+        },
+        updatedAt: serverTimestamp()
+      });
+      setViewOnceMode(false);
+    } catch (error) {
+      console.error("Video gönderme hatası:", error);
+    }
   };
 
   const [isRecording, setIsRecording] = useState(false);
@@ -646,12 +772,14 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
               timestamp: serverTimestamp(),
               type: 'video',
               status: 'sent',
-              ...enc
+              ...enc,
+              ...viewOnceFields()
             });
             await updateDoc(doc(db, 'chats', chatId), {
-              lastMessage: { text: enc.encrypted ? '🔒 Video Mesajı' : '🎥 Video Mesajı', senderId: user.uid, senderName: user.displayName, timestamp: serverTimestamp() },
+              lastMessage: { text: viewOnceMode ? '👁 Tek kullanımlık mesaj' : enc.encrypted ? '🔒 Video Mesajı' : '🎥 Video Mesajı', senderId: user.uid, senderName: user.displayName, timestamp: serverTimestamp() },
               updatedAt: serverTimestamp()
             });
+            setViewOnceMode(false);
           } catch (error) {
             console.error("Video kaydı gönderme hatası:", error);
           }
@@ -661,15 +789,13 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
       mediaRecorder.start();
       setIsVideoRecording(true);
       setVideoRecordingTime(0);
+      let ticks = 0;
       videoTimerRef.current = setInterval(() => {
-        setVideoRecordingTime(prev => {
-          const next = prev + 1;
-          if (next >= MAX_VIDEO_SECONDS) {
-            stopVideoRecording();
-            return MAX_VIDEO_SECONDS;
-          }
-          return next;
-        });
+        ticks += 1;
+        setVideoRecordingTime(ticks);
+        if (ticks >= MAX_VIDEO_SECONDS) {
+          stopVideoRecording();
+        }
       }, 1000);
     } catch (error) {
       console.error("Video kaydı başlatma hatası:", error);
@@ -677,10 +803,14 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
   };
 
   const stopVideoRecording = () => {
-    if (videoRecorderRef.current && isVideoRecording) {
-      videoRecorderRef.current.stop();
-      setIsVideoRecording(false);
+    const rec = videoRecorderRef.current;
+    if (rec && rec.state !== 'inactive') {
+      rec.stop();
+    }
+    setIsVideoRecording(false);
+    if (videoTimerRef.current) {
       clearInterval(videoTimerRef.current);
+      videoTimerRef.current = null;
     }
   };
 
@@ -695,18 +825,20 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
         timestamp: serverTimestamp(),
         type: 'audio',
         status: 'sent',
-        ...enc
+        ...enc,
+        ...viewOnceFields()
       });
 
       await updateDoc(doc(db, 'chats', chatId), {
         lastMessage: {
-          text: enc.encrypted ? '🔒 Ses Mesajı' : '🎤 Ses Mesajı',
+          text: viewOnceMode ? '👁 Tek kullanımlık mesaj' : enc.encrypted ? '🔒 Ses Mesajı' : '🎤 Ses Mesajı',
           senderId: user.uid,
           senderName: user.displayName,
           timestamp: serverTimestamp()
         },
         updatedAt: serverTimestamp()
       });
+      setViewOnceMode(false);
     } catch (error) {
       console.error("Audio send error:", error);
     }
@@ -760,63 +892,61 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
     imageInputRef.current?.click();
   };
 
-  const handleImageFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImageFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    e.target.value = '';
     if (!file || !user || !chatId) return;
 
     const isVideo = file.type.startsWith('video/');
-
-    if (isVideo) {
-      if (file.size > 1500 * 1024) {
-        showCustomAlert("Dosya Boyutu Sınırı", "Video dosyası çok büyük (maksimum 1.5MB olmalıdır).");
+    const enc = askEncryptFields();
+    if (enc === null) return;
+    try {
+      const base64Data = isVideo
+        ? await compressVideoToDataUrl(file)
+        : await compressImageToDataUrl(file);
+      const maxLen = isVideo ? 1500 * 1024 : 800 * 1024;
+      if (base64Data.length > maxLen) {
+        showCustomAlert(
+          "Dosya Boyutu Sınırı",
+          isVideo
+            ? "Video sıkıştırıldığında hala çok büyük (maksimum 1.5MB). Lütfen daha kısa bir video seçin."
+            : "Fotoğraf sıkıştırıldığında hala çok büyük (maksimum 800KB)."
+        );
         return;
       }
-    } else {
-      if (file.size > 800 * 1024) {
-        showCustomAlert("Dosya Boyutu Sınırı", "Seçilen dosya çok büyük (maksimum 800KB olmalıdır).");
-        return;
+      if (isVideo) {
+        await addDoc(collection(db, 'chats', chatId, 'messages'), {
+          videoUrl: base64Data,
+          senderId: user.uid,
+          timestamp: serverTimestamp(),
+          type: 'video',
+          status: 'sent',
+          ...enc,
+          ...viewOnceFields()
+        });
+        await updateDoc(doc(db, 'chats', chatId), {
+          lastMessage: { text: viewOnceMode ? '👁 Tek kullanımlık mesaj' : enc.encrypted ? '🔒 Video' : '🎥 Video', senderId: user.uid, senderName: user.displayName, timestamp: serverTimestamp() },
+          updatedAt: serverTimestamp()
+        });
+      } else {
+        await addDoc(collection(db, 'chats', chatId, 'messages'), {
+          imageUrl: base64Data,
+          senderId: user.uid,
+          timestamp: serverTimestamp(),
+          type: 'image',
+          status: 'sent',
+          ...enc,
+          ...viewOnceFields()
+        });
+        await updateDoc(doc(db, 'chats', chatId), {
+          lastMessage: { text: viewOnceMode ? '👁 Tek kullanımlık mesaj' : enc.encrypted ? '🔒 Fotoğraf' : '📷 Fotoğraf', senderId: user.uid, senderName: user.displayName, timestamp: serverTimestamp() },
+          updatedAt: serverTimestamp()
+        });
       }
+      setViewOnceMode(false);
+    } catch (error) {
+      console.error("Dosya gönderme hatası:", error);
     }
-
-    const reader = new FileReader();
-    reader.onloadend = async () => {
-      const base64Data = reader.result as string;
-      const enc = askEncryptFields();
-      if (enc === null) return;
-      try {
-        if (isVideo) {
-          await addDoc(collection(db, 'chats', chatId, 'messages'), {
-            videoUrl: base64Data,
-            senderId: user.uid,
-            timestamp: serverTimestamp(),
-            type: 'video',
-            status: 'sent',
-            ...enc
-          });
-          await updateDoc(doc(db, 'chats', chatId), {
-            lastMessage: { text: enc.encrypted ? '🔒 Video' : '🎥 Video', senderId: user.uid, senderName: user.displayName, timestamp: serverTimestamp() },
-            updatedAt: serverTimestamp()
-          });
-        } else {
-          await addDoc(collection(db, 'chats', chatId, 'messages'), {
-            imageUrl: base64Data,
-            senderId: user.uid,
-            timestamp: serverTimestamp(),
-            type: 'image',
-            status: 'sent',
-            ...enc
-          });
-          await updateDoc(doc(db, 'chats', chatId), {
-            lastMessage: { text: enc.encrypted ? '🔒 Fotoğraf' : '📷 Fotoğraf', senderId: user.uid, senderName: user.displayName, timestamp: serverTimestamp() },
-            updatedAt: serverTimestamp()
-          });
-        }
-      } catch (error) {
-        console.error("Dosya gönderme hatası:", error);
-      }
-    };
-    reader.readAsDataURL(file);
-    e.target.value = '';
   };
 
   const handleDeleteMessage = async (msgId: string) => {
@@ -914,7 +1044,8 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
       senderId: user.uid,
       timestamp: serverTimestamp(),
       type: 'text',
-      status: 'sent'
+      status: 'sent',
+      ...viewOnceFields()
     };
 
     if (replyTo?.id) {
@@ -935,7 +1066,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
       
       await updateDoc(doc(db, 'chats', chatId), {
         lastMessage: {
-          text: encryptMode && pwd ? '🔒 Şifreli Mesaj' : text,
+          text: viewOnceMode ? '👁 Tek kullanımlık mesaj' : encryptMode && pwd ? '🔒 Şifreli Mesaj' : text,
           senderId: user.uid,
           senderName: user.displayName,
           timestamp: serverTimestamp()
@@ -946,6 +1077,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
       console.error("Error sending message:", error);
     }
     setEncryptMode(false);
+    setViewOnceMode(false);
     setReplyTo(null);
   };
 
@@ -1394,6 +1526,23 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
                         </div>
                       ) : (<>
 
+                      {msg.viewOnce && msg.viewOnceOpened ? (
+                        <div className="flex items-center gap-2 text-[11px] font-bold italic opacity-50 py-1">
+                          <EyeOff size={12} /> Mesaj görüntülendi ve silindi
+                        </div>
+                      ) : msg.viewOnce && !isMe ? (
+                        <button onClick={() => openViewOnce(msg)}
+                          className="flex items-center gap-2 text-sm font-bold text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/30 hover:bg-amber-100 px-3 py-2.5 rounded-xl transition-colors w-full text-left">
+                          <Eye size={16} />
+                          Tek bakışlık mesajı açmak için dokun
+                        </button>
+                      ) : (<>
+                      {msg.viewOnce && isMe && !msg.viewOnceOpened && (
+                        <div className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-wider text-amber-500 mb-1.5">
+                          <Eye size={11} /> Tek bakışlık · henüz açılmadı
+                        </div>
+                      )}
+
                       {msg.replyTo && (
                         <div className={cn(
                           "text-[10px] font-medium mb-1.5 px-2 py-1 rounded border-l-2",
@@ -1406,14 +1555,18 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
                       {msg.type === 'text' && (
                         msg.encrypted && !isMe ? (
                           <button onClick={() => setDecryptModal(msg)}
-                            className="text-sm font-medium leading-relaxed opacity-70 hover:opacity-100 text-left w-full">
-                            🔒 Şifreli Mesaj (dokunun)
+                            className="text-sm font-medium leading-relaxed opacity-70 hover:opacity-100 text-left w-full flex items-center gap-1.5">
+                            <Lock size={13} className="shrink-0" /> Şifreli Mesaj (dokunun)
                           </button>
                         ) : (
                           <p className={cn(
                             "text-sm font-medium leading-relaxed",
+                            msg.encrypted && "flex items-start gap-1.5",
                             isDeleted && "line-through text-slate-400 font-normal italic"
-                          )}>{msg.text}</p>
+                          )}>
+                            {msg.encrypted && !isDeleted && <Lock size={13} className="shrink-0 mt-0.5" />}
+                            {msg.text}
+                          </p>
                         )
                       )}
                       
@@ -1427,16 +1580,23 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
                               <img src={msg.imageUrl} alt="" className="w-full h-auto object-cover blur-[12px]" />
                               <div className="absolute inset-0 flex items-center justify-center">
                                 <button onClick={() => setDecryptModal(msg)}
-                                  className="bg-black/50 text-white text-[10px] font-bold px-3 py-1.5 rounded-full backdrop-blur-sm hover:bg-black/70 cursor-pointer">🔒 Şifreli</button>
+                                  className="bg-black/50 text-white text-[10px] font-bold px-3 py-1.5 rounded-full backdrop-blur-sm hover:bg-black/70 cursor-pointer flex items-center gap-1"><Lock size={11} /> Şifreli</button>
                               </div>
                             </>
                           ) : (
-                            <img 
-                              src={msg.imageUrl} 
-                              alt="Paylaşılan görsel" 
-                              className="max-w-full h-auto object-cover hover:scale-105 transition-transform duration-500 cursor-pointer"
-                              onClick={() => !isDeleted && window.open(msg.imageUrl, '_blank')}
-                            />
+                            <>
+                              {msg.encrypted && (
+                                <span className="absolute top-1.5 left-1.5 z-10 bg-black/45 text-white rounded-md p-1" title="Şifreli gönderildi">
+                                  <Lock size={12} />
+                                </span>
+                              )}
+                              <img 
+                                src={msg.imageUrl} 
+                                alt="Paylaşılan görsel" 
+                                className="max-w-full h-auto object-cover hover:scale-105 transition-transform duration-500 cursor-pointer"
+                                onClick={() => !isDeleted && window.open(msg.imageUrl, '_blank')}
+                              />
+                            </>
                           )}
                         </div>
                       )}
@@ -1451,30 +1611,41 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
                               <video src={msg.videoUrl} className="max-w-full h-auto blur-[12px]" playsInline />
                               <div className="absolute inset-0 flex items-center justify-center">
                                 <button onClick={() => setDecryptModal(msg)}
-                                  className="bg-black/50 text-white text-[10px] font-bold px-3 py-1.5 rounded-full backdrop-blur-sm hover:bg-black/70 cursor-pointer">🔒 Şifreli</button>
+                                  className="bg-black/50 text-white text-[10px] font-bold px-3 py-1.5 rounded-full backdrop-blur-sm hover:bg-black/70 cursor-pointer flex items-center gap-1"><Lock size={11} /> Şifreli</button>
                               </div>
                             </>
                           ) : (
-                            <video 
-                              src={msg.videoUrl} 
-                              className="max-w-full h-auto" 
-                              controls={!isDeleted}
-                              playsInline
-                            />
+                            <>
+                              {msg.encrypted && (
+                                <span className="absolute top-1.5 left-1.5 z-10 bg-black/45 text-white rounded-md p-1" title="Şifreli gönderildi">
+                                  <Lock size={12} />
+                                </span>
+                              )}
+                              <video 
+                                src={msg.videoUrl} 
+                                className="max-w-full h-auto" 
+                                controls={!isDeleted}
+                                playsInline
+                              />
+                            </>
                           )}
                         </div>
                       )}
 
                       {msg.type === 'audio' && msg.audioUrl && (
-                        <div className={cn(isDeleted && "grayscale opacity-40 pointer-events-none")}>
+                        <div className={cn(isDeleted && "grayscale opacity-40 pointer-events-none", "flex items-center gap-1.5")}>
                           {msg.encrypted && !isMe ? (
                             <button onClick={() => setDecryptModal(msg)}
-                              className="text-[10px] font-bold flex items-center gap-1 text-slate-500 hover:text-slate-700">🔒 Şifreli Ses Mesajı (dokunun)</button>
+                              className="text-[10px] font-bold flex items-center gap-1 text-slate-500 hover:text-slate-700"><Lock size={11} /> Şifreli Ses Mesajı (dokunun)</button>
                           ) : (
-                            <AudioPlayer url={msg.audioUrl} isMe={isMe} />
+                            <>
+                              {msg.encrypted && <Lock size={13} className="shrink-0" />}
+                              <AudioPlayer url={msg.audioUrl} isMe={isMe} />
+                            </>
                           )}
                         </div>
                       )}
+                      </>)}
 
                       <div className={cn(
                         "flex items-center justify-end mt-1.5 space-x-1",
@@ -1484,11 +1655,6 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
                           {msg.timestamp ? format(msg.timestamp.toDate(), 'HH:mm') : ''}
                         </span>
                         {msg.edited && <span className="text-[9px] italic opacity-60 ml-0.5">(düzenlendi)</span>}
-                        {msg.encrypted && (
-                          <span title="Şifreli gönderildi" className="flex items-center gap-0.5 text-[9px] font-black uppercase tracking-wider opacity-75">
-                            <Lock size={9} /> ŞİFRELİ
-                          </span>
-                        )}
                         {isMe && !isDeleted && <MessageStatus status={msg.status} />}
                       </div>
                     </>)}
@@ -1801,6 +1967,19 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
             <Lock size={18} />
           </button>
 
+          {/* Tek Bakışlık Mesaj Butonu */}
+          <button
+            type="button"
+            onClick={() => setViewOnceMode(!viewOnceMode)}
+            className={cn(
+              "p-1.5 sm:p-2 transition-colors shrink-0",
+              viewOnceMode ? "text-purple-500 bg-purple-50 rounded-lg" : "text-slate-400 hover:text-slate-600"
+            )}
+            title={viewOnceMode ? 'Tek Bakışlık: AÇIK' : 'Tek Bakışlık: KAPALI'}
+          >
+            <Eye size={18} />
+          </button>
+
           <form onSubmit={handleSend} className="flex-1 flex items-center">
             <input 
               type="text" 
@@ -1903,10 +2082,47 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
             <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.9 }}
               className="bg-white rounded-3xl p-6 shadow-2xl max-w-md w-full border border-slate-100" onClick={e => e.stopPropagation()}>
               <div className="flex items-center justify-between mb-4">
-                <h3 className="text-sm font-black text-slate-900 flex items-center gap-2">🔒 Şifreli Mesaj</h3>
+                <h3 className="text-sm font-black text-slate-900 flex items-center gap-2"><Lock size={14} /> Şifreli Mesaj</h3>
                 <button onClick={() => setDecryptModal(null)} className="p-1 hover:bg-slate-100 rounded-full text-slate-400"><X size={18} /></button>
               </div>
               <DecryptContent msg={decryptModal} onClose={() => setDecryptModal(null)} />
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* ViewOnce Modal */}
+      <AnimatePresence>
+        {viewOnceModal && (
+          <div className="fixed inset-0 z-[9998] flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-md" onClick={() => closeViewOnce()}>
+            <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.9 }}
+              className="bg-white rounded-3xl p-6 shadow-2xl max-w-md w-full border border-slate-100 max-h-[85vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-sm font-black text-slate-900 flex items-center gap-2"><Eye size={14} className="text-purple-500" /> Tek Bakışlık Mesaj</h3>
+                <button onClick={() => closeViewOnce()} className="p-1 hover:bg-slate-100 rounded-full text-slate-400"><X size={18} /></button>
+              </div>
+              {viewOnceModal.encrypted && !viewOnceUnlocked ? (
+                <DecryptContent msg={viewOnceModal} onClose={() => { setViewOnceUnlocked(true); }} />
+              ) : (
+                <div className="space-y-3">
+                  {viewOnceModal.type === 'text' && (
+                    <p className="text-sm font-medium leading-relaxed text-slate-800">{viewOnceModal.text}</p>
+                  )}
+                  {viewOnceModal.type === 'image' && viewOnceModal.imageUrl && (
+                    <img src={viewOnceModal.imageUrl} alt="" className="w-full h-auto rounded-xl" />
+                  )}
+                  {viewOnceModal.type === 'video' && viewOnceModal.videoUrl && (
+                    <video src={viewOnceModal.videoUrl} className="w-full h-auto rounded-xl" controls playsInline />
+                  )}
+                  {viewOnceModal.type === 'audio' && viewOnceModal.audioUrl && (
+                    <audio src={viewOnceModal.audioUrl} controls className="w-full" />
+                  )}
+                  <button onClick={() => closeViewOnce()}
+                    className="w-full py-2.5 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs font-bold transition-all">
+                    Kapat ve Mesajı Sil
+                  </button>
+                </div>
+              )}
             </motion.div>
           </div>
         )}

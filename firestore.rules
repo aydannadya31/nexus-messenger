@@ -87,6 +87,7 @@ service cloud.firestore {
           (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['reactions'])) ||
           (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['deletedBy'])) ||
           (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['text', 'edited', 'editedAt']) && request.auth.uid == resource.data.senderId) ||
+          (resource.data.get('viewOnce', false) == true && request.resource.data.viewOnceOpened == true && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['viewOnceOpened', 'text', 'imageUrl', 'videoUrl', 'audioUrl'])) ||
           (isAdmin() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['blockedByAdmin', 'blockedByAdminAt']))
         );
       }

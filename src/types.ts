@@ -76,6 +76,8 @@ export interface Message {
   replyTo?: { id: string; text?: string; senderId: string };
   edited?: boolean;
   editedAt?: any;
+  viewOnce?: boolean;
+  viewOnceOpened?: boolean;
 }
 
 export interface Call {
