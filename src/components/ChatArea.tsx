@@ -495,6 +495,14 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
     }
   }, [messages]);
 
+  const askEncryptFields = (): { encrypted?: boolean; imagePassword?: string } | null => {
+    if (!encryptMode) return {};
+    const pwd = prompt('Şifreli mesaj şifresini girin:') || '';
+    setEncryptMode(false);
+    if (!pwd) return null;
+    return { encrypted: true, imagePassword: toBase64(pwd) };
+  };
+
   const handleVideoSend = () => {
     videoInputRef.current?.click();
   };
@@ -511,18 +519,21 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
     const reader = new FileReader();
     reader.onloadend = async () => {
       const base64Video = reader.result as string;
+      const enc = askEncryptFields();
+      if (enc === null) return;
       try {
         await addDoc(collection(db, 'chats', chatId, 'messages'), {
           videoUrl: base64Video,
           senderId: user.uid,
           timestamp: serverTimestamp(),
           type: 'video',
-          status: 'sent'
+          status: 'sent',
+          ...enc
         });
 
         await updateDoc(doc(db, 'chats', chatId), {
           lastMessage: {
-            text: '🎥 Video Mesajı',
+            text: enc.encrypted ? '🔒 Video Mesajı' : '🎥 Video Mesajı',
             senderId: user.uid,
             senderName: user.displayName,
             timestamp: serverTimestamp()
@@ -626,16 +637,19 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
             showCustomAlert("Video Boyutu Sınırı", "Video çok büyük, lütfen daha kısa bir kayıt yapın.");
             return;
           }
+          const enc = askEncryptFields();
+          if (enc === null) return;
           try {
             await addDoc(collection(db, 'chats', chatId, 'messages'), {
               videoUrl: base64Video,
               senderId: user.uid,
               timestamp: serverTimestamp(),
               type: 'video',
-              status: 'sent'
+              status: 'sent',
+              ...enc
             });
             await updateDoc(doc(db, 'chats', chatId), {
-              lastMessage: { text: '🎥 Video Mesajı', senderId: user.uid, senderName: user.displayName, timestamp: serverTimestamp() },
+              lastMessage: { text: enc.encrypted ? '🔒 Video Mesajı' : '🎥 Video Mesajı', senderId: user.uid, senderName: user.displayName, timestamp: serverTimestamp() },
               updatedAt: serverTimestamp()
             });
           } catch (error) {
@@ -672,18 +686,21 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
 
   const sendAudioMessage = async (audioUrl: string) => {
     if (!user || !chatId) return;
+    const enc = askEncryptFields();
+    if (enc === null) return;
     try {
       await addDoc(collection(db, 'chats', chatId, 'messages'), {
         audioUrl,
         senderId: user.uid,
         timestamp: serverTimestamp(),
         type: 'audio',
-        status: 'sent'
+        status: 'sent',
+        ...enc
       });
 
       await updateDoc(doc(db, 'chats', chatId), {
         lastMessage: {
-          text: '🎤 Ses Mesajı',
+          text: enc.encrypted ? '🔒 Ses Mesajı' : '🎤 Ses Mesajı',
           senderId: user.uid,
           senderName: user.displayName,
           timestamp: serverTimestamp()
@@ -764,6 +781,8 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
     const reader = new FileReader();
     reader.onloadend = async () => {
       const base64Data = reader.result as string;
+      const enc = askEncryptFields();
+      if (enc === null) return;
       try {
         if (isVideo) {
           await addDoc(collection(db, 'chats', chatId, 'messages'), {
@@ -771,10 +790,11 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
             senderId: user.uid,
             timestamp: serverTimestamp(),
             type: 'video',
-            status: 'sent'
+            status: 'sent',
+            ...enc
           });
           await updateDoc(doc(db, 'chats', chatId), {
-            lastMessage: { text: '🎥 Video', senderId: user.uid, senderName: user.displayName, timestamp: serverTimestamp() },
+            lastMessage: { text: enc.encrypted ? '🔒 Video' : '🎥 Video', senderId: user.uid, senderName: user.displayName, timestamp: serverTimestamp() },
             updatedAt: serverTimestamp()
           });
         } else {
@@ -783,10 +803,11 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
             senderId: user.uid,
             timestamp: serverTimestamp(),
             type: 'image',
-            status: 'sent'
+            status: 'sent',
+            ...enc
           });
           await updateDoc(doc(db, 'chats', chatId), {
-            lastMessage: { text: '📷 Fotoğraf', senderId: user.uid, senderName: user.displayName, timestamp: serverTimestamp() },
+            lastMessage: { text: enc.encrypted ? '🔒 Fotoğraf' : '📷 Fotoğraf', senderId: user.uid, senderName: user.displayName, timestamp: serverTimestamp() },
             updatedAt: serverTimestamp()
           });
         }
@@ -1463,6 +1484,11 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
                           {msg.timestamp ? format(msg.timestamp.toDate(), 'HH:mm') : ''}
                         </span>
                         {msg.edited && <span className="text-[9px] italic opacity-60 ml-0.5">(düzenlendi)</span>}
+                        {msg.encrypted && (
+                          <span title="Şifreli gönderildi" className="flex items-center gap-0.5 text-[9px] font-black uppercase tracking-wider opacity-75">
+                            <Lock size={9} /> ŞİFRELİ
+                          </span>
+                        )}
                         {isMe && !isDeleted && <MessageStatus status={msg.status} />}
                       </div>
                     </>)}
