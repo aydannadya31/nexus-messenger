@@ -7,7 +7,7 @@ import { useCall } from './CallProvider';
 import { Chat, Message, UserProfile, Call } from '../types';
 import { cn } from '../lib/utils';
 import ProfileModal from './ProfileModal';
-import { Image, MoreVertical, Send, Smile, Phone, Video, MessageSquarePlus, Clock, Play, Mic, Square, Pause, Trash2, ListChecks, X, Info, Eye, EyeOff, Lock, LogOut, Shield, UserX, UserCheck, Ban, Settings, Reply, Pencil, Download } from 'lucide-react';
+import { Image, MoreVertical, Send, Smile, Phone, Video, MessageSquarePlus, Clock, Play, Mic, Square, Pause, Trash2, ListChecks, X, Info, Eye, EyeOff, Lock, LogOut, Shield, UserX, UserCheck, Ban, Settings, Reply, Pencil, Download, ChevronLeft } from 'lucide-react';
 import { format } from 'date-fns';
 import { motion, AnimatePresence } from 'motion/react';
 import { encryptMessage, decryptMessage } from '../lib/crypto';
@@ -105,7 +105,7 @@ const htmlImageToJpegDataUrl = (img: HTMLImageElement, maxPx = 800) => {
   return c.toDataURL('image/jpeg', 0.85);
 };
 
-const fileToDataUrl = (file: File) => new Promise<string>((resolve, reject) => {
+const fileToDataUrl = (file: Blob) => new Promise<string>((resolve, reject) => {
   const r = new FileReader();
   r.onload = () => resolve(r.result as string);
   r.onerror = () => reject(new Error('file read failed'));
@@ -141,7 +141,7 @@ const compressImageToDataUrl = async (file: File, maxLen = 800 * 1024): Promise<
   }
 };
 
-const compressVideoToDataUrl = async (file: File, maxLen = 1500 * 1024): Promise<string> => {
+const compressVideoToDataUrl = async (file: Blob, maxLen = 1500 * 1024): Promise<string> => {
   const raw = await fileToDataUrl(file);
   if (raw.length <= maxLen) return raw;
   try {
@@ -210,7 +210,7 @@ interface ChatAreaProps {
   onBack?: () => void;
 }
 
-export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
+export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
   const { user } = useAuth();
   const { startCall, activeCall, acceptCall } = useCall();
   const [messages, setMessages] = useState<Message[]>([]);
@@ -691,6 +691,12 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
   const [videoPreviewStream, setVideoPreviewStream] = useState<MediaStream | null>(null);
   const MAX_VIDEO_SECONDS = 15;
 
+  useEffect(() => {
+    if (videoPreviewRef.current && videoPreviewStream) {
+      videoPreviewRef.current.srcObject = videoPreviewStream;
+    }
+  }, [videoPreviewStream]);
+
   const startRecording = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -755,35 +761,31 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
         stream.getTracks().forEach(track => track.stop());
         setVideoPreviewStream(null);
         const videoBlob = new Blob(videoChunksRef.current, { type: 'video/webm' });
-        const reader = new FileReader();
-        reader.readAsDataURL(videoBlob);
-        reader.onloadend = async () => {
-          const base64Video = reader.result as string;
+        try {
+          const base64Video = await compressVideoToDataUrl(videoBlob);
           if (base64Video.length > 1500 * 1024) {
             showCustomAlert("Video Boyutu Sınırı", "Video çok büyük, lütfen daha kısa bir kayıt yapın.");
             return;
           }
           const enc = askEncryptFields();
           if (enc === null) return;
-          try {
-            await addDoc(collection(db, 'chats', chatId, 'messages'), {
-              videoUrl: base64Video,
-              senderId: user.uid,
-              timestamp: serverTimestamp(),
-              type: 'video',
-              status: 'sent',
-              ...enc,
-              ...viewOnceFields()
-            });
-            await updateDoc(doc(db, 'chats', chatId), {
-              lastMessage: { text: viewOnceMode ? '👁 Tek kullanımlık mesaj' : enc.encrypted ? '🔒 Video Mesajı' : '🎥 Video Mesajı', senderId: user.uid, senderName: user.displayName, timestamp: serverTimestamp() },
-              updatedAt: serverTimestamp()
-            });
-            setViewOnceMode(false);
-          } catch (error) {
-            console.error("Video kaydı gönderme hatası:", error);
-          }
-        };
+          await addDoc(collection(db, 'chats', chatId, 'messages'), {
+            videoUrl: base64Video,
+            senderId: user.uid,
+            timestamp: serverTimestamp(),
+            type: 'video',
+            status: 'sent',
+            ...enc,
+            ...viewOnceFields()
+          });
+          await updateDoc(doc(db, 'chats', chatId), {
+            lastMessage: { text: viewOnceMode ? '👁 Tek kullanımlık mesaj' : enc.encrypted ? '🔒 Video Mesajı' : '🎥 Video Mesajı', senderId: user.uid, senderName: user.displayName, timestamp: serverTimestamp() },
+            updatedAt: serverTimestamp()
+          });
+          setViewOnceMode(false);
+        } catch (error) {
+          console.error("Video kaydı gönderme hatası:", error);
+        }
       };
 
       mediaRecorder.start();
@@ -1144,14 +1146,24 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
     <div className="flex-1 flex flex-col bg-slate-50 dark:bg-slate-950 relative overflow-hidden transition-colors">
       {/* Background Decoration */}
       <div className="absolute inset-0 pointer-events-none">
-         <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-blue-100/30 blur-[100px] rounded-full" />
+         <div className="absolute top-0 right-0 w-[300px] sm:w-[500px] h-[300px] sm:h-[500px] bg-blue-100/30 blur-[100px] rounded-full" />
       </div>
 
       {/* Chat Header */}
-      <header className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700 px-8 py-3 shrink-0 relative transition-colors">
+      <header className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700 px-4 sm:px-8 py-3 shrink-0 relative transition-colors">
         {/* Row 1: Avatar + Name */}
-        <div className="flex items-center">
-          <div className="w-10 h-10 bg-gradient-to-br from-blue-400 to-indigo-500 rounded-full mr-4 shadow-sm overflow-hidden border-2 border-white shrink-0">
+        <div className="flex items-center min-w-0">
+          {onBack && (
+            <button
+              type="button"
+              onClick={onBack}
+              className="sm:hidden mr-2 p-2 -ml-2 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition-colors shrink-0"
+              title="Geri"
+            >
+              <ChevronLeft size={20} />
+            </button>
+          )}
+          <div className="w-10 h-10 bg-gradient-to-br from-blue-400 to-indigo-500 rounded-full mr-3 sm:mr-4 shadow-sm overflow-hidden border-2 border-white shrink-0">
             <img 
               src={headerInfo.photoURL} 
               alt={headerInfo.name} 
@@ -1186,7 +1198,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
         </div>
 
         {/* Row 2: Action Buttons */}
-        <div className="flex items-center gap-2 sm:gap-4 text-slate-400 relative mt-2 pl-14">
+        <div className="flex items-center gap-2 sm:gap-4 text-slate-400 relative mt-2 pl-0 sm:pl-14 overflow-x-auto pb-0.5">
           {activeCallForChat && !activeCall && (
             <button 
               onClick={() => acceptCall()}
@@ -1450,7 +1462,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
       {/* Messages */}
       <div 
         ref={scrollRef}
-        className="flex-1 overflow-y-auto p-10 space-y-6 custom-scrollbar z-10"
+        className="flex-1 overflow-y-auto p-4 sm:p-10 space-y-6 custom-scrollbar z-10"
       >
         <div className="flex justify-center mb-8">
           <span className="px-3 py-1 bg-slate-200 text-slate-500 rounded-full text-[10px] font-bold uppercase tracking-widest shadow-sm">BUGÜN</span>
@@ -1572,7 +1584,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
                       
                       {msg.type === 'image' && msg.imageUrl && (
                         <div className={cn(
-                          "relative rounded-lg overflow-hidden mb-1 min-w-[200px]",
+                          "relative rounded-lg overflow-hidden mb-1 max-w-full",
                           isDeleted && "grayscale blur-[2px] opacity-40"
                         )}>
                           {msg.encrypted && !isMe ? (
@@ -1603,7 +1615,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
 
                       {msg.type === 'video' && msg.videoUrl && (
                         <div className={cn(
-                          "relative rounded-lg overflow-hidden mb-1 min-w-[240px] bg-black/5",
+                          "relative rounded-lg overflow-hidden mb-1 max-w-full bg-black/5",
                           isDeleted && "grayscale blur-[2px] opacity-40"
                         )}>
                           {msg.encrypted && !isMe ? (
@@ -1821,8 +1833,21 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
       )}
 
       {/* Input Area */}
-      <footer className="p-6 bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-700 shrink-0 z-10 transition-colors">
-        <div className="max-w-4xl mx-auto flex items-center bg-slate-100 dark:bg-slate-800 rounded-2xl p-2 focus-within:ring-2 focus-within:ring-blue-500 transition-all relative">
+      <footer className="p-3 sm:p-6 bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-700 shrink-0 z-10 transition-colors relative">
+        <div className="max-w-4xl mx-auto flex items-center bg-slate-100 dark:bg-slate-800 rounded-2xl p-1.5 sm:p-2 focus-within:ring-2 focus-within:ring-blue-500 transition-all relative">
+          {/* Video kayıt önizlemesi — çekim alanını görmeniz için büyük önizleme */}
+          {isVideoRecording && (
+            <div className="absolute bottom-full right-0 mb-2 w-44 sm:w-56 rounded-2xl overflow-hidden border-2 border-red-500 shadow-2xl bg-black z-30 animate-in fade-in zoom-in-95 duration-200">
+              <video ref={videoPreviewRef} autoPlay playsInline muted className="w-full h-32 sm:h-40 object-cover" />
+              <div className="flex items-center justify-between gap-2 px-2 py-1.5 bg-red-600 text-white">
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <div className="w-1.5 h-1.5 bg-white rounded-full animate-ping shrink-0" />
+                  <span className="text-[10px] font-black tabular-nums truncate">{Math.floor(videoRecordingTime / 60)}:{String(videoRecordingTime % 60).padStart(2, '0')} / 0:15</span>
+                </div>
+                <button onClick={stopVideoRecording} className="px-2 py-1 bg-white text-red-600 rounded-lg text-[10px] font-black uppercase tracking-wider shrink-0">Durdur</button>
+              </div>
+            </div>
+          )}
           
           {/* Hidden inputs for real uploads */}
           <input 
@@ -1845,7 +1870,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
               type="button" 
               onClick={() => setIsEmojiMenuOpen(!isEmojiMenuOpen)}
               className={cn(
-                "p-2 text-slate-400 hover:text-slate-600 transition-colors rounded-xl",
+                "p-1.5 sm:p-2 text-slate-400 hover:text-slate-600 transition-colors rounded-xl shrink-0",
                 isEmojiMenuOpen && "bg-slate-200 text-slate-700"
               )}
             >
@@ -1884,7 +1909,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
             <button 
               type="button" 
               onClick={() => { imageInputRef.current?.click(); setShowUploadMenu(false); }}
-              className="p-2 text-slate-400 hover:text-slate-600 transition-colors"
+              className="p-1.5 sm:p-2 text-slate-400 hover:text-slate-600 transition-colors shrink-0"
               title="Fotoğraf/Video Yükle"
             >
               <Image size={20} />
@@ -1921,8 +1946,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
           </div>
 
           {isVideoRecording ? (
-            <div className="flex items-center gap-3 px-4 py-1 bg-red-50 text-red-600 rounded-xl animate-in fade-in zoom-in-95 duration-200">
-              <video ref={videoPreviewRef} autoPlay playsInline muted className="w-10 h-10 rounded-lg object-cover bg-slate-200" />
+            <div className="flex items-center gap-2 px-3 py-1 bg-red-50 text-red-600 rounded-xl shrink-0 animate-in fade-in zoom-in-95 duration-200">
               <div className="w-2 h-2 bg-red-600 rounded-full animate-ping" />
               <span className="text-xs font-black tabular-nums">{Math.floor(videoRecordingTime / 60)}:{String(videoRecordingTime % 60).padStart(2, '0')} / 0:15</span>
               <button onClick={stopVideoRecording} className="p-1 px-2 bg-red-600 text-white rounded-lg text-[10px] font-bold uppercase tracking-wider">Durdur</button>
@@ -1931,7 +1955,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
             <button 
               type="button" 
               onClick={startVideoRecording}
-              className="p-2 text-slate-400 hover:text-red-500 transition-colors"
+              className="p-1.5 sm:p-2 text-slate-400 hover:text-red-500 transition-colors shrink-0"
               title="Video Kaydet"
             >
               <Video size={20} />
@@ -1939,7 +1963,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
           )}
 
           {isRecording ? (
-            <div className="flex items-center gap-3 px-4 py-1 bg-red-50 text-red-600 rounded-xl animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex items-center gap-2 px-3 py-1 bg-red-50 text-red-600 rounded-xl shrink-0 animate-in fade-in zoom-in-95 duration-200">
                <div className="w-2 h-2 bg-red-600 rounded-full animate-ping" />
                <span className="text-xs font-black tabular-nums">{Math.floor(recordingTime / 60)}:{String(recordingTime % 60).padStart(2, '0')}</span>
                <button onClick={stopRecording} className="p-1 px-2 bg-red-600 text-white rounded-lg text-[10px] font-bold uppercase tracking-wider">Durur ve Gönder</button>
@@ -1948,7 +1972,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
             <button 
               type="button" 
               onClick={startRecording}
-              className="p-2 text-slate-400 hover:text-red-500 transition-colors"
+              className="p-1.5 sm:p-2 text-slate-400 hover:text-red-500 transition-colors shrink-0"
             >
               <Mic size={20} />
             </button>
@@ -1980,13 +2004,13 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
             <Eye size={18} />
           </button>
 
-          <form onSubmit={handleSend} className="flex-1 flex items-center">
+          <form onSubmit={handleSend} className="flex-1 min-w-0 flex items-center">
             <input 
               type="text" 
               value={inputText}
               onChange={(e) => setInputText(e.target.value)}
               placeholder={isBeingHeld ? "Sohbet beklemeye alındı..." : "Mesaj yaz..."}
-              className="flex-1 bg-transparent border-none focus:ring-0 text-sm py-2 px-4 text-slate-900 placeholder:text-slate-400"
+              className="flex-1 min-w-0 bg-transparent border-none focus:ring-0 text-sm py-2 px-2 sm:px-4 text-slate-900 placeholder:text-slate-400"
             />
             <button 
               type="submit"

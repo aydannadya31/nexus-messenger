@@ -314,10 +314,10 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
     <div className="flex flex-col h-full bg-white dark:bg-slate-900 sm:border-r border-slate-200 dark:border-slate-700 w-full sm:max-w-[350px] transition-colors">
        {/* Sidebar Header */}
       <header className="p-4 sm:p-6 space-y-3 sm:space-y-4 z-10 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700 transition-colors">
-        <div className="flex items-center justify-between">
-          <h1 className="text-2xl font-bold tracking-tight text-slate-900">A+F/C.B Messenger</h1>
+        <div className="flex items-center justify-between gap-2">
+          <h1 className="text-lg sm:text-2xl font-bold tracking-tight text-slate-900 truncate min-w-0">A+F/C.B Messenger</h1>
         </div>
-        <div className="flex items-center justify-between gap-1">
+        <div className="flex items-center justify-between gap-1 flex-wrap">
           <div className="flex flex-col items-center gap-0.5">
             <button 
               onClick={() => { markBroadcastRead(); onOpenBroadcast(); }}
