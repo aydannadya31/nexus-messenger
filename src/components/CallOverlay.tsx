@@ -121,7 +121,8 @@ export const CallOverlay = () => {
     };
 
     pc.ontrack = (event) => {
-      setRemoteStreams(prev => ({ ...prev, [pId]: event.streams[0] }));
+      const next = event.streams[0] || new MediaStream([event.track]);
+      setRemoteStreams(prev => ({ ...prev, [pId]: next }));
     };
 
     pc.onconnectionstatechange = () => {
@@ -491,11 +492,23 @@ export const CallOverlay = () => {
                           );
                         }
                         return (
-                          <AvatarOverlay
-                            photoURL={info?.photoURL}
-                            displayName={info?.displayName || 'Katılımcı'}
-                            subtitle={activeCall.mediaType === 'audio' ? 'Sesli Görüşme' : 'Kamera Kapalı'}
-                          />
+                          <>
+                            <audio
+                              autoPlay
+                              playsInline
+                              ref={el => {
+                                if (el && el.srcObject !== stream) el.srcObject = stream;
+                                if (el && el.paused) {
+                                  el.play().catch(err => console.warn('[CallOverlay] Remote audio autoplay:', err));
+                                }
+                              }}
+                            />
+                            <AvatarOverlay
+                              photoURL={info?.photoURL}
+                              displayName={info?.displayName || 'Katılımcı'}
+                              subtitle={activeCall.mediaType === 'audio' ? 'Sesli Görüşme' : 'Kamera Kapalı'}
+                            />
+                          </>
                         );
                       })()
                     ) : (
