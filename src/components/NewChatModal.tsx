@@ -239,13 +239,10 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({ onClose, onChatCreat
       return;
     }
     if (group.groupMetadata?.password) { setSelectedGroup(group); return; }
-    const adminId = group.groupMetadata?.adminId || group.groupMetadata?.createdBy;
-    if (!adminId) return;
-    await addDoc(collection(db, 'groupJoinRequests'), {
-      chatId: group.id, chatName: group.groupMetadata?.name || '', from: user.uid,
-        fromName: profile?.displayName || profile?.nickname || user.displayName || user.email, status: 'pending', timestamp: serverTimestamp()
-    });
-    addToast('Gruba katılma isteği yöneticiye gönderildi!', 'success');
+    if (group.participants?.includes(user.uid)) { onChatCreated(group.id); onClose(); return; }
+    await updateDoc(doc(db, 'chats', group.id), { participants: arrayUnion(user.uid) });
+    addToast('Gruba başarıyla katıldınız!', 'success');
+    onChatCreated(group.id);
     onClose();
   };
 

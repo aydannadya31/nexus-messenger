@@ -228,6 +228,9 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
   const [exportingPdf, setExportingPdf] = useState(false);
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
   const [lightboxZoom, setLightboxZoom] = useState(1);
+  const [lightboxPan, setLightboxPan] = useState({ x: 0, y: 0 });
+  const [panning, setPanning] = useState(false);
+  const panStartRef = useRef<{ x: number; y: number; px: number; py: number } | null>(null);
   const [longPressId, setLongPressId] = useState<string | null>(null);
   const lpTimer = useRef<number | null>(null);
   const lpFired = useRef(false);
@@ -2528,19 +2531,41 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
         {lightboxUrl && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
             className="fixed inset-0 z-[9999] bg-black/95 flex items-center justify-center"
-            onClick={() => { setLightboxUrl(null); setLightboxZoom(1); }}
-            onWheel={(e) => setLightboxZoom(z => Math.min(8, Math.max(1, z - e.deltaY * 0.002)))}>
+            onClick={() => { setLightboxUrl(null); setLightboxZoom(1); setLightboxPan({ x: 0, y: 0 }); }}
+            onWheel={(e) => setLightboxZoom(z => {
+              const nz = Math.min(8, Math.max(1, z - e.deltaY * 0.002));
+              if (nz <= 1) setLightboxPan({ x: 0, y: 0 });
+              return nz;
+            })}>
             <img src={lightboxUrl} alt="" draggable={false}
-              className="max-w-[92vw] max-h-[85vh] object-contain select-none cursor-grab"
-              style={{ transform: `scale(${lightboxZoom})` }}
+              className={cn("max-w-[92vw] max-h-[85vh] object-contain select-none touch-none", panning ? "cursor-grabbing" : lightboxZoom > 1 ? "cursor-grab" : "cursor-default")}
+              style={{ transform: `translate(${lightboxPan.x}px, ${lightboxPan.y}px) scale(${lightboxZoom})` }}
+              onPointerDown={(e) => {
+                if (lightboxZoom <= 1) return;
+                e.stopPropagation();
+                panStartRef.current = { x: e.clientX, y: e.clientY, px: lightboxPan.x, py: lightboxPan.y };
+                setPanning(true);
+                (e.target as HTMLElement).setPointerCapture(e.pointerId);
+              }}
+              onPointerMove={(e) => {
+                const s = panStartRef.current;
+                if (!s) return;
+                setLightboxPan({ x: s.px + (e.clientX - s.x), y: s.py + (e.clientY - s.y) });
+              }}
+              onPointerUp={() => { panStartRef.current = null; setPanning(false); }}
+              onPointerCancel={() => { panStartRef.current = null; setPanning(false); }}
               onClick={e => e.stopPropagation()} />
             <div className="absolute top-4 right-4 flex items-center gap-2" onClick={e => e.stopPropagation()}>
               <button onClick={() => setLightboxZoom(z => Math.min(8, z + 0.5))}
                 className="bg-white/15 hover:bg-white/25 text-white w-9 h-9 rounded-full flex items-center justify-center font-bold text-lg">+</button>
               <span className="text-white/70 text-xs font-bold w-12 text-center">%{Math.round(lightboxZoom * 100)}</span>
-              <button onClick={() => setLightboxZoom(z => Math.max(1, z - 0.5))}
+              <button onClick={() => setLightboxZoom(z => {
+                const nz = Math.max(1, z - 0.5);
+                if (nz <= 1) setLightboxPan({ x: 0, y: 0 });
+                return nz;
+              })}
                 className="bg-white/15 hover:bg-white/25 text-white w-9 h-9 rounded-full flex items-center justify-center font-bold text-lg">−</button>
-              <button onClick={() => { setLightboxUrl(null); setLightboxZoom(1); }}
+              <button onClick={() => { setLightboxUrl(null); setLightboxZoom(1); setLightboxPan({ x: 0, y: 0 }); }}
                 className="bg-white/15 hover:bg-white/25 text-white w-9 h-9 rounded-full flex items-center justify-center ml-2"><X size={18} /></button>
             </div>
           </motion.div>
