@@ -233,6 +233,11 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({ onClose, onChatCreat
 
   const requestJoinGroup = async (group: Chat) => {
     if (!user) return;
+    const banEntry = group.groupMetadata?.bannedUsers?.find(b => b.uid === user.uid);
+    if (banEntry && (!banEntry.bannedUntil || new Date(banEntry.bannedUntil.seconds * 1000 || banEntry.bannedUntil) > new Date())) {
+      addToast('Bu gruptan banlandınız!', 'error');
+      return;
+    }
     if (group.groupMetadata?.password) { setSelectedGroup(group); return; }
     const adminId = group.groupMetadata?.adminId || group.groupMetadata?.createdBy;
     if (!adminId) return;
@@ -247,6 +252,11 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({ onClose, onChatCreat
   const joinWithPassword = async () => {
     if (!user || !selectedGroup) return;
     if (joinPassword.trim() === selectedGroup.groupMetadata?.password) {
+      const banEntry = selectedGroup.groupMetadata?.bannedUsers?.find(b => b.uid === user.uid);
+      if (banEntry && (!banEntry.bannedUntil || new Date(banEntry.bannedUntil.seconds * 1000 || banEntry.bannedUntil) > new Date())) {
+        addToast('Bu gruptan banlandınız!', 'error');
+        return;
+      }
       await updateDoc(doc(db, 'chats', selectedGroup.id), { participants: arrayUnion(user.uid) });
       addToast('Gruba başarıyla katıldınız!', 'success');
       onChatCreated(selectedGroup.id);

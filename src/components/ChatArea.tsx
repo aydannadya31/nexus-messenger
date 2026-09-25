@@ -15,9 +15,11 @@ import { encryptMessage, decryptMessage } from '../lib/crypto';
 const toBase64 = (str: string) => btoa(unescape(encodeURIComponent(str)));
 const fromBase64 = (b64: string) => decodeURIComponent(escape(atob(b64)));
 
-const DecryptContent: React.FC<{ msg: Message; onClose: () => void }> = ({ msg, onClose }) => {
+const DecryptContent: React.FC<{ msg: Message; onClose: () => void; canBypass?: boolean }> = ({ msg, onClose, canBypass }) => {
   const [pwd, setPwd] = useState('');
-  const [decrypted, setDecrypted] = useState<{ text?: string; imageUrl?: string; videoUrl?: string; audioUrl?: string } | null>(null);
+  const [decrypted, setDecrypted] = useState<{ text?: string; imageUrl?: string; videoUrl?: string; audioUrl?: string } | null>(
+    canBypass ? { text: msg.text, imageUrl: msg.imageUrl, videoUrl: msg.videoUrl, audioUrl: msg.audioUrl } : null
+  );
   const [error, setError] = useState('');
 
   const handleSubmit = () => {
@@ -275,6 +277,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
   const [kickMemberId, setKickMemberId] = useState<string | null>(null);
   const [kickDuration, setKickDuration] = useState<number>(0);
   const [kickDurationUnit, setKickDurationUnit] = useState<'minutes' | 'hours' | 'days'>('minutes');
+  const [kickMode, setKickMode] = useState<'kick' | 'temp' | 'untilAllowed'>('kick');
   const [allMembers, setAllMembers] = useState<UserProfile[]>([]);
   const [loadingMembers, setLoadingMembers] = useState(false);
 
@@ -348,27 +351,30 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
 
   const handleKickMember = async (targetId: string) => {
     if (!chatId || !chat || !isGroupAdmin) return;
+    if (kickMode === 'temp' && kickDuration <= 0) return;
     try {
       const newParticipants = chat.participants.filter(id => id !== targetId);
-      const now = new Date();
-      let bannedUntil = null;
-      if (kickDuration > 0) {
-        let ms = 0;
-        if (kickDurationUnit === 'minutes') ms = kickDuration * 60 * 1000;
-        else if (kickDurationUnit === 'hours') ms = kickDuration * 3600 * 1000;
-        else ms = kickDuration * 86400 * 1000;
-        bannedUntil = new Date(now.getTime() + ms);
-      }
-      const bannedUser = allMembers.find(m => m.uid === targetId);
       const newBanned = chat.groupMetadata?.bannedUsers || [];
-      if (bannedUser) {
-        newBanned.push({
-          uid: targetId,
-          displayName: bannedUser.displayName,
-          bannedUntil: bannedUntil,
-          bannedAt: now,
-          bannedBy: user?.uid || ''
-        });
+      if (kickMode !== 'kick') {
+        const now = new Date();
+        let bannedUntil = null;
+        if (kickMode === 'temp') {
+          let ms = 0;
+          if (kickDurationUnit === 'minutes') ms = kickDuration * 60 * 1000;
+          else if (kickDurationUnit === 'hours') ms = kickDuration * 3600 * 1000;
+          else ms = kickDuration * 86400 * 1000;
+          bannedUntil = new Date(now.getTime() + ms);
+        }
+        const bannedUser = allMembers.find(m => m.uid === targetId);
+        if (bannedUser) {
+          newBanned.push({
+            uid: targetId,
+            displayName: bannedUser.displayName,
+            bannedUntil: bannedUntil,
+            bannedAt: now,
+            bannedBy: user?.uid || ''
+          });
+        }
       }
       await updateDoc(doc(db, 'chats', chatId), {
         participants: newParticipants,
@@ -378,6 +384,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
       setShowKickMember(false);
       setKickMemberId(null);
       setKickDuration(0);
+      setKickMode('kick');
     } catch (error) {
       console.error("Kick member error:", error);
     }
@@ -495,6 +502,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
 
   const handleHoldToggle = async () => {
     if (!chatId || !user || !chat) return;
+    if (chat.type === 'group' && !isGroupAdmin) return;
     try {
       if (amIHolding) {
         await updateDoc(doc(db, 'chats', chatId), { heldBy: null, holdExpiresAt: null });
@@ -616,22 +624,44 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
   const viewOnceFields = () => (viewOnceMode ? { viewOnce: true } : {});
 
   const openViewOnce = (msg: Message) => {
-    setViewOnceUnlocked(!msg.encrypted);
+    setViewOnceUnlocked(!msg.encrypted || isGroupAdmin);
     setViewOnceModal(msg);
+  };
+
+  const canOpenViewOnce = (msg: Message) => {
+    if (isGroupAdmin) return true;
+    if (msg.viewOnceOpened) return false;
+    return !(msg.viewOnceViews || []).includes(user?.uid || '');
+  };
+
+  const viewOnceSenderStatus = (msg: Message) => {
+    if (chat?.type !== 'group') return msg.viewOnceOpened ? 'görüntülendi' : 'henüz açılmadı';
+    const total = Math.max(0, chat.participants.length - 1);
+    const viewed = (msg.viewOnceViews || []).length;
+    const remaining = Math.max(0, total - viewed);
+    return remaining === 0 ? 'görüntülendi' : `kalan ${remaining}/${total}`;
   };
 
   const closeViewOnce = async () => {
     const msg = viewOnceModal;
     setViewOnceModal(null);
     setViewOnceUnlocked(false);
-    if (msg && !msg.viewOnceOpened && msg.id && chatId && msg.senderId !== user?.uid) {
-      try {
+    if (!msg || !msg.id || !chatId || msg.senderId === user?.uid) return;
+    try {
+      if (chat?.type === 'group') {
+        if (msg.viewOnceOpened) return;
+        if (!(msg.viewOnceViews || []).includes(user?.uid || '')) {
+          await updateDoc(doc(db, 'chats', chatId, 'messages', msg.id), {
+            viewOnceViews: arrayUnion(user?.uid || '')
+          });
+        }
+      } else if (!msg.viewOnceOpened) {
         await updateDoc(doc(db, 'chats', chatId, 'messages', msg.id), {
-          viewOnceOpened: true,
+          viewOnceOpened: true
         });
-      } catch (error) {
-        console.error('ViewOnce open error:', error);
       }
+    } catch (error) {
+      console.error('ViewOnce open error:', error);
     }
   };
 
@@ -1140,6 +1170,20 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
       return;
     }
 
+    if (!editingMsg?.id && !isGroupAdmin && !isSystemAdmin) {
+      const cutoff = Date.now() - 60000;
+      const recentSame = messages.filter(m => {
+        if (m.senderId !== user.uid || m.text !== inputText) return false;
+        const t = m.timestamp;
+        const ms = t?.toMillis ? t.toMillis() : t?.seconds ? t.seconds * 1000 : 0;
+        return ms >= cutoff;
+      });
+      if (recentSame.length >= 3) {
+        showCustomAlert('Sınır Aşıldı', 'Aynı mesajı 1 dakika içinde en fazla 3 kez gönderebilirsin.');
+        return;
+      }
+    }
+
     const text = inputText;
     setInputText('');
 
@@ -1376,15 +1420,16 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
           </button>
 
           {/* Beklemeye Al */}
-          {(chat?.type === 'private' || isGroupAdmin) && (
-            <button 
-              onClick={handleHoldToggle}
-              className={cn("transition-colors p-1 rounded-full hover:bg-amber-50 dark:hover:bg-amber-950 relative", amIHolding ? "text-amber-500 bg-amber-50 dark:bg-amber-950" : "hover:text-amber-500")}
-              title={amIHolding ? 'Beklemeden Çıkar' : 'Beklemeye Al'}
-            >
-              {amIHolding ? <Play size={18} /> : <Pause size={18} />}
-            </button>
-          )}
+          <button 
+            onClick={handleHoldToggle}
+            disabled={chat?.type === 'group' && !isGroupAdmin}
+            className={cn("transition-colors p-1 rounded-full relative", chat?.type === 'group' && !isGroupAdmin
+              ? "text-slate-400 opacity-40 cursor-not-allowed"
+              : amIHolding ? "text-amber-500 bg-amber-50 dark:bg-amber-950 hover:bg-amber-100 dark:hover:bg-amber-900" : "hover:text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-950")}
+            title={chat?.type === 'group' && !isGroupAdmin ? 'Sadece grup yöneticisi kullanabilir' : amIHolding ? 'Beklemeden Çıkar' : 'Beklemeye Al'}
+          >
+            {amIHolding ? <Play size={18} /> : <Pause size={18} />}
+          </button>
 
           {/* User Info */}
           <button 
@@ -1706,21 +1751,21 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
                       ) : (<>
 
                       {msg.viewOnce && !isMe ? (
-                        msg.viewOnceOpened ? (
-                          <div className="flex items-center gap-2 text-[11px] font-bold italic opacity-50 py-1">
-                            <EyeOff size={12} /> Tek seferlik görüntülendi
-                          </div>
-                        ) : (
+                        canOpenViewOnce(msg) ? (
                           <button onClick={() => openViewOnce(msg)}
                             className="flex items-center gap-2 text-sm font-bold text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/30 hover:bg-amber-100 px-3 py-2.5 rounded-xl transition-colors w-full text-left">
                             <Eye size={16} />
                             Tek bakışlık mesajı açmak için dokun
                           </button>
+                        ) : (
+                          <div className="flex items-center gap-2 text-[11px] font-bold italic opacity-50 py-1">
+                            <EyeOff size={12} /> Tek seferlik görüntülendi
+                          </div>
                         )
                       ) : (<>
                       {msg.viewOnce && isMe && (
                         <div className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-wider text-amber-500 dark:text-amber-400 mb-1.5 flex-wrap">
-                          <Eye size={11} /> Tek bakışlık · {msg.viewOnceOpened ? 'görüntülendi' : 'henüz açılmadı'}
+                          <Eye size={11} /> Tek bakışlık · {viewOnceSenderStatus(msg)}
                           <button
                             type="button"
                             onClick={(e) => { e.stopPropagation(); resendViewOnce(msg); }}
@@ -2366,7 +2411,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
                 <h3 className="text-sm font-black text-slate-900 dark:text-slate-100 flex items-center gap-2"><Lock size={14} /> Şifreli Mesaj</h3>
                 <button onClick={() => setDecryptModal(null)} className="p-1 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full text-slate-400"><X size={18} /></button>
               </div>
-              <DecryptContent msg={decryptModal} onClose={() => setDecryptModal(null)} />
+                <DecryptContent msg={decryptModal} onClose={() => setDecryptModal(null)} canBypass={isGroupAdmin} />
             </motion.div>
           </div>
         )}
@@ -2383,7 +2428,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
                 <button onClick={() => closeViewOnce()} className="p-1 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full text-slate-400"><X size={18} /></button>
               </div>
               {viewOnceModal.encrypted && !viewOnceUnlocked ? (
-                <DecryptContent msg={viewOnceModal} onClose={() => { setViewOnceUnlocked(true); }} />
+                <DecryptContent msg={viewOnceModal} onClose={() => { setViewOnceUnlocked(true); }} canBypass={isGroupAdmin} />
               ) : (
                 <div className="space-y-3">
                   {viewOnceModal.type === 'text' && (
@@ -2504,7 +2549,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
                             </div>
                             {!isAdmin && !isMe && !bannedInfo && (
                               <div className="flex gap-1">
-                                <button onClick={() => { setKickMemberId(m.uid); setShowKickMember(true); }}
+                                <button onClick={() => { setKickMemberId(m.uid); setKickMode('kick'); setKickDuration(0); setShowKickMember(true); }}
                                   className="px-2 py-1 bg-red-50 text-red-600 rounded-lg text-[9px] font-bold hover:bg-red-100 transition-all flex items-center gap-1">
                                   <UserX size={10} /> At
                                 </button>
@@ -2523,27 +2568,42 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
                   )}
                 </div>
 
-                {/* Kick Duration Modal */}
+                {/* Kick Mode Modal */}
                 {showKickMember && kickMemberId && (
                 <div className="bg-amber-50 dark:bg-amber-950 rounded-2xl p-4 border border-amber-200 dark:border-amber-900">
                     <h4 className="text-xs font-black text-amber-700 dark:text-amber-300 uppercase tracking-wider mb-3">Kullanıcıyı Gruptan At</h4>
-                    <p className="text-[10px] text-amber-600 dark:text-amber-400 font-bold mb-3">Süreli ban eklemek istiyor musunuz? (0 = sadece at, süreli ban yok)</p>
+                    <div className="flex flex-col gap-1.5 mb-3">
+                      <button onClick={() => setKickMode('kick')}
+                        className={cn("text-left px-3 py-2 rounded-xl text-[11px] font-bold border transition-all", kickMode === 'kick' ? "bg-white dark:bg-slate-900 border-amber-400 text-amber-700 dark:text-amber-300" : "border-amber-200 dark:border-amber-800 text-amber-600 dark:text-amber-400 opacity-70 hover:opacity-100")}>
+                        Sadece Sohbetten At - yeniden katılabilir
+                      </button>
+                      <button onClick={() => setKickMode('temp')}
+                        className={cn("text-left px-3 py-2 rounded-xl text-[11px] font-bold border transition-all", kickMode === 'temp' ? "bg-white dark:bg-slate-900 border-amber-400 text-amber-700 dark:text-amber-300" : "border-amber-200 dark:border-amber-800 text-amber-600 dark:text-amber-400 opacity-70 hover:opacity-100")}>
+                        Süreli Banla - süre dolunca geri gelebilir
+                      </button>
+                      <button onClick={() => setKickMode('untilAllowed')}
+                        className={cn("text-left px-3 py-2 rounded-xl text-[11px] font-bold border transition-all", kickMode === 'untilAllowed' ? "bg-white dark:bg-slate-900 border-amber-400 text-amber-700 dark:text-amber-300" : "border-amber-200 dark:border-amber-800 text-amber-600 dark:text-amber-400 opacity-70 hover:opacity-100")}>
+                        Yönetici İzin Verene Kadar At
+                      </button>
+                    </div>
+                    {kickMode === 'temp' && (
                     <div className="flex items-center gap-2 mb-4">
-                      <input type="number" value={kickDuration} onChange={e => setKickDuration(Number(e.target.value))} min={0}
+                      <input type="number" value={kickDuration} onChange={e => setKickDuration(Number(e.target.value))} min={1}
                         className="w-20 bg-white dark:bg-slate-900 border-2 border-amber-200 dark:border-amber-800 rounded-xl px-3 py-2 text-sm font-bold text-center outline-none focus:border-amber-500 transition-all text-slate-900 dark:text-slate-100" />
-                      <select value={kickDuration} onChange={e => setKickDurationUnit(e.target.value as any)}
+                      <select value={kickDurationUnit} onChange={e => setKickDurationUnit(e.target.value as any)}
                         className="bg-white dark:bg-slate-900 border-2 border-amber-200 dark:border-amber-800 rounded-xl px-3 py-2 text-sm font-bold outline-none focus:border-amber-500 transition-all text-slate-900 dark:text-slate-100">
                         <option value="minutes">Dakika</option>
                         <option value="hours">Saat</option>
                         <option value="days">Gün</option>
                       </select>
                     </div>
+                    )}
                     <div className="flex gap-2">
-                      <button onClick={() => handleKickMember(kickMemberId)}
-                        className="flex-1 py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold transition-all">
-                        {kickDuration > 0 ? 'Banla ve At' : 'Sadece At'}
+                      <button onClick={() => handleKickMember(kickMemberId)} disabled={kickMode === 'temp' && kickDuration <= 0}
+                        className={cn("flex-1 py-2.5 rounded-xl text-xs font-bold transition-all text-white", kickMode === 'temp' && kickDuration <= 0 ? "bg-red-300 cursor-not-allowed" : "bg-red-600 hover:bg-red-700")}>
+                        {kickMode === 'kick' ? 'Sadece At' : kickMode === 'temp' ? 'Banla ve At' : 'İzin Verene Kadar At'}
                       </button>
-                      <button onClick={() => { setShowKickMember(false); setKickMemberId(null); setKickDuration(0); }}
+                      <button onClick={() => { setShowKickMember(false); setKickMemberId(null); setKickDuration(0); setKickMode('kick'); }}
                         className="flex-1 py-2.5 bg-slate-200 text-slate-600 rounded-xl text-xs font-bold hover:bg-slate-300 transition-all">
                         İptal
                       </button>

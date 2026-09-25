@@ -78,6 +78,7 @@ export interface Message {
   editedAt?: any;
   viewOnce?: boolean;
   viewOnceOpened?: boolean;
+  viewOnceViews?: string[];
 }
 
 export interface Call {
