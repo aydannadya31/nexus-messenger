@@ -188,7 +188,7 @@ export const ProfileSetup: React.FC<ProfileSetupProps> = ({
                   <Check size={32} />
                 </div>
                 <h2 className="text-xl font-black tracking-tight">Profil Oluşturuldu!</h2>
-                <p className="text-green-100 text-xs font-bold mt-1">A+F/C.B Messenger'a hoş geldin</p>
+                <p className="text-green-100 text-xs font-bold mt-1">Nexus Messenger'a hoş geldin</p>
               </div>
               <div className="p-8 text-center space-y-4">
                 <div className="w-24 h-24 rounded-3xl overflow-hidden mx-auto border-4 border-white shadow-xl -mt-16 relative z-10">

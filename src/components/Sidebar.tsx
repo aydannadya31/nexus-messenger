@@ -4,6 +4,7 @@ import { db, logout } from '../lib/firebase';
 import { useAuth } from './AuthProvider';
 import { useToast } from '../lib/toast';
 import { Chat, UserProfile } from '../types';
+import Logo from './Logo';
 import { cn } from '../lib/utils';
 import { LogOut, MessageSquarePlus, Search, User as UserIcon, ChevronUp, Settings, Radio, X, MoreVertical, UserPlus, Users, Shield, Moon, Sun } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
@@ -315,7 +316,10 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
        {/* Sidebar Header */}
       <header className="p-4 sm:p-6 space-y-3 sm:space-y-4 z-10 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700 transition-colors">
         <div className="flex items-center justify-between gap-2">
-          <h1 className="text-lg sm:text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-100 truncate min-w-0">A+F/C.B Messenger</h1>
+          <div className="flex items-center gap-2 min-w-0">
+            <Logo className="w-7 h-7 sm:w-8 sm:h-8 shrink-0" />
+            <h1 className="text-lg sm:text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-100 truncate min-w-0">Nexus Messenger</h1>
+          </div>
         </div>
         <div className="flex items-center justify-between gap-1 flex-wrap">
           <div className="flex flex-col items-center gap-0.5">
