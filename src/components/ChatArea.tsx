@@ -226,6 +226,42 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
   const [headerMenuPos, setHeaderMenuPos] = useState({ x: 0, y: 0 });
   const [isEmojiMenuOpen, setIsEmojiMenuOpen] = useState(false);
   const [exportingPdf, setExportingPdf] = useState(false);
+  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
+  const [lightboxZoom, setLightboxZoom] = useState(1);
+  const [longPressId, setLongPressId] = useState<string | null>(null);
+  const lpTimer = useRef<number | null>(null);
+  const lpFired = useRef(false);
+  const startLongPress = (msgId: string) => {
+    lpFired.current = false;
+    if (lpTimer.current) window.clearTimeout(lpTimer.current);
+    lpTimer.current = window.setTimeout(() => {
+      lpFired.current = true;
+      setLongPressId(msgId);
+    }, 1500);
+  };
+  const cancelLongPress = () => {
+    if (lpTimer.current) { window.clearTimeout(lpTimer.current); lpTimer.current = null; }
+  };
+  const downloadMedia = async (url: string, prefix: string) => {
+    try {
+      const res = await fetch(url);
+      const blob = await res.blob();
+      const ext = ((blob.type.split('/')[1]) || 'bin').replace('jpeg', 'jpg');
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `${prefix}-${new Date().toISOString().slice(0,10)}.${ext}`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+    } catch {
+      window.open(url, '_blank');
+    }
+    setLongPressId(null);
+  };
+  const lpProps = (msg: Message) => ({
+    onPointerDown: () => msg.id && startLongPress(msg.id),
+    onPointerUp: cancelLongPress,
+    onPointerLeave: cancelLongPress,
+  });
   const [showDeletedMessages, setShowDeletedMessages] = useState(false);
   const [batchMode, setBatchMode] = useState(false);
   const [selectedMsgs, setSelectedMsgs] = useState<Set<string>>(new Set());
@@ -1536,46 +1572,59 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
                         doc.line(15, 31, 195, 31);
                         doc.setFontSize(9);
                         let y = 38;
+                        let fileNo = 0;
+                        const mediaDownloads: { name: string; blob: Blob }[] = [];
                         const pageBreak = () => { if (y > 275) { doc.addPage(); y = 20; } };
                         const writeLine = (line: string) => {
                           const wrapped = doc.splitTextToSize(fixTr(line), 180);
                           for (const wl of wrapped) { pageBreak(); doc.text(wl, 15, y); y += 4.5; }
+                        };
+                        const queueMedia = async (url: string, prefix: string) => {
+                          try {
+                            const res = await fetch(url);
+                            const blob = await res.blob();
+                            const ext = ((blob.type.split('/')[1]) || 'bin').replace('jpeg', 'jpg');
+                            fileNo += 1;
+                            const name = `${prefix}-${String(fileNo).padStart(3, '0')}.${ext}`;
+                            mediaDownloads.push({ name, blob });
+                            return name;
+                          } catch {
+                            return null;
+                          }
                         };
                         for (const m of items) {
                           try {
                             const sender = participantInfo[m.senderId];
                             const name = sender?.displayName || m.senderId.slice(0, 8);
                             const time = m.timestamp?.toDate?.() ? m.timestamp.toDate().toLocaleString('tr-TR') : '';
-                            const text = m.text || (m.imageUrl ? '[fotograf]' : m.videoUrl ? '[video]' : m.audioUrl ? '[ses]' : '[medya]');
                             const edited = m.edited ? ' (duzenlendi)' : '';
-                            writeLine(`[${time}] ${name}: ${text}${edited}`);
+                            let text = m.text || '';
                             if (m.imageUrl) {
-                              try {
-                                const img = await loadHtmlImage(m.imageUrl, 5000);
-                                const dataUrl = htmlImageToJpegDataUrl(img);
-                                const maxW = 120;
-                                const maxH = 90;
-                                const scale = Math.min(maxW / img.naturalWidth, maxH / img.naturalHeight, 1);
-                                const w = Math.max(img.naturalWidth * scale, 20);
-                                const h = Math.max(img.naturalHeight * scale, 15);
-                                if (y + h > 280) { doc.addPage(); y = 20; }
-                                doc.addImage(dataUrl, 'JPEG', 15, y, w, h);
-                                y += h + 3;
-                              } catch {
-                                writeLine(`[fotoğraf eklenemedi: ${m.imageUrl}]`);
-                              }
+                              const fname = await queueMedia(m.imageUrl, 'gorsel');
+                              text = (text ? text + ' ' : '') + (fname ? `[gorsel: ${fname}]` : '[gorsel indirilemedi]');
                             }
-                            if (m.videoUrl || m.audioUrl) {
-                              const u = m.videoUrl || m.audioUrl;
-                              const kind = m.videoUrl ? 'Video' : 'Ses';
-                              const wrappedUrl = doc.splitTextToSize(`${kind} dosyasi: ${u}`, 180);
-                              for (const wl of wrappedUrl) { pageBreak(); doc.textWithLink(wl, 15, y, { url: u! }); y += 4.5; }
+                            if (m.videoUrl) {
+                              const fname = await queueMedia(m.videoUrl, 'video');
+                              text = (text ? text + ' ' : '') + (fname ? `[video: ${fname}]` : '[video indirilemedi]');
                             }
+                            if (m.audioUrl) {
+                              const fname = await queueMedia(m.audioUrl, 'ses');
+                              text = (text ? text + ' ' : '') + (fname ? `[ses: ${fname}]` : '[ses indirilemedi]');
+                            }
+                            if (!text) text = m.type === 'call' ? '[gorusme]' : '[medya]';
+                            writeLine(`[${time}] ${name}: ${text}${edited}`);
                           } catch {
                             writeLine(`[mesaj okunamadi]`);
                           }
                         }
                         doc.save(`sohbet-${fileSafe}-${new Date().toISOString().slice(0,10)}.pdf`);
+                        for (const d of mediaDownloads) {
+                          const a = document.createElement('a');
+                          a.href = URL.createObjectURL(d.blob);
+                          a.download = d.name;
+                          a.click();
+                          URL.revokeObjectURL(a.href);
+                        }
                       } catch (e) {
                         console.error('PDF export failed', e);
                         alert('PDF hazırlanırken hata oluştu. Lütfen tekrar deneyin.');
@@ -1834,8 +1883,14 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
                                 src={msg.imageUrl} 
                                 alt="Paylaşılan görsel" 
                                 className="max-w-full h-auto object-cover hover:scale-105 transition-transform duration-500 cursor-pointer"
-                                onClick={() => !isDeleted && window.open(msg.imageUrl, '_blank')}
+                                onClick={() => { if (lpFired.current) { lpFired.current = false; return; } if (!isDeleted) setLightboxUrl(msg.imageUrl); }}
+                                {...lpProps(msg)}
                               />
+                              {longPressId === msg.id && msg.imageUrl && (
+                                <button onClick={(e) => { e.stopPropagation(); downloadMedia(msg.imageUrl, 'gorsel'); }}
+                                  className="absolute bottom-2 right-2 z-20 bg-black/70 text-white rounded-full p-2 backdrop-blur-sm hover:bg-black/90"
+                                  title="İndir"><Download size={16} /></button>
+                              )}
                             </>
                           )}
                         </div>
@@ -1845,7 +1900,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
                         <div className={cn(
                           "relative rounded-lg overflow-hidden mb-1 max-w-full bg-black/5",
                           isDeleted && "grayscale blur-[2px] opacity-40"
-                        )}>
+                        )} {...lpProps(msg)} onClick={(e) => { if (lpFired.current) { lpFired.current = false; e.stopPropagation(); } }}>
                           {msg.encrypted && !isMe ? (
                             <>
                               <video src={msg.videoUrl} className="max-w-full h-auto blur-[12px]" playsInline />
@@ -1867,13 +1922,18 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
                                 controls={!isDeleted}
                                 playsInline
                               />
+                              {longPressId === msg.id && (
+                                <button onClick={(e) => { e.stopPropagation(); downloadMedia(msg.videoUrl, 'video'); }}
+                                  className="absolute bottom-2 right-2 z-20 bg-black/70 text-white rounded-full p-2 backdrop-blur-sm hover:bg-black/90"
+                                  title="İndir"><Download size={16} /></button>
+                              )}
                             </>
                           )}
                         </div>
                       )}
 
                       {msg.type === 'audio' && msg.audioUrl && (
-                        <div className={cn(isDeleted && "grayscale opacity-40 pointer-events-none", "flex items-center gap-1.5")}>
+                        <div className={cn(isDeleted && "grayscale opacity-40 pointer-events-none", "relative flex items-center gap-1.5")} {...lpProps(msg)}>
                           {msg.encrypted && !isMe ? (
                             <button onClick={() => setDecryptModal(msg)}
                               className="text-[10px] font-bold flex items-center gap-1 text-slate-500 hover:text-slate-700"><Lock size={11} /> Şifreli Ses Mesajı (dokunun)</button>
@@ -1881,6 +1941,11 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
                             <>
                               {msg.encrypted && <Lock size={13} className="shrink-0" />}
                               <AudioPlayer url={msg.audioUrl} isMe={isMe} />
+                              {longPressId === msg.id && (
+                                <button onClick={(e) => { e.stopPropagation(); downloadMedia(msg.audioUrl, 'ses'); }}
+                                  className="absolute bottom-0 right-0 z-20 bg-black/70 text-white rounded-full p-2 backdrop-blur-sm hover:bg-black/90"
+                                  title="İndir"><Download size={16} /></button>
+                              )}
                             </>
                           )}
                         </div>
@@ -2062,7 +2127,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
 
       {/* Input Area */}
       <footer className="p-3 sm:p-6 bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-700 shrink-0 z-10 transition-colors relative">
-        <div className="max-w-4xl mx-auto flex items-center bg-slate-100 dark:bg-slate-800 rounded-2xl p-1.5 sm:p-2 focus-within:ring-2 focus-within:ring-blue-500 transition-all relative">
+        <div className="max-w-4xl mx-auto flex flex-col bg-slate-100 dark:bg-slate-800 rounded-2xl p-1.5 sm:p-2 focus-within:ring-2 focus-within:ring-blue-500 transition-all relative">
           {/* Video kayıt önizlemesi — çekim alanını görmeniz için büyük önizleme */}
           {isVideoRecording && (
             <div className="absolute bottom-full right-0 mb-2 w-44 sm:w-56 rounded-2xl overflow-hidden border-2 border-red-500 shadow-2xl bg-black z-30 animate-in fade-in zoom-in-95 duration-200">
@@ -2093,6 +2158,8 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
             className="hidden"
           />
 
+          {/* Buton satırı — mesaj yazma alanı bunun altına geçti */}
+          <div className="flex items-center gap-0.5 flex-wrap">
           <div className="relative">
             <button 
               type="button" 
@@ -2233,8 +2300,10 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
           >
             <Eye size={18} />
           </button>
+          </div>
 
-          <form onSubmit={handleSend} className="flex-1 min-w-0 flex items-center">
+          {/* Mesaj yazma alanı — butonların alt satırı */}
+          <form onSubmit={handleSend} className="flex items-center mt-1.5 pl-1">
             <input 
               type="text" 
               value={inputText}
@@ -2451,6 +2520,30 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
               )}
             </motion.div>
           </div>
+        )}
+      </AnimatePresence>
+
+      {/* Resim Zoom Lightbox */}
+      <AnimatePresence>
+        {lightboxUrl && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[9999] bg-black/95 flex items-center justify-center"
+            onClick={() => { setLightboxUrl(null); setLightboxZoom(1); }}
+            onWheel={(e) => setLightboxZoom(z => Math.min(8, Math.max(1, z - e.deltaY * 0.002)))}>
+            <img src={lightboxUrl} alt="" draggable={false}
+              className="max-w-[92vw] max-h-[85vh] object-contain select-none cursor-grab"
+              style={{ transform: `scale(${lightboxZoom})` }}
+              onClick={e => e.stopPropagation()} />
+            <div className="absolute top-4 right-4 flex items-center gap-2" onClick={e => e.stopPropagation()}>
+              <button onClick={() => setLightboxZoom(z => Math.min(8, z + 0.5))}
+                className="bg-white/15 hover:bg-white/25 text-white w-9 h-9 rounded-full flex items-center justify-center font-bold text-lg">+</button>
+              <span className="text-white/70 text-xs font-bold w-12 text-center">%{Math.round(lightboxZoom * 100)}</span>
+              <button onClick={() => setLightboxZoom(z => Math.max(1, z - 0.5))}
+                className="bg-white/15 hover:bg-white/25 text-white w-9 h-9 rounded-full flex items-center justify-center font-bold text-lg">−</button>
+              <button onClick={() => { setLightboxUrl(null); setLightboxZoom(1); }}
+                className="bg-white/15 hover:bg-white/25 text-white w-9 h-9 rounded-full flex items-center justify-center ml-2"><X size={18} /></button>
+            </div>
+          </motion.div>
         )}
       </AnimatePresence>
 

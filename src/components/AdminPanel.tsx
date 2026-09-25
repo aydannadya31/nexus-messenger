@@ -31,9 +31,14 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
   const [userChats, setUserChats] = useState<Record<string, string>>({});
   const [banDuration, setBanDuration] = useState({ value: 30, unit: 'minutes' as 'minutes' | 'hours' | 'days' });
   const [loadingUsers, setLoadingUsers] = useState(false);
+  const [groups, setGroups] = useState<Chat[]>([]);
+  const [selectedGroup, setSelectedGroup] = useState<Chat | null>(null);
+  const [groupMessages, setGroupMessages] = useState<Message[]>([]);
+  const [groupSearch, setGroupSearch] = useState('');
+  const [loadingGroups, setLoadingGroups] = useState(false);
 
   // Tab: users, admin-msgs, deleted, encrypted, emails
-  const [tab, setTab] = useState<'users' | 'admin-msgs' | 'deleted' | 'encrypted' | 'delete-requests' | 'emails'>('users');
+  const [tab, setTab] = useState<'users' | 'groups' | 'admin-msgs' | 'deleted' | 'encrypted' | 'delete-requests' | 'emails'>('users');
 
   const [adminMessages, setAdminMessages] = useState<{ id: string; message: string; userId: string; userDisplayName: string; userNickname?: string; userUIN?: string; timestamp: any }[]>([]);
   const [deletedMessages, setDeletedMessages] = useState<any[]>([]);
@@ -266,9 +271,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
             orderBy('timestamp', 'desc')
           ));
           msgSnap.docs.forEach(d => {
+            const data = d.data() as Message;
+            if (data.senderId !== u.uid) return;
             allMessages.push({
               chatId,
-              msg: { id: d.id, ...d.data() } as Message,
+              msg: { id: d.id, ...data } as Message,
               chatName: chatNames[chatId]
             });
           });
@@ -290,6 +297,57 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
       addToast('Kullanıcı mesajları yüklenemedi. Admin yetkilerinizi kontrol edin.', 'error');
     }
   };
+
+  const uidName = (uid: string) => users.find(u => u.uid === uid)?.displayName || uid.slice(0, 8);
+
+  const typeBadge = (m: Message) => (
+    <span className={cn(
+      "px-1.5 py-0.5 rounded-md text-[9px] font-black uppercase",
+      m.viewOnce ? "bg-purple-500/20 text-purple-300" : m.encrypted ? "bg-amber-500/20 text-amber-300" : "bg-slate-600/40 text-slate-300"
+    )}>
+      {m.viewOnce ? 'Tek Bakışlık' : m.encrypted ? 'Şifreli' : 'Şifresiz'}
+    </span>
+  );
+
+  const kindBadge = (m: Message) => (
+    <span className="px-1.5 py-0.5 rounded-md text-[9px] font-black uppercase bg-blue-500/20 text-blue-300">
+      {m.type === 'image' ? 'Resim' : m.type === 'video' ? 'Video' : m.type === 'audio' ? 'Ses' : m.type === 'call' ? 'Arama' : 'Metin'}
+    </span>
+  );
+
+  const loadGroupMessages = async (g: Chat) => {
+    setSelectedGroup(g);
+    setGroupMessages([]);
+    try {
+      const msgSnap = await getDocs(query(
+        collection(db, 'chats', g.id, 'messages'),
+        orderBy('timestamp', 'desc'),
+        limit(200)
+      ));
+      setGroupMessages(msgSnap.docs.map(d => ({ id: d.id, ...d.data() }) as Message));
+    } catch (err) {
+      console.error('loadGroupMessages error:', err);
+      addToast('Grup mesajları yüklenemedi.', 'error');
+    }
+  };
+
+  useEffect(() => {
+    if (step !== 'panel' || tab !== 'groups') return;
+    let cancelled = false;
+    setLoadingGroups(true);
+    (async () => {
+      try {
+        const snap = await getDocs(query(collection(db, 'chats'), where('type', '==', 'group')));
+        if (!cancelled) setGroups(snap.docs.map(d => ({ id: d.id, ...d.data() }) as Chat));
+      } catch (err) {
+        console.error('loadGroups error:', err);
+        if (!cancelled) setGroups([]);
+      } finally {
+        if (!cancelled) setLoadingGroups(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [step, tab]);
 
   const permanentlyDeleteMessage = async (chatId: string, msgId: string) => {
     try {
@@ -468,6 +526,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
             Kullanıcılar
           </button>
           <button
+            onClick={() => { setTab('groups'); setSelectedGroup(null); }}
+            className={cn("px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wider transition-all", tab === 'groups' ? "bg-blue-600 text-white" : "bg-slate-800 text-slate-400 hover:text-white")}
+          >
+            Gruplar
+          </button>
+          <button
             onClick={() => setTab('admin-msgs')}
             className={cn("px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wider transition-all", tab === 'admin-msgs' ? "bg-blue-600 text-white" : "bg-slate-800 text-slate-400 hover:text-white")}
           >
@@ -612,7 +676,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                             isDeleted ? "border-red-900/50" : isBlocked ? "border-amber-600/50" : "border-slate-700/50"
                           )}>
                             <div className="flex items-center justify-between mb-2">
-                              <span className="text-[10px] text-blue-400 font-bold">{chatName}</span>
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="text-[10px] text-blue-400 font-bold">→ {chatName}</span>
+                                {typeBadge(msg)}
+                                {kindBadge(msg)}
+                              </div>
                               <div className="flex items-center gap-2">
                                 {msg.timestamp && (
                                   <span className="text-[10px] text-slate-500">{format(msg.timestamp.toDate(), 'dd.MM HH:mm')}</span>
@@ -709,6 +777,121 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
               )}
             </div>
           </>
+        )}
+
+        {tab === 'groups' && (
+          <div className="flex-1 flex flex-col overflow-hidden">
+            <div className="flex items-center gap-3 px-6 py-4 border-b border-slate-800 bg-slate-900/50 shrink-0">
+              <Shield size={20} className="text-blue-400" />
+              <h2 className="text-lg font-black text-white">Gruplar</h2>
+              <span className="text-xs font-bold text-slate-500">({groups.length} grup)</span>
+            </div>
+            {loadingGroups ? (
+              <div className="flex-1 flex items-center justify-center">
+                <p className="text-slate-500 text-sm font-bold">Yükleniyor...</p>
+              </div>
+            ) : groups.length === 0 ? (
+              <div className="flex-1 flex items-center justify-center">
+                <p className="text-slate-500 text-sm font-bold">Henüz grup yok.</p>
+              </div>
+            ) : (
+              <div className="flex-1 flex overflow-hidden">
+                {/* Grup listesi */}
+                <div className="w-72 border-r border-slate-800 overflow-y-auto custom-scrollbar bg-slate-900/30">
+                  {groups.map(g => (
+                    <button
+                      key={g.id}
+                      onClick={() => loadGroupMessages(g)}
+                      className={cn(
+                        "w-full text-left px-4 py-3 border-b border-slate-800/60 transition-colors",
+                        selectedGroup?.id === g.id ? "bg-blue-600/20" : "hover:bg-slate-800/60"
+                      )}
+                    >
+                      <p className="text-sm font-bold text-white truncate">{g.groupMetadata?.name || 'Adsız Grup'}</p>
+                      <p className="text-[11px] text-slate-400 truncate">Admin: {uidName(g.groupMetadata?.adminId)}</p>
+                    </button>
+                  ))}
+                </div>
+                {/* Detay */}
+                <div className="flex-1 flex flex-col overflow-hidden">
+                  {!selectedGroup ? (
+                    <div className="flex-1 flex items-center justify-center">
+                      <p className="text-slate-500 text-sm font-bold">Bir grup seçin</p>
+                    </div>
+                  ) : (
+                    <>
+                      {/* Admin bilgisi */}
+                      <div className="px-6 py-4 border-b border-slate-800 bg-slate-900/40 shrink-0">
+                        <p className="text-base font-black text-white mb-2">{selectedGroup.groupMetadata?.name || 'Adsız Grup'}</p>
+                        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
+                          <span className="text-slate-400">Admin: <span className="text-blue-300 font-bold">{uidName(selectedGroup.groupMetadata?.adminId)}</span></span>
+                          <span className="text-slate-400">Kurucu: <span className="text-purple-300 font-bold">{uidName(selectedGroup.groupMetadata?.createdBy)}</span></span>
+                          <span className="text-slate-400">Üye: <span className="text-white font-bold">{selectedGroup.participants?.length ?? 0}</span></span>
+                        </div>
+                        {(() => {
+                          const hist: string[] = [];
+                          if (selectedGroup.groupMetadata?.createdBy) hist.push(selectedGroup.groupMetadata.createdBy);
+                          (selectedGroup.groupMetadata?.adminHistory || []).forEach(id => { if (!hist.includes(id)) hist.push(id); });
+                          const current = selectedGroup.groupMetadata?.adminId;
+                          if (current && !hist.includes(current)) hist.push(current);
+                          if (hist.length < 2) return null;
+                          return (
+                            <div className="mt-3 flex flex-wrap items-center gap-1.5">
+                              <span className="text-[10px] font-black uppercase tracking-wider text-slate-500 mr-1">Admin Geçmişi:</span>
+                              {hist.map((id, i) => (
+                                <React.Fragment key={id + i}>
+                                  {i > 0 && <span className="text-slate-600 text-xs">→</span>}
+                                  <span className={cn(
+                                    "px-2 py-0.5 rounded-md text-[11px] font-bold",
+                                    id === current ? "bg-blue-500/20 text-blue-300 border border-blue-500/40" : "bg-slate-800 text-slate-300 border border-slate-700"
+                                  )}>
+                                    {uidName(id)}{i === 0 ? ' (kurucu)' : ''}
+                                  </span>
+                                </React.Fragment>
+                              ))}
+                            </div>
+                          );
+                        })()}
+                      </div>
+                      {/* Grup mesajları */}
+                      <div className="flex-1 overflow-y-auto custom-scrollbar p-4 space-y-2">
+                        {groupMessages.length === 0 ? (
+                          <p className="text-slate-600 text-sm font-bold text-center py-10">Bu grupta mesaj yok.</p>
+                        ) : groupMessages.map(msg => {
+                          const isDeleted = (msg.deletedBy?.length || 0) > 0;
+                          const isBlocked = msg.blockedByAdmin === true;
+                          return (
+                            <div key={msg.id} className={cn(
+                              "rounded-xl p-3 border",
+                              isDeleted ? "bg-red-950/30 border-red-900/50" : isBlocked ? "bg-amber-950/30 border-amber-800/50" : "bg-slate-800/50 border-slate-700/50"
+                            )}>
+                              <div className="flex flex-wrap items-center gap-2 mb-1">
+                                <span className="text-xs font-bold text-blue-300">{uidName(msg.senderId)}</span>
+                                <span className="text-[10px] text-slate-500">{msg.timestamp ? format(msg.timestamp.toDate(), 'dd.MM HH:mm') : ''}</span>
+                                {typeBadge(msg)}
+                                {kindBadge(msg)}
+                              </div>
+                              {isBlocked ? (
+                                <p className="text-xs font-bold text-amber-300">Bu mesaj yönetici tarafından engellendi.</p>
+                              ) : isDeleted ? (
+                                <p className="text-xs text-red-400 italic">[Silinmiş mesaj]</p>
+                              ) : msg.type === 'text' ? (
+                                <p className="text-sm text-slate-200 break-words">{msg.text}</p>
+                              ) : (
+                                <p className="text-sm text-slate-400 italic">
+                                  {msg.type === 'image' ? '📷 Görsel' : msg.type === 'video' ? '🎥 Video' : msg.type === 'audio' ? '🎵 Ses' : msg.type === 'call' ? '📞 Arama' : msg.type === 'file' ? '📎 Dosya' : 'Medya'}
+                                </p>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
         )}
 
         {tab === 'admin-msgs' && (
