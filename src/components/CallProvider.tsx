@@ -208,8 +208,10 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (!activeCall || !user) return;
     try {
       const newParticipants = Array.from(new Set([...activeCall.participants, ...userIds]));
+      const newActive = Array.from(new Set([...(activeCall.activeParticipants || []), ...userIds, user.uid]));
       await updateDoc(doc(db, 'calls', activeCall.id), {
-        participants: newParticipants
+        participants: newParticipants,
+        activeParticipants: newActive
       });
     } catch (error) {
       console.error("Invite to call error:", error);

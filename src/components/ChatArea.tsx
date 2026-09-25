@@ -258,6 +258,8 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
   const [editGroupName, setEditGroupName] = useState('');
   const [showEditGroupName, setShowEditGroupName] = useState(false);
   const [showTransferAdmin, setShowTransferAdmin] = useState(false);
+  const [showGroupInfo, setShowGroupInfo] = useState(false);
+  const [viewProfileMember, setViewProfileMember] = useState<UserProfile | null>(null);
 
   // System admin check
   const [isSystemAdmin, setIsSystemAdmin] = useState(false);
@@ -1387,8 +1389,8 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
           <button 
             onClick={() => {
               if (chat?.type === 'group') {
-                const uinList = chat.participants.map(pId => `👤 ${participantInfo[pId]?.displayName || 'Katılımcı'} (UIN: #${participantInfo[pId]?.uin || 'Yok'})`).join('\n');
-                showCustomAlert("Grup Bilgileri", uinList);
+                loadGroupMembers();
+                setShowGroupInfo(true);
               } else if (otherUser) {
                 setShowProfile(true);
               }
@@ -1428,6 +1430,26 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
                   <div className="px-4 py-2 border-b border-slate-100 dark:border-slate-700">
                     <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">Sohbet İşlemleri</p>
                   </div>
+                  <button 
+                    onClick={() => { setIsHeaderMenuOpen(false); setBatchMode(!batchMode); setSelectedMsgs(new Set()); }}
+                    className="w-full text-left px-4 py-3 text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors flex items-center gap-2"
+                  >
+                    <ListChecks size={14} /> Toplu Mesaj Seç
+                  </button>
+                  <button 
+                    onClick={() => {
+                      setIsHeaderMenuOpen(false);
+                      if (chat?.type === 'group') {
+                        loadGroupMembers();
+                        setShowGroupInfo(true);
+                      } else if (otherUser) {
+                        setShowProfile(true);
+                      }
+                    }}
+                    className="w-full text-left px-4 py-3 text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors flex items-center gap-2"
+                  >
+                    <Info size={14} /> {chat?.type === 'group' ? 'Grup Bilgileri' : 'Kişi Bilgileri'}
+                  </button>
                   {(chat?.type !== 'group' || isGroupAdmin) && (
                   <button 
                     onClick={handleClearChat}
@@ -2530,9 +2552,84 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
         )}
       </AnimatePresence>
 
+      {/* Group Info Modal */}
+      {showGroupInfo && chat?.type === 'group' && (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-md" onClick={() => setShowGroupInfo(false)}>
+          <div className="bg-white dark:bg-slate-800 rounded-3xl w-full max-w-md max-h-[80vh] flex flex-col overflow-hidden shadow-2xl" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between p-4 border-b border-slate-100 dark:border-slate-700 shrink-0">
+              <div>
+                <h3 className="text-sm font-black text-slate-900 dark:text-slate-100 uppercase tracking-wider">Grup Bilgileri</h3>
+                <p className="text-[10px] text-slate-400 font-bold mt-0.5">{chat.groupMetadata?.name || 'Grup'} • {chat.participants.length} üye</p>
+              </div>
+              <button onClick={() => setShowGroupInfo(false)} className="p-1 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-full transition-colors"><X size={20} className="text-slate-500" /></button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-4 space-y-4">
+              {loadingMembers ? (
+                <p className="text-xs text-slate-400 text-center py-8 font-bold">Yükleniyor...</p>
+              ) : (
+                <>
+                  {(() => {
+                    const adminId = chat.groupMetadata?.adminId;
+                    const admin = allMembers.find(m => m.uid === adminId);
+                    const others = allMembers.filter(m => m.uid !== adminId);
+                    return (
+                      <>
+                        {admin && (
+                          <div>
+                            <p className="text-[10px] font-black uppercase tracking-wider text-amber-500 mb-2">Yönetici</p>
+                            <button onClick={() => setViewProfileMember(admin)}
+                              className="w-full flex items-center gap-3 p-3 bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-900 rounded-2xl hover:bg-amber-100 dark:hover:bg-amber-900 transition-all text-left">
+                              <img src={admin.photoURL} className="w-10 h-10 rounded-full object-cover" />
+                              <div className="flex-1 min-w-0">
+                                <p className="text-sm font-bold text-slate-800 dark:text-slate-100 truncate flex items-center gap-2">
+                                  {admin.displayName}
+                                  <span className="text-[8px] bg-amber-500 text-white px-1.5 py-0.5 rounded-full font-black uppercase">Admin</span>
+                                </p>
+                                <p className="text-[10px] text-slate-500 dark:text-slate-400 font-bold">UIN: #{admin.uin || 'Yok'}</p>
+                              </div>
+                            </button>
+                          </div>
+                        )}
+                        <div>
+                          <p className="text-[10px] font-black uppercase tracking-wider text-slate-400 mb-2">Diğer Katılımcılar</p>
+                          <div className="space-y-2">
+                            {others.length === 0 && (
+                              <p className="text-xs text-slate-400 text-center py-4 font-medium">Başka katılımcı yok.</p>
+                            )}
+                            {others.map(m => (
+                              <button key={m.uid} onClick={() => setViewProfileMember(m)}
+                                className="w-full flex items-center gap-3 p-3 bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-700 rounded-2xl hover:bg-blue-50 dark:hover:bg-blue-950 hover:border-blue-200 dark:hover:border-blue-900 transition-all text-left">
+                                <img src={m.photoURL} className="w-10 h-10 rounded-full object-cover" />
+                                <div className="flex-1 min-w-0">
+                                  <p className="text-sm font-bold text-slate-700 dark:text-slate-200 truncate flex items-center gap-2">
+                                    {m.displayName}
+                                    {m.uid === user?.uid && <span className="text-[8px] bg-blue-500 text-white px-1.5 py-0.5 rounded-full font-black uppercase">Sen</span>}
+                                  </p>
+                                  <p className="text-[10px] text-slate-500 dark:text-slate-400 font-bold">UIN: #{m.uin || 'Yok'}</p>
+                                </div>
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      </>
+                    );
+                  })()}
+                </>
+              )}
+            </div>
+            <div className="p-3 border-t border-slate-100 dark:border-slate-700 shrink-0">
+              <p className="text-[9px] text-slate-400 font-bold text-center">Profilini görmek için üyeye dokun</p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Profile Modal */}
       {showProfile && otherUser && (
         <ProfileModal user={otherUser} onClose={() => setShowProfile(false)} readOnly />
+      )}
+      {viewProfileMember && (
+        <ProfileModal user={viewProfileMember} onClose={() => setViewProfileMember(null)} readOnly />
       )}
     </div>
   );
