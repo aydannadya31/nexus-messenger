@@ -221,6 +221,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
   const [activeCallForChat, setActiveCallForChat] = useState<Call | null>(null);
   const [reactionMenu, setReactionMenu] = useState<{ msgId: string, x: number, y: number } | null>(null);
   const [isHeaderMenuOpen, setIsHeaderMenuOpen] = useState(false);
+  const [headerMenuPos, setHeaderMenuPos] = useState({ x: 0, y: 0 });
   const [isEmojiMenuOpen, setIsEmojiMenuOpen] = useState(false);
   const [exportingPdf, setExportingPdf] = useState(false);
   const [showDeletedMessages, setShowDeletedMessages] = useState(false);
@@ -1402,11 +1403,17 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
           </button>
 
           {/* Group Admin Button */}
-          {isGroupAdmin && (
+          {chat?.type === 'group' && (
             <button 
-              onClick={() => { setShowGroupAdmin(true); loadGroupMembers(); }}
-              className="hover:text-amber-500 transition-colors p-1 rounded-full hover:bg-amber-50 dark:hover:bg-amber-950 text-slate-400"
-              title="Grup Yönetimi"
+              disabled={!isGroupAdmin}
+              onClick={() => { if (!isGroupAdmin) return; setShowGroupAdmin(true); loadGroupMembers(); }}
+              className={cn(
+                "transition-colors p-1 rounded-full text-slate-400",
+                isGroupAdmin
+                  ? "hover:text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-950"
+                  : "opacity-40 cursor-not-allowed"
+              )}
+              title={isGroupAdmin ? "Admin Yönetim" : "Sadece grup yöneticisi kullanabilir"}
             >
               <Shield size={18} />
             </button>
@@ -1414,7 +1421,11 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
 
           <div className="relative ml-auto">
             <button 
-              onClick={() => setIsHeaderMenuOpen(!isHeaderMenuOpen)}
+              onClick={(e) => {
+                const r = e.currentTarget.getBoundingClientRect();
+                setHeaderMenuPos({ x: r.right, y: r.bottom + 4 });
+                setIsHeaderMenuOpen(!isHeaderMenuOpen);
+              }}
               className="hover:text-slate-900 dark:hover:text-slate-100 transition-colors p-1 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800"
             >
               <MoreVertical size={18} />
@@ -1426,7 +1437,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
                   className="fixed inset-0 z-40" 
                   onClick={() => setIsHeaderMenuOpen(false)} 
                 />
-                <div className="absolute right-0 mt-2 w-56 bg-white dark:bg-slate-800 border border-slate-150 dark:border-slate-700 rounded-2xl shadow-xl py-2 z-50 animate-in fade-in slide-in-from-top-1 duration-100">
+                <div style={{ position: 'fixed', top: headerMenuPos.y, left: Math.max(8, headerMenuPos.x - 224) }} className="w-56 bg-white dark:bg-slate-800 border border-slate-150 dark:border-slate-700 rounded-2xl shadow-xl py-2 z-50 animate-in fade-in slide-in-from-top-1 duration-100">
                   <div className="px-4 py-2 border-b border-slate-100 dark:border-slate-700">
                     <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">Sohbet İşlemleri</p>
                   </div>
