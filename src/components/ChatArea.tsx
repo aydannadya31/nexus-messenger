@@ -1784,8 +1784,8 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
                          isDeleted
                            ? "bg-slate-100 dark:bg-slate-700 text-slate-400 border-slate-200/60 dark:border-slate-600 opacity-60 rounded-br-none"
                            : isMe 
-                             ? "bg-blue-600 text-white border-blue-500 rounded-br-none shadow-blue-100 dark:shadow-none" 
-                             : "bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 border-slate-100 dark:border-slate-700 rounded-bl-none"
+                             ? "msg-mine bg-blue-600 text-white border-blue-500 rounded-br-none shadow-blue-100 dark:shadow-none" 
+                             : "msg-theirs bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 border-slate-100 dark:border-slate-700 rounded-bl-none"
                        )}
                      >
                        {isDeleted && (

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { doc, updateDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { useToast } from '../lib/toast';
+import { useI18n } from '../lib/i18n';
 import { UserProfile } from '../types';
 import { Check, Globe, MapPin } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
@@ -72,6 +73,7 @@ export const ProfileSetup: React.FC<ProfileSetupProps> = ({
   country: initialCountry, userUid, onSave, onComplete
 }) => {
   const { addToast } = useToast();
+  const { t } = useI18n();
   const [step, setStep] = useState(1);
   const [setupDisplayName, setSetupDisplayName] = useState(initialDisplayName);
   const [setupNickname, setSetupNickname] = useState(initialNickname);
@@ -177,7 +179,7 @@ export const ProfileSetup: React.FC<ProfileSetupProps> = ({
                 >
                   {saving ? (
                     <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin mx-auto" />
-                  ) : 'Kaydet ve Devam Et'}
+                  ) : t('profile.save')}
                 </button>
               </div>
             </>
@@ -187,8 +189,8 @@ export const ProfileSetup: React.FC<ProfileSetupProps> = ({
                 <div className="w-16 h-16 bg-white/20 rounded-full flex items-center justify-center mx-auto mb-3">
                   <Check size={32} />
                 </div>
-                <h2 className="text-xl font-black tracking-tight">Profil Oluşturuldu!</h2>
-                <p className="text-green-100 text-xs font-bold mt-1">Nexus Messenger'a hoş geldin</p>
+                <h2 className="text-xl font-black tracking-tight">{t('profile.created')}</h2>
+                <p className="text-green-100 text-xs font-bold mt-1">{t('profile.welcome')}</p>
               </div>
               <div className="p-8 text-center space-y-4">
                 <div className="w-24 h-24 rounded-3xl overflow-hidden mx-auto border-4 border-white shadow-xl -mt-16 relative z-10">
@@ -200,7 +202,7 @@ export const ProfileSetup: React.FC<ProfileSetupProps> = ({
                 </div>
 
                 <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-3xl p-6 border border-blue-100 shadow-inner">
-                  <p className="text-[9px] font-black text-slate-400 uppercase tracking-[0.3em] mb-2">UIN NUMARAN</p>
+                  <p className="text-[9px] font-black text-slate-400 uppercase tracking-[0.3em] mb-2">{t('profile.uin')}</p>
                   <div className="text-4xl font-black text-blue-600 tracking-wider tabular-nums font-mono">
                     {setupUIN}
                   </div>

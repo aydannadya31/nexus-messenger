@@ -18,6 +18,8 @@ import { CallProvider, useCall } from './components/CallProvider';
 import { CallOverlay } from './components/CallOverlay';
 import { ProfileSetup } from './components/ProfileSetup';
 import { ToastProvider } from './lib/toast';
+import { I18nProvider, useI18n } from './lib/i18n';
+import { ThemeProvider } from './lib/theme';
 import ToastContainer from './components/Toast';
 import { cn } from './lib/utils';
 import { MessageSquare, Ban } from 'lucide-react';
@@ -34,6 +36,7 @@ function useDarkMode() {
 function NexusApp() {
   const { user, profile, loading } = useAuth();
   const { activeCall, incomingCall } = useCall();
+  const { t } = useI18n();
   const [selectedChatId, setSelectedChatId] = useState<string | undefined>();
   const [isNewChatModalOpen, setIsNewChatModalOpen] = useState(false);
   const [isBroadcastModalOpen, setIsBroadcastModalOpen] = useState(false);
@@ -98,7 +101,7 @@ function NexusApp() {
         <div className="relative flex flex-col items-center">
           <div className="w-20 h-20 border-4 border-blue-50 dark:border-blue-950 border-t-blue-600 rounded-full animate-spin shadow-xl shadow-blue-100 dark:shadow-blue-950" />
           <MessageSquare className="absolute top-7 left-1/2 -translate-x-1/2 text-blue-600" size={28} />
-          <span className="mt-8 text-[10px] font-black text-slate-400 uppercase tracking-[0.3em] animate-pulse">Syncing Core...</span>
+          <span className="mt-8 text-[10px] font-black text-slate-400 uppercase tracking-[0.3em] animate-pulse">{t('app.syncing')}</span>
         </div>
       </div>
     );
@@ -119,19 +122,19 @@ function NexusApp() {
           <div className="w-20 h-20 bg-red-100 dark:bg-red-950 rounded-3xl flex items-center justify-center mx-auto mb-6">
             <Ban size={40} className="text-red-500" />
           </div>
-          <h1 className="text-2xl font-black text-slate-900 dark:text-slate-100 mb-3">Hesabınız Banlanmış</h1>
+          <h1 className="text-2xl font-black text-slate-900 dark:text-slate-100 mb-3">{t('app.banned')}</h1>
           <p className="text-sm text-slate-500 dark:text-slate-400 font-bold mb-6 leading-relaxed">
-            Hesabınız geçici olarak askıya alınmıştır.
+            {t('app.bannedDesc')}
           </p>
           <div className="bg-slate-50 dark:bg-slate-800 rounded-2xl p-4 mb-6 border border-slate-100 dark:border-slate-700">
-            <p className="text-[10px] text-slate-400 font-black uppercase tracking-widest mb-2">KALAN SÜRE</p>
+            <p className="text-[10px] text-slate-400 font-black uppercase tracking-widest mb-2">{t('app.remaining')}</p>
             <p className="text-3xl font-black text-red-600 tabular-nums tracking-tight font-mono">
               {String(hours).padStart(2, '0')}:{String(minutes).padStart(2, '0')}:{String(seconds).padStart(2, '0')}
             </p>
           </div>
           {banned.reason && (
             <p className="text-xs text-slate-500 dark:text-slate-400 font-medium mb-4">
-              Sebep: {banned.reason}
+              {t('app.reason')} {banned.reason}
             </p>
           )}
         </div>
@@ -219,13 +222,17 @@ function NexusApp() {
 
 export default function App() {
   return (
-    <AuthProvider>
-      <CallProvider>
-        <ToastProvider>
-          <NexusApp />
-          <ToastContainer />
-        </ToastProvider>
-      </CallProvider>
-    </AuthProvider>
+    <I18nProvider>
+      <ThemeProvider>
+        <AuthProvider>
+          <CallProvider>
+            <ToastProvider>
+              <NexusApp />
+              <ToastContainer />
+            </ToastProvider>
+          </CallProvider>
+        </AuthProvider>
+      </ThemeProvider>
+    </I18nProvider>
   );
 }
