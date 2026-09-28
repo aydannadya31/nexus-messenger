@@ -11,11 +11,13 @@ import { Image, MoreVertical, Send, Smile, Phone, Video, MessageSquarePlus, Cloc
 import { format } from 'date-fns';
 import { motion, AnimatePresence } from 'motion/react';
 import { encryptMessage, decryptMessage } from '../lib/crypto';
+import { useI18n } from '../lib/i18n';
 
 const toBase64 = (str: string) => btoa(unescape(encodeURIComponent(str)));
 const fromBase64 = (b64: string) => decodeURIComponent(escape(atob(b64)));
 
 const DecryptContent: React.FC<{ msg: Message; onClose: () => void; canBypass?: boolean }> = ({ msg, onClose, canBypass }) => {
+  const { t } = useI18n();
   const [pwd, setPwd] = useState('');
   const [decrypted, setDecrypted] = useState<{ text?: string; imageUrl?: string; videoUrl?: string; audioUrl?: string } | null>(
     canBypass ? { text: msg.text, imageUrl: msg.imageUrl, videoUrl: msg.videoUrl, audioUrl: msg.audioUrl } : null
@@ -28,7 +30,7 @@ const DecryptContent: React.FC<{ msg: Message; onClose: () => void; canBypass?: 
       setDecrypted({ text: msg.text, imageUrl: msg.imageUrl, videoUrl: msg.videoUrl, audioUrl: msg.audioUrl });
       setError('');
     } else {
-      setError('Hatalı şifre!');
+      setError(t('login.wrongPw'));
     }
   };
 
@@ -48,30 +50,24 @@ const DecryptContent: React.FC<{ msg: Message; onClose: () => void; canBypass?: 
           <audio src={decrypted.audioUrl} controls className="w-full" />
         )}
         <button onClick={onClose}
-          className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition-all">
-          Kapat
-        </button>
+          className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition-all">{t('chat.close')}</button>
       </div>
     );
   }
 
   return (
     <div className="space-y-4">
-      <p className="text-xs text-slate-500 font-bold text-center">Bu mesajı görüntülemek için şifreyi girin</p>
+      <p className="text-xs text-slate-500 font-bold text-center">{t('chat.decryptPrompt')}</p>
       <input type="text" value={pwd} onChange={e => setPwd(e.target.value)} autoFocus
-        placeholder="Şifre..."
+        placeholder={t('chat.password')}
         onKeyDown={e => e.key === 'Enter' && handleSubmit()}
         className="w-full bg-slate-100 border-2 border-slate-200 rounded-2xl px-4 py-3 text-sm font-bold text-center outline-none focus:border-blue-500 transition-all" />
       {error && <p className="text-xs font-bold text-red-500 text-center">{error}</p>}
       <div className="flex gap-2">
         <button onClick={onClose}
-          className="flex-1 py-2.5 rounded-xl text-xs font-bold text-slate-500 hover:bg-slate-50 border border-slate-200 transition-all">
-          İptal
-        </button>
+          className="flex-1 py-2.5 rounded-xl text-xs font-bold text-slate-500 hover:bg-slate-50 border border-slate-200 transition-all">{t('login.cancel')}</button>
         <button onClick={handleSubmit}
-          className="flex-1 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition-all shadow-lg shadow-blue-600/10">
-          Çöz
-        </button>
+          className="flex-1 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition-all shadow-lg shadow-blue-600/10">{t('chat.decrypt')}</button>
       </div>
     </div>
   );
@@ -214,6 +210,7 @@ interface ChatAreaProps {
 
 export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
   const { user } = useAuth();
+  const { t, lang } = useI18n();
   const { startCall, activeCall, acceptCall } = useCall();
   const [messages, setMessages] = useState<Message[]>([]);
   const [chat, setChat] = useState<Chat | null>(null);
@@ -654,7 +651,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
 
   const askEncryptFields = (): { encrypted?: boolean; imagePassword?: string } | null => {
     if (!encryptMode) return {};
-    const pwd = prompt('Şifreli mesaj şifresini girin:') || '';
+    const pwd = prompt(t('chat.promptPassword')) || '';
     setEncryptMode(false);
     if (!pwd) return null;
     return { encrypted: true, imagePassword: toBase64(pwd) };
@@ -674,11 +671,11 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
   };
 
   const viewOnceSenderStatus = (msg: Message) => {
-    if (chat?.type !== 'group') return msg.viewOnceOpened ? 'görüntülendi' : 'henüz açılmadı';
+    if (chat?.type !== 'group') return msg.viewOnceOpened ? t('chat.voViewed') : t('chat.voNotOpened');
     const total = Math.max(0, chat.participants.length - 1);
     const viewed = (msg.viewOnceViews || []).length;
     const remaining = Math.max(0, total - viewed);
-    return remaining === 0 ? 'görüntülendi' : `kalan ${remaining}/${total}`;
+    return remaining === 0 ? t('chat.voViewed') : t('chat.voRemaining', { r: remaining, t: total });
   };
 
   const closeViewOnce = async () => {
@@ -724,7 +721,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
       }
       await addDoc(collection(db, 'chats', chatId, 'messages'), payload);
       await updateDoc(doc(db, 'chats', chatId), {
-        lastMessage: { text: '👁 Tek kullanımlık mesaj', senderId: user.uid, senderName: user.displayName, timestamp: serverTimestamp() },
+        lastMessage: { text: t('chat.lastViewOnce'), senderId: user.uid, senderName: user.displayName, timestamp: serverTimestamp() },
         updatedAt: serverTimestamp()
       });
     } catch (error) {
@@ -748,7 +745,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
       setShowCameraPreview(true);
     } catch (error) {
       console.error("Photo capture error:", error);
-      showCustomAlert("Kamera Hatası", "Kamera açılamadı. Lütfen kamera izinlerini kontrol edin.");
+      showCustomAlert(t('chat.camErr'), t('chat.camErrDesc'));
     }
   };
 
@@ -785,7 +782,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
       if (enc === null) return;
       const base64Data = await compressImageToDataUrl(file);
       if (base64Data.length > 800 * 1024) {
-        showCustomAlert("Dosya Boyutu Sınırı", "Fotoğraf sıkıştırıldığında hala çok büyük (maksimum 800KB).");
+        showCustomAlert(t('chat.fileLimit'), t('chat.photoTooBig'));
         return;
       }
       await addDoc(collection(db, 'chats', chatId, 'messages'), {
@@ -798,13 +795,13 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
         ...viewOnceFields()
       });
       await updateDoc(doc(db, 'chats', chatId), {
-        lastMessage: { text: viewOnceMode ? '👁 Tek kullanımlık mesaj' : enc.encrypted ? '🔒 Fotoğraf' : '📷 Fotoğraf', senderId: user.uid, senderName: user.displayName, timestamp: serverTimestamp() },
+        lastMessage: { text: viewOnceMode ? t('chat.lastViewOnce') : enc.encrypted ? t('chat.lastPhotoEnc') : t('chat.lastPhoto'), senderId: user.uid, senderName: user.displayName, timestamp: serverTimestamp() },
         updatedAt: serverTimestamp()
       });
       setViewOnceMode(false);
     } catch (error) {
       console.error("Photo capture error:", error);
-      showCustomAlert("Kamera Hatası", "Fotoğraf gönderilemedi.");
+      showCustomAlert(t('chat.camErr'), t('chat.photoSendFail'));
     }
   };
 
@@ -837,7 +834,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
     try {
       const base64Video = await compressVideoToDataUrl(file);
       if (base64Video.length > 1500 * 1024) {
-        showCustomAlert("Dosya Boyutu Sınırı", "Video sıkıştırıldığında hala çok büyük (maksimum 1.5MB). Lütfen daha kısa bir video seçin.");
+        showCustomAlert(t('chat.fileLimit'), t('chat.videoTooBig'));
         return;
       }
       await addDoc(collection(db, 'chats', chatId, 'messages'), {
@@ -852,7 +849,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
 
       await updateDoc(doc(db, 'chats', chatId), {
         lastMessage: {
-          text: viewOnceMode ? '👁 Tek kullanımlık mesaj' : enc.encrypted ? '🔒 Video Mesajı' : '🎥 Video Mesajı',
+          text: viewOnceMode ? t('chat.lastViewOnce') : enc.encrypted ? t('chat.lastVideoMsgEnc') : t('chat.lastVideoMsg'),
           senderId: user.uid,
           senderName: user.displayName,
           timestamp: serverTimestamp()
@@ -906,7 +903,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
         reader.onloadend = async () => {
           const base64Audio = reader.result as string;
           if (base64Audio.length > 800000) {
-            showCustomAlert("Ses Kaydı Sınırı", "Ses mesajı çok uzun, lütfen daha kısa bir kayıt yapın.");
+            showCustomAlert(t('chat.audioLimit'), t('chat.audioTooLong'));
             return;
           }
           await sendAudioMessage(base64Audio);
@@ -955,7 +952,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
         try {
           const base64Video = await compressVideoToDataUrl(videoBlob);
           if (base64Video.length > 1500 * 1024) {
-            showCustomAlert("Video Boyutu Sınırı", "Video çok büyük, lütfen daha kısa bir kayıt yapın.");
+            showCustomAlert(t('chat.videoRecLimit'), t('chat.videoRecTooBig'));
             return;
           }
           const enc = askEncryptFields();
@@ -970,7 +967,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
             ...viewOnceFields()
           });
           await updateDoc(doc(db, 'chats', chatId), {
-            lastMessage: { text: viewOnceMode ? '👁 Tek kullanımlık mesaj' : enc.encrypted ? '🔒 Video Mesajı' : '🎥 Video Mesajı', senderId: user.uid, senderName: user.displayName, timestamp: serverTimestamp() },
+            lastMessage: { text: viewOnceMode ? t('chat.lastViewOnce') : enc.encrypted ? t('chat.lastVideoMsgEnc') : t('chat.lastVideoMsg'), senderId: user.uid, senderName: user.displayName, timestamp: serverTimestamp() },
             updatedAt: serverTimestamp()
           });
           setViewOnceMode(false);
@@ -1024,7 +1021,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
 
       await updateDoc(doc(db, 'chats', chatId), {
         lastMessage: {
-          text: viewOnceMode ? '👁 Tek kullanımlık mesaj' : enc.encrypted ? '🔒 Ses Mesajı' : '🎤 Ses Mesajı',
+          text: viewOnceMode ? t('chat.lastViewOnce') : enc.encrypted ? t('chat.lastAudioEnc') : t('chat.lastAudioMsg'),
           senderId: user.uid,
           senderName: user.displayName,
           timestamp: serverTimestamp()
@@ -1069,7 +1066,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
           <div className="h-1 bg-current opacity-20 rounded-full relative overflow-hidden">
              <div className="absolute inset-0 bg-current rounded-full" style={{ width: '40%' }} />
           </div>
-          <span className="text-[10px] font-bold opacity-60">Ses Mesajı</span>
+          <span className="text-[10px] font-bold opacity-60">{t('chat.audioMsg')}</span>
         </div>
         <audio 
           ref={audioRef} 
@@ -1100,10 +1097,10 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
       const maxLen = isVideo ? 1500 * 1024 : 800 * 1024;
       if (base64Data.length > maxLen) {
         showCustomAlert(
-          "Dosya Boyutu Sınırı",
+          t('chat.fileLimit'),
           isVideo
-            ? "Video sıkıştırıldığında hala çok büyük (maksimum 1.5MB). Lütfen daha kısa bir video seçin."
-            : "Fotoğraf sıkıştırıldığında hala çok büyük (maksimum 800KB)."
+            ? t('chat.videoTooBig')
+            : t('chat.photoTooBig')
         );
         return;
       }
@@ -1118,7 +1115,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
           ...viewOnceFields()
         });
         await updateDoc(doc(db, 'chats', chatId), {
-          lastMessage: { text: viewOnceMode ? '👁 Tek kullanımlık mesaj' : enc.encrypted ? '🔒 Video' : '🎥 Video', senderId: user.uid, senderName: user.displayName, timestamp: serverTimestamp() },
+          lastMessage: { text: viewOnceMode ? t('chat.lastViewOnce') : enc.encrypted ? t('chat.lastVideoEnc') : t('chat.lastVideo'), senderId: user.uid, senderName: user.displayName, timestamp: serverTimestamp() },
           updatedAt: serverTimestamp()
         });
       } else {
@@ -1132,7 +1129,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
           ...viewOnceFields()
         });
         await updateDoc(doc(db, 'chats', chatId), {
-          lastMessage: { text: viewOnceMode ? '👁 Tek kullanımlık mesaj' : enc.encrypted ? '🔒 Fotoğraf' : '📷 Fotoğraf', senderId: user.uid, senderName: user.displayName, timestamp: serverTimestamp() },
+          lastMessage: { text: viewOnceMode ? t('chat.lastViewOnce') : enc.encrypted ? t('chat.lastPhotoEnc') : t('chat.lastPhoto'), senderId: user.uid, senderName: user.displayName, timestamp: serverTimestamp() },
           updatedAt: serverTimestamp()
         });
       }
@@ -1145,8 +1142,8 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
   const handleDeleteMessage = async (msgId: string) => {
     if (!chatId) return;
     showCustomConfirm(
-      "Mesajı Sil",
-      "Bu mesajı silmek istediğinizden emin misiniz? Silinen bu mesaj sadece sizin 'Sildiğim Mesajları Göster' seçeneğiniz açıkken görüntülenebilir.",
+      t('chat.delMsg'),
+      t('chat.delMsgConfirm'),
       async () => {
         try {
           await updateDoc(doc(db, 'chats', chatId, 'messages', msgId), {
@@ -1174,8 +1171,8 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
     if (chat?.type === 'group' && !isGroupAdmin) return;
     setIsHeaderMenuOpen(false);
     showCustomConfirm(
-      "Sohbeti Temizle",
-      "Bu sohbetteki tüm mesajları silmek istediğinizden emin misiniz? Bu işlem geri alınamaz.",
+      t('chat.clearTitle'),
+      t('chat.clearConfirm'),
       async () => {
         try {
           const messagesRef = collection(db, 'chats', chatId, 'messages');
@@ -1187,7 +1184,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
           // Update lastMessage
           await updateDoc(doc(db, 'chats', chatId), {
             lastMessage: {
-              text: 'Sohbet geçmişi temizlendi.',
+              text: t('chat.historyCleared'),
               senderId: user?.uid || '',
               senderName: user?.displayName || '',
               timestamp: serverTimestamp()
@@ -1205,7 +1202,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
     e.preventDefault();
     if (!inputText.trim() || !user || !chatId) return;
     if (isBannedFromGroup) {
-      showCustomAlert('Banlandınız', 'Bu gruptan banlandığınız için mesaj gönderemezsiniz.');
+      showCustomAlert(t('chat.bannedTitle'), t('chat.bannedDesc'));
       return;
     }
 
@@ -1218,7 +1215,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
         return ms >= cutoff;
       });
       if (recentSame.length >= 3) {
-        showCustomAlert('Sınır Aşıldı', 'Aynı mesajı 1 dakika içinde en fazla 3 kez gönderebilirsin.');
+        showCustomAlert(t('chat.rateLimitTitle'), t('chat.rateLimitDesc'));
         return;
       }
     }
@@ -1242,7 +1239,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
 
     let pwd = '';
     if (encryptMode) {
-      pwd = prompt('Şifreli mesaj şifresini girin:') || '';
+      pwd = prompt(t('chat.promptPassword')) || '';
       if (!pwd) { setEncryptMode(false); return; }
     }
 
@@ -1273,7 +1270,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
       
       await updateDoc(doc(db, 'chats', chatId), {
         lastMessage: {
-          text: viewOnceMode ? '👁 Tek kullanımlık mesaj' : encryptMode && pwd ? '🔒 Şifreli Mesaj' : text,
+          text: viewOnceMode ? t('chat.lastViewOnce') : encryptMode && pwd ? t('chat.lastEncMsg') : text,
           senderId: user.uid,
           senderName: user.displayName,
           timestamp: serverTimestamp()
@@ -1291,8 +1288,8 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
   const getChatHeaderInfo = () => {
     if (chat?.type === 'group') {
       return {
-        name: chat.groupMetadata?.name || 'Grup',
-        statusText: `${chat.participants.length} katılımcı`,
+        name: chat.groupMetadata?.name || t('chat.group'),
+        statusText: t('chat.participantCount', { count: chat.participants.length }),
         status: 'online',
         uin: null,
         photoURL: chat.groupMetadata?.photoURL || `https://api.dicebear.com/7.x/initials/svg?seed=${chatId}`
@@ -1300,10 +1297,10 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
     }
     
     const s = otherUser?.onlineStatus || 'online';
-    const labels = { online: 'çevrimiçi', away: 'uzakta', busy: 'meşgul' };
+    const labels = { online: t('chat.stOnline'), away: t('chat.stAway'), busy: t('chat.stBusy') };
     
     return {
-      name: otherUser?.displayName || 'Yükleniyor...',
+      name: otherUser?.displayName || t('chat.loading'),
       statusText: labels[s as keyof typeof labels],
       status: s,
       uin: otherUser?.uin,
@@ -1340,9 +1337,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
           <MessageSquarePlus size={44} className="text-blue-500/40" />
         </div>
         <h2 className="text-3xl font-black text-slate-900 tracking-tight">Sync Platform</h2>
-        <p className="max-w-xs text-center mt-3 text-sm font-medium text-slate-500">
-          Uçtan uca şifreli, gerçek zamanlı iletişim protokolü. Bir sohbet seçerek başlayın.
-        </p>
+        <p className="max-w-xs text-center mt-3 text-sm font-medium text-slate-500">{t('chat.emptyDesc')}</p>
       </div>
     );
   }
@@ -1363,7 +1358,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
               type="button"
               onClick={onBack}
               className="sm:hidden mr-2 p-2 -ml-2 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition-colors shrink-0"
-              title="Geri"
+              title={t('chat.back')}
             >
               <ChevronLeft size={20} />
             </button>
@@ -1384,7 +1379,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
                   headerInfo.status === 'online' ? "bg-green-500 text-white" : 
                   headerInfo.status === 'away' ? "bg-amber-500 text-white" : "bg-red-500 text-white"
                 )}>
-                  {headerInfo.status === 'online' ? 'Çevrimiçi' : headerInfo.status === 'away' ? 'Uzakta' : 'Meşgul'}
+                  {headerInfo.status === 'online' ? t('side.online') : headerInfo.status === 'away' ? t('side.away') : t('side.busy')}
                 </span>
               )}
               {headerInfo.uin && <span className="text-[10px] font-black text-blue-500 bg-blue-50 px-1.5 py-0.5 rounded tracking-tighter shrink-0">#{headerInfo.uin}</span>}
@@ -1410,7 +1405,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
               className="flex items-center gap-2 px-4 py-2 bg-green-500 hover:bg-green-600 text-white rounded-xl text-xs font-black uppercase tracking-widest transition-all shadow-lg shadow-green-500/20 active:scale-95 animate-pulse"
             >
               <Video size={16} />
-              <span className="hidden sm:inline">KATIL</span>
+              <span className="hidden sm:inline">{t('chat.join')}</span>
             </button>
           )}
           
@@ -1419,14 +1414,14 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
               <button 
                 onClick={() => chat && startCall(chat.id, chat.participants, chat.type, 'audio')}
                 className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-blue-50 dark:hover:bg-blue-950 hover:text-blue-600 transition-all active:scale-90"
-                title="Sesli Arama Başlat"
+                title={t('chat.startVoiceCall')}
               >
                 <Phone size={16} />
               </button>
               <button 
                 onClick={() => chat && startCall(chat.id, chat.participants, chat.type, 'video')}
                 className="w-8 h-8 flex items-center justify-center rounded-full bg-blue-500 text-white hover:bg-blue-600 transition-all active:scale-90 shadow-md shadow-blue-500/20"
-                title="Görüntülü Arama Başlat"
+                title={t('chat.startVideoCall')}
               >
                 <Video size={16} />
               </button>
@@ -1435,16 +1430,14 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
 
           {activeCallForChat && activeCall?.id === activeCallForChat.id && (
             <div className="flex items-center gap-2 px-3 py-1.5 bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-400 rounded-xl text-[10px] font-black uppercase tracking-widest">
-              <div className="w-2 h-2 bg-blue-600 rounded-full animate-ping" />
-              GÖRÜŞMEDESİN
-            </div>
+              <div className="w-2 h-2 bg-blue-600 rounded-full animate-ping" />{t('chat.inCall')}</div>
           )}
           
           {/* Ara */}
           <button 
             onClick={() => setShowChatSearch(!showChatSearch)}
             className={cn("hover:text-blue-600 transition-colors p-1 rounded-full hover:bg-blue-50 dark:hover:bg-blue-950", showChatSearch && "text-blue-600 bg-blue-50 dark:bg-blue-950")}
-            title="Sohbet İçi Ara"
+            title={t('chat.searchInChat')}
           >
             <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
           </button>
@@ -1453,7 +1446,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
           <button 
             onClick={() => { setBatchMode(!batchMode); setSelectedMsgs(new Set()); }}
             className={cn("hover:text-slate-900 dark:hover:text-slate-100 transition-colors p-1 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800", batchMode && "text-blue-600 bg-blue-50 dark:bg-blue-950")}
-            title="Toplu Mesaj Seç"
+            title={t('chat.batchSelect')}
           >
             <ListChecks size={18} />
           </button>
@@ -1465,7 +1458,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
             className={cn("transition-colors p-1 rounded-full relative", chat?.type === 'group' && !isGroupAdmin
               ? "text-slate-400 opacity-40 cursor-not-allowed"
               : amIHolding ? "text-amber-500 bg-amber-50 dark:bg-amber-950 hover:bg-amber-100 dark:hover:bg-amber-900" : "hover:text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-950")}
-            title={chat?.type === 'group' && !isGroupAdmin ? 'Sadece grup yöneticisi kullanabilir' : amIHolding ? 'Beklemeden Çıkar' : 'Beklemeye Al'}
+            title={chat?.type === 'group' && !isGroupAdmin ? t('chat.adminOnly') : amIHolding ? t('chat.unhold') : t('chat.hold')}
           >
             {amIHolding ? <Play size={18} /> : <Pause size={18} />}
           </button>
@@ -1481,7 +1474,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
               }
             }}
             className="hover:text-blue-600 transition-colors p-1 rounded-full hover:bg-blue-50 dark:hover:bg-blue-950"
-            title="Kullanıcı Bilgisi"
+            title={t('chat.userInfo')}
           >
             <Info size={18} />
           </button>
@@ -1497,7 +1490,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
                   ? "hover:text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-950"
                   : "opacity-40 cursor-not-allowed"
               )}
-              title={isGroupAdmin ? "Admin Yönetim" : "Sadece grup yöneticisi kullanabilir"}
+              title={isGroupAdmin ? t('chat.adminPanel') : t('chat.adminOnly')}
             >
               <Shield size={18} />
             </button>
@@ -1523,14 +1516,13 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
                 />
                 <div style={{ position: 'fixed', top: headerMenuPos.y, left: Math.max(8, headerMenuPos.x - 224) }} className="w-56 bg-white dark:bg-slate-800 border border-slate-150 dark:border-slate-700 rounded-2xl shadow-xl py-2 z-50 animate-in fade-in slide-in-from-top-1 duration-100">
                   <div className="px-4 py-2 border-b border-slate-100 dark:border-slate-700">
-                    <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">Sohbet İşlemleri</p>
+                    <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">{t('chat.actions')}</p>
                   </div>
                   <button 
                     onClick={() => { setIsHeaderMenuOpen(false); setBatchMode(!batchMode); setSelectedMsgs(new Set()); }}
                     className="w-full text-left px-4 py-3 text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors flex items-center gap-2"
                   >
-                    <ListChecks size={14} /> Toplu Mesaj Seç
-                  </button>
+                    <ListChecks size={14} />{t('chat.batchSelect')}</button>
                   <button 
                     onClick={() => {
                       setIsHeaderMenuOpen(false);
@@ -1543,15 +1535,14 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
                     }}
                     className="w-full text-left px-4 py-3 text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors flex items-center gap-2"
                   >
-                    <Info size={14} /> {chat?.type === 'group' ? 'Grup Bilgileri' : 'Kişi Bilgileri'}
+                    <Info size={14} /> {chat?.type === 'group' ? t('chat.groupInfo') : t('chat.personInfo')}
                   </button>
                   {(chat?.type !== 'group' || isGroupAdmin) && (
                   <button 
                     onClick={handleClearChat}
                     className="w-full text-left px-4 py-3 text-xs font-bold text-red-600 hover:bg-red-50 dark:hover:bg-red-950 transition-colors flex items-center gap-2"
                   >
-                    <Trash2 size={14} /> Sohbet Geçmişini Temizle
-                  </button>
+                    <Trash2 size={14} />{t('chat.clearHistory')}</button>
                   )}
                   <button 
                     disabled={exportingPdf}
@@ -1570,7 +1561,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
                         doc.text(chatName, 15, 20);
                         doc.setFont('helvetica', 'normal');
                         doc.setFontSize(10);
-                        doc.text(`Disa Aktarim: ${new Date().toLocaleString('tr-TR')}  |  Toplam Mesaj: ${items.length}`, 15, 28);
+                        doc.text(`${t('chat.pdfExport')}: ${new Date().toLocaleString(lang)}  |  ${t('chat.pdfTotal')}: ${items.length}`, 15, 28);
                         doc.setDrawColor(200);
                         doc.line(15, 31, 195, 31);
                         doc.setFontSize(9);
@@ -1599,7 +1590,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
                           try {
                             const sender = participantInfo[m.senderId];
                             const name = sender?.displayName || m.senderId.slice(0, 8);
-                            const time = m.timestamp?.toDate?.() ? m.timestamp.toDate().toLocaleString('tr-TR') : '';
+                            const time = m.timestamp?.toDate?.() ? m.timestamp.toDate().toLocaleString(lang) : '';
                             const edited = m.edited ? ' (duzenlendi)' : '';
                             let text = m.text || '';
                             if (m.imageUrl) {
@@ -1630,7 +1621,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
                         }
                       } catch (e) {
                         console.error('PDF export failed', e);
-                        alert('PDF hazırlanırken hata oluştu. Lütfen tekrar deneyin.');
+                        alert(t('chat.pdfError'));
                       } finally {
                         setExportingPdf(false);
                         setIsHeaderMenuOpen(false);
@@ -1641,7 +1632,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
                       exportingPdf && "opacity-60 pointer-events-none"
                     )}
                   >
-                    <Download size={14} /> {exportingPdf ? 'PDF hazırlanıyor...' : 'Sohbeti İndir (.pdf)'}
+                    <Download size={14} /> {exportingPdf ? t('chat.pdfPreparing') : t('chat.downloadChat')}
                   </button>
                   <button 
                     onClick={() => {
@@ -1654,22 +1645,21 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
                     )}
                   >
                     {showDeletedMessages ? <EyeOff size={14} /> : <Eye size={14} />}
-                    {showDeletedMessages ? ' Sildiğim Mesajları Gizle' : ' Sildiğim Mesajları Göster'}
+                    {showDeletedMessages ? t('chat.hideDeleted') : t('chat.showDeleted')}
                   </button>
                   {isGroupAdmin && (
                     <button 
                       onClick={() => {
                         setIsHeaderMenuOpen(false);
                         showCustomConfirm(
-                          'Gruptan Ayrıl',
-                          'Grubu başka bir yöneticiye devretmeden ayrılıyorsunuz. En aktif üye yönetici olacak. Devam etmek istiyor musunuz?',
+                          t('chat.leaveGroup'),
+                          t('chat.leaveGroupConfirm'),
                           () => handleAdminLeaveGroup()
                         );
                       }}
                       className="w-full text-left px-4 py-3 text-xs font-bold text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950 transition-colors flex items-center gap-2 border-t border-slate-100 dark:border-slate-700"
                     >
-                      <LogOut size={14} /> Admin Olarak Ayrıl
-                    </button>
+                      <LogOut size={14} />{t('chat.leaveAsAdmin')}</button>
                   )}
                 </div>
               </>
@@ -1683,7 +1673,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
         <div className="p-3 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700 shrink-0 z-10 transition-colors">
           <div className="relative">
             <input type="text" value={chatSearchQuery} onChange={e => setChatSearchQuery(e.target.value)}
-              placeholder="Mesajlarda ara..."
+              placeholder={t('chat.searchMessages')}
               className="w-full bg-slate-100 dark:bg-slate-800 border-none rounded-xl py-2.5 pl-10 pr-4 text-sm text-slate-900 dark:text-slate-100 outline-none transition-colors"
               autoFocus
             />
@@ -1705,7 +1695,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
                 }
               }
               return m.text?.toLowerCase().includes(chatSearchQuery.toLowerCase());
-            }).length} sonuç
+            }).length} {t('chat.results')}
           </div>
         </div>
       )}
@@ -1714,7 +1704,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
       {isBeingHeld && (
         <div className="px-4 py-2 bg-amber-50 dark:bg-amber-950 border-b border-amber-200 dark:border-amber-900 flex items-center gap-2 shrink-0">
           <Pause size={14} className="text-amber-600 dark:text-amber-400" />
-          <span className="text-[10px] font-bold text-amber-700 dark:text-amber-300">Bu sohbet beklemeye alındı. Mesaj gönderemezsiniz.</span>
+          <span className="text-[10px] font-bold text-amber-700 dark:text-amber-300">{t('chat.holdBanner')}</span>
         </div>
       )}
 
@@ -1724,7 +1714,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
         className="flex-1 overflow-y-auto p-4 sm:p-10 space-y-6 custom-scrollbar z-10"
       >
         <div className="flex justify-center mb-8">
-          <span className="px-3 py-1 bg-slate-200 dark:bg-slate-800 text-slate-500 dark:text-slate-400 rounded-full text-[10px] font-bold uppercase tracking-widest shadow-sm">BUGÜN</span>
+          <span className="px-3 py-1 bg-slate-200 dark:bg-slate-800 text-slate-500 dark:text-slate-400 rounded-full text-[10px] font-bold uppercase tracking-widest shadow-sm">{t('chat.today')}</span>
         </div>
 
         <AnimatePresence>
@@ -1774,7 +1764,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
                   )}>
                     {!isMe && chat?.type === 'group' && (
                       <span className="text-[10px] font-black text-slate-400 mb-1 ml-1 uppercase tracking-wider">
-                        {sender?.displayName || 'Bilinmeyen'}
+                        {sender?.displayName || t('chat.unknown')}
                       </span>
                     )}
                     <div 
@@ -1790,14 +1780,13 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
                      >
                        {isDeleted && (
                          <div className="text-[9px] font-black uppercase tracking-wider text-rose-500 flex items-center gap-1 mb-1.5 bg-rose-50 dark:bg-rose-950 dark:text-rose-400 border border-rose-100 dark:border-rose-900 px-1.5 py-0.5 rounded w-max select-none">
-                          <Trash2 size={10} /> SİLDİĞİNİZ MESAJ
-                        </div>
+                          <Trash2 size={10} />{t('chat.youDeleted')}</div>
                       )}
 
                       {msg.blockedByAdmin && !isSystemAdmin ? (
                         <div className="bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-900 rounded-lg p-3 my-1">
                           <p className="text-[11px] text-red-600 dark:text-red-400 font-bold text-center">
-                            AI Destekli Sistem tarafından içerik zararlı bulunmuş ve kaldırılmıştır.
+                            {t('adm.aiBlockedWarning')}
                           </p>
                         </div>
                       ) : (<>
@@ -1806,25 +1795,20 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
                         canOpenViewOnce(msg) ? (
                           <button onClick={() => openViewOnce(msg)}
                             className="flex items-center gap-2 text-sm font-bold text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/30 hover:bg-amber-100 px-3 py-2.5 rounded-xl transition-colors w-full text-left">
-                            <Eye size={16} />
-                            Tek bakışlık mesajı açmak için dokun
-                          </button>
+                            <Eye size={16} />{t('chat.viewOnceTap')}</button>
                         ) : (
                           <div className="flex items-center gap-2 text-[11px] font-bold italic opacity-50 py-1">
-                            <EyeOff size={12} /> Tek seferlik görüntülendi
-                          </div>
+                            <EyeOff size={12} />{t('chat.viewOnceViewed')}</div>
                         )
                       ) : (<>
                       {msg.viewOnce && isMe && (
                         <div className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-wider text-amber-500 dark:text-amber-400 mb-1.5 flex-wrap">
-                          <Eye size={11} /> Tek bakışlık · {viewOnceSenderStatus(msg)}
+                          <Eye size={11} /> {t('chat.viewOnceTag')} · {viewOnceSenderStatus(msg)}
                           <button
                             type="button"
                             onClick={(e) => { e.stopPropagation(); resendViewOnce(msg); }}
                             className="ml-2 normal-case underline text-blue-400 hover:text-blue-300 font-bold"
-                          >
-                            Yeniden gönder
-                          </button>
+                          >{t('chat.resend')}</button>
                         </div>
                       )}
 
@@ -1833,7 +1817,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
                           "text-[10px] font-medium mb-1.5 px-2 py-1 rounded border-l-2",
                           isMe ? "bg-blue-700/30 border-blue-300 text-blue-100" : "bg-slate-100 border-slate-300 text-slate-500"
                         )}>
-                          <span className="font-bold">{msg.replyTo.senderId === user?.uid ? 'Sen' : (participantInfo[msg.replyTo.senderId]?.displayName || 'Bilinmeyen')}</span>: {(msg.replyTo.text || '').slice(0, 60)}{(msg.replyTo.text || '').length > 60 ? '...' : ''}
+                          <span className="font-bold">{msg.replyTo.senderId === user?.uid ? t('chat.you') : (participantInfo[msg.replyTo.senderId]?.displayName || t('chat.unknown'))}</span>: {(msg.replyTo.text || '').slice(0, 60)}{(msg.replyTo.text || '').length > 60 ? '...' : ''}
                         </div>
                       )}
 
@@ -1841,8 +1825,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
                         msg.encrypted && !isMe ? (
                           <button onClick={() => setDecryptModal(msg)}
                             className="text-sm font-medium leading-relaxed opacity-70 hover:opacity-100 text-left w-full flex items-center gap-1.5">
-                            <Lock size={13} className="shrink-0" /> Şifreli Mesaj (dokunun)
-                          </button>
+                            <Lock size={13} className="shrink-0" />{t('chat.encTap')}</button>
                         ) : (
                           <p className={cn(
                             "text-sm font-medium leading-relaxed",
@@ -1858,7 +1841,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
                       {msg.type === 'call' && (
                         <div className="flex items-center gap-2 text-sm font-medium leading-relaxed">
                           <Phone size={14} className="shrink-0 opacity-70" />
-                          <span>{msg.text || (msg.callType === 'video' ? 'Görüntülü görüşme' : 'Sesli görüşme')}</span>
+                          <span>{msg.text || (msg.callType === 'video' ? t('chat.videoCall') : t('chat.voiceCall'))}</span>
                         </div>
                       )}
                       
@@ -1872,19 +1855,19 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
                               <img src={msg.imageUrl} alt="" className="w-full h-auto object-cover blur-[12px]" />
                               <div className="absolute inset-0 flex items-center justify-center">
                                 <button onClick={() => setDecryptModal(msg)}
-                                  className="bg-black/50 text-white text-[10px] font-bold px-3 py-1.5 rounded-full backdrop-blur-sm hover:bg-black/70 cursor-pointer flex items-center gap-1"><Lock size={11} /> Şifreli</button>
+                                  className="bg-black/50 text-white text-[10px] font-bold px-3 py-1.5 rounded-full backdrop-blur-sm hover:bg-black/70 cursor-pointer flex items-center gap-1"><Lock size={11} />{t('chat.encrypted')}</button>
                               </div>
                             </>
                           ) : (
                             <>
                               {msg.encrypted && (
-                                <span className="absolute top-1.5 left-1.5 z-10 bg-black/45 text-white rounded-md p-1" title="Şifreli gönderildi">
+                                <span className="absolute top-1.5 left-1.5 z-10 bg-black/45 text-white rounded-md p-1" title={t('chat.sentEncrypted')}>
                                   <Lock size={12} />
                                 </span>
                               )}
                               <img 
                                 src={msg.imageUrl} 
-                                alt="Paylaşılan görsel" 
+                                alt={t('chat.sharedImage')} 
                                 className="max-w-full h-auto object-cover hover:scale-105 transition-transform duration-500 cursor-pointer"
                                 onClick={() => { if (lpFired.current) { lpFired.current = false; return; } if (!isDeleted) setLightboxUrl(msg.imageUrl); }}
                                 {...lpProps(msg)}
@@ -1892,7 +1875,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
                               {longPressId === msg.id && msg.imageUrl && (
                                 <button onClick={(e) => { e.stopPropagation(); downloadMedia(msg.imageUrl, 'gorsel'); }}
                                   className="absolute bottom-2 right-2 z-20 bg-black/70 text-white rounded-full p-2 backdrop-blur-sm hover:bg-black/90"
-                                  title="İndir"><Download size={16} /></button>
+                                  title={t('chat.download')}><Download size={16} /></button>
                               )}
                             </>
                           )}
@@ -1909,13 +1892,13 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
                               <video src={msg.videoUrl} className="max-w-full h-auto blur-[12px]" playsInline />
                               <div className="absolute inset-0 flex items-center justify-center">
                                 <button onClick={() => setDecryptModal(msg)}
-                                  className="bg-black/50 text-white text-[10px] font-bold px-3 py-1.5 rounded-full backdrop-blur-sm hover:bg-black/70 cursor-pointer flex items-center gap-1"><Lock size={11} /> Şifreli</button>
+                                  className="bg-black/50 text-white text-[10px] font-bold px-3 py-1.5 rounded-full backdrop-blur-sm hover:bg-black/70 cursor-pointer flex items-center gap-1"><Lock size={11} />{t('chat.encrypted')}</button>
                               </div>
                             </>
                           ) : (
                             <>
                               {msg.encrypted && (
-                                <span className="absolute top-1.5 left-1.5 z-10 bg-black/45 text-white rounded-md p-1" title="Şifreli gönderildi">
+                                <span className="absolute top-1.5 left-1.5 z-10 bg-black/45 text-white rounded-md p-1" title={t('chat.sentEncrypted')}>
                                   <Lock size={12} />
                                 </span>
                               )}
@@ -1928,7 +1911,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
                               {longPressId === msg.id && (
                                 <button onClick={(e) => { e.stopPropagation(); downloadMedia(msg.videoUrl, 'video'); }}
                                   className="absolute bottom-2 right-2 z-20 bg-black/70 text-white rounded-full p-2 backdrop-blur-sm hover:bg-black/90"
-                                  title="İndir"><Download size={16} /></button>
+                                  title={t('chat.download')}><Download size={16} /></button>
                               )}
                             </>
                           )}
@@ -1939,7 +1922,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
                         <div className={cn(isDeleted && "grayscale opacity-40 pointer-events-none", "relative flex items-center gap-1.5")} {...lpProps(msg)}>
                           {msg.encrypted && !isMe ? (
                             <button onClick={() => setDecryptModal(msg)}
-                              className="text-[10px] font-bold flex items-center gap-1 text-slate-500 hover:text-slate-700"><Lock size={11} /> Şifreli Ses Mesajı (dokunun)</button>
+                              className="text-[10px] font-bold flex items-center gap-1 text-slate-500 hover:text-slate-700"><Lock size={11} />{t('chat.encAudioTap')}</button>
                           ) : (
                             <>
                               {msg.encrypted && <Lock size={13} className="shrink-0" />}
@@ -1947,7 +1930,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
                               {longPressId === msg.id && (
                                 <button onClick={(e) => { e.stopPropagation(); downloadMedia(msg.audioUrl, 'ses'); }}
                                   className="absolute bottom-0 right-0 z-20 bg-black/70 text-white rounded-full p-2 backdrop-blur-sm hover:bg-black/90"
-                                  title="İndir"><Download size={16} /></button>
+                                  title={t('chat.download')}><Download size={16} /></button>
                               )}
                             </>
                           )}
@@ -1962,7 +1945,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
                         <span className="text-[10px] font-medium">
                           {msg.timestamp ? format(msg.timestamp.toDate(), 'HH:mm') : ''}
                         </span>
-                        {msg.edited && <span className="text-[9px] italic opacity-60 ml-0.5">(düzenlendi)</span>}
+                        {msg.edited && <span className="text-[9px] italic opacity-60 ml-0.5">{t('chat.edited')}</span>}
                         {isMe && !isDeleted && <MessageStatus status={msg.status} />}
                       </div>
                     </>)}
@@ -1983,7 +1966,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
                             }
                           }}
                           className="p-1 px-1.5 text-slate-400 hover:text-slate-600 active:scale-110 transition-all rounded-full flex items-center justify-center cursor-pointer"
-                          title="Tepki Bırak"
+                          title={t('chat.react')}
                         >
                           <Smile size={14} />
                         </button>
@@ -1996,7 +1979,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
                               setReplyTo(msg);
                             }}
                             className="p-1 px-1.5 text-slate-400 hover:text-blue-500 active:scale-110 transition-all rounded-full flex items-center justify-center cursor-pointer"
-                            title="Yanıtla"
+                            title={t('chat.reply')}
                           >
                             <Reply size={13} />
                           </button>
@@ -2011,7 +1994,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
                               setInputText(msg.text || '');
                             }}
                             className="p-1 px-1.5 text-slate-400 hover:text-amber-500 active:scale-110 transition-all rounded-full flex items-center justify-center cursor-pointer"
-                            title="Düzenle"
+                            title={t('chat.edit')}
                           >
                             <Pencil size={13} />
                           </button>
@@ -2027,7 +2010,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
                               }
                             }}
                             className="p-1 px-1.5 text-slate-400 hover:text-red-500 active:scale-110 transition-all rounded-full flex items-center justify-center cursor-pointer"
-                            title="Mesajı Sil"
+                            title={t('chat.delMsg')}
                           >
                             <Trash2 size={13} />
                           </button>
@@ -2073,15 +2056,13 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
       {/* Batch Action Bar */}
       {batchMode && (
         <div className="p-3 bg-white dark:bg-slate-900 border-t border-b border-slate-200 dark:border-slate-700 flex items-center justify-between shrink-0 z-10 transition-colors">
-          <span className="text-xs font-bold text-slate-500 dark:text-slate-400">{selectedMsgs.size} mesaj seçildi</span>
+          <span className="text-xs font-bold text-slate-500 dark:text-slate-400">{t('chat.selected', { count: selectedMsgs.size })}</span>
           <div className="flex gap-2">
             <button onClick={() => { setBatchMode(false); setSelectedMsgs(new Set()); }}
-              className="px-4 py-2 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 rounded-xl text-[10px] font-black uppercase tracking-wider">
-              İptal
-            </button>
+              className="px-4 py-2 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 rounded-xl text-[10px] font-black uppercase tracking-wider">{t('login.cancel')}</button>
             <button onClick={() => {
                 if (selectedMsgs.size === 0) return;
-                showCustomConfirm('Mesajları Sil', `${selectedMsgs.size} mesajı silmek istediğinize emin misiniz?`, async () => {
+                showCustomConfirm(t('chat.deleteSelected'), t('chat.deleteSelectedConfirm', { count: selectedMsgs.size }), async () => {
                   if (!chat) return;
                   for (const msgId of selectedMsgs) {
                     try {
@@ -2093,9 +2074,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
                 });
               }}
               disabled={selectedMsgs.size === 0}
-              className="px-4 py-2 bg-red-500 text-white rounded-xl text-[10px] font-black uppercase tracking-wider disabled:opacity-40">
-              Seçilenleri Sil
-            </button>
+              className="px-4 py-2 bg-red-500 text-white rounded-xl text-[10px] font-black uppercase tracking-wider disabled:opacity-40">{t('chat.deleteChosen')}</button>
           </div>
         </div>
       )}
@@ -2104,7 +2083,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
       {isBeingHeld && !isBannedFromGroup && (
         <div className="p-3 bg-amber-50 dark:bg-amber-950 border-t border-amber-200 dark:border-amber-900 flex items-center gap-2 shrink-0">
           <Pause size={14} className="text-amber-600 dark:text-amber-400" />
-          <span className="text-[10px] font-bold text-amber-700 dark:text-amber-300">Bu sohbet beklemeye alındı. Mesaj gönderemezsiniz.</span>
+          <span className="text-[10px] font-bold text-amber-700 dark:text-amber-300">{t('chat.holdBanner')}</span>
         </div>
       )}
 
@@ -2112,16 +2091,16 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
       {isBannedFromGroup && (
         <div className="p-3 bg-red-50 dark:bg-red-950 border-t border-red-200 dark:border-red-900 flex items-center gap-2 shrink-0">
           <Ban size={14} className="text-red-600 dark:text-red-400" />
-          <span className="text-[10px] font-bold text-red-700 dark:text-red-300">Bu gruptan banlandınız. Mesaj gönderemezsiniz.</span>
+          <span className="text-[10px] font-bold text-red-700 dark:text-red-300">{t('chat.banBanner')}</span>
         </div>
       )}
 
       {(editingMsg || replyTo) && !isBeingHeld && !isBannedFromGroup && (
         <div className="px-6 py-2 bg-blue-50 dark:bg-blue-950 border-t border-blue-100 dark:border-blue-900 flex items-center gap-2 shrink-0">
           {editingMsg ? (
-            <><Pencil size={12} className="text-blue-500 dark:text-blue-400" /><span className="text-[11px] font-bold text-blue-600 dark:text-blue-300">Mesajı düzenle</span></>
+            <><Pencil size={12} className="text-blue-500 dark:text-blue-400" /><span className="text-[11px] font-bold text-blue-600 dark:text-blue-300">{t('chat.editing')}</span></>
           ) : (
-            <><Reply size={12} className="text-blue-500 dark:text-blue-400" /><span className="text-[11px] font-bold text-blue-600 dark:text-blue-300">Yanıtla: {(replyTo?.text || '').slice(0, 50)}{(replyTo?.text || '').length > 50 ? '...' : ''}</span></>
+            <><Reply size={12} className="text-blue-500 dark:text-blue-400" /><span className="text-[11px] font-bold text-blue-600 dark:text-blue-300">{t('chat.reply')}: {(replyTo?.text || '').slice(0, 50)}{(replyTo?.text || '').length > 50 ? '...' : ''}</span></>
           )}
           <button onClick={() => { setEditingMsg(null); setReplyTo(null); setInputText(''); }}
             className="ml-auto p-0.5 text-blue-400 hover:text-blue-600"><X size={14} /></button>
@@ -2140,7 +2119,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
                   <div className="w-1.5 h-1.5 bg-white rounded-full animate-ping shrink-0" />
                   <span className="text-[10px] font-black tabular-nums truncate">{Math.floor(videoRecordingTime / 60)}:{String(videoRecordingTime % 60).padStart(2, '0')} / 0:15</span>
                 </div>
-                <button onClick={stopVideoRecording} className="px-2 py-1 bg-white text-red-600 rounded-lg text-[10px] font-black uppercase tracking-wider shrink-0">Durdur</button>
+                <button onClick={stopVideoRecording} className="px-2 py-1 bg-white text-red-600 rounded-lg text-[10px] font-black uppercase tracking-wider shrink-0">{t('chat.stop')}</button>
               </div>
             </div>
           )}
@@ -2211,7 +2190,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
                 "p-1.5 sm:p-2 text-slate-400 hover:text-slate-600 transition-colors shrink-0",
                 showUploadMenu && "bg-slate-200 text-slate-700"
               )}
-              title="Fotoğraf/Video Seçenekleri"
+              title={t('chat.photoVideoOptions')}
             >
               <Image size={20} />
             </button>
@@ -2224,22 +2203,19 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
                     onClick={() => { imageInputRef.current?.click(); setShowUploadMenu(false); }}
                     className="w-full text-left px-4 py-2.5 text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center gap-2 transition-colors"
                   >
-                    <Image size={14} /> Fotoğraf Yükle
-                  </button>
+                    <Image size={14} />{t('chat.uploadPhoto')}</button>
                   <button
                     type="button"
                     onClick={() => { startPhotoCapture(); }}
                     className="w-full text-left px-4 py-2.5 text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center gap-2 transition-colors"
                   >
-                    <Camera size={14} /> Fotoğraf Çek
-                  </button>
+                    <Camera size={14} />{t('chat.takePhoto')}</button>
                   <button
                     type="button"
                     onClick={() => { videoInputRef.current?.click(); setShowUploadMenu(false); }}
                     className="w-full text-left px-4 py-2.5 text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center gap-2 transition-colors"
                   >
-                    <Video size={14} /> Video Yükle
-                  </button>
+                    <Video size={14} />{t('chat.uploadVideo')}</button>
                 </div>
               </>
             )}
@@ -2249,14 +2225,14 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
             <div className="flex items-center gap-2 px-3 py-1 bg-red-50 text-red-600 rounded-xl shrink-0 animate-in fade-in zoom-in-95 duration-200">
               <div className="w-2 h-2 bg-red-600 rounded-full animate-ping" />
               <span className="text-xs font-black tabular-nums">{Math.floor(videoRecordingTime / 60)}:{String(videoRecordingTime % 60).padStart(2, '0')} / 0:15</span>
-              <button onClick={stopVideoRecording} className="p-1 px-2 bg-red-600 text-white rounded-lg text-[10px] font-bold uppercase tracking-wider">Durdur</button>
+              <button onClick={stopVideoRecording} className="p-1 px-2 bg-red-600 text-white rounded-lg text-[10px] font-bold uppercase tracking-wider">{t('chat.stop')}</button>
             </div>
           ) : (
             <button 
               type="button" 
               onClick={startVideoRecording}
               className="p-1.5 sm:p-2 text-slate-400 hover:text-red-500 transition-colors shrink-0"
-              title="Video Kaydet"
+              title={t('chat.recordVideo')}
             >
               <Video size={20} />
             </button>
@@ -2266,7 +2242,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
             <div className="flex items-center gap-2 px-3 py-1 bg-red-50 text-red-600 rounded-xl shrink-0 animate-in fade-in zoom-in-95 duration-200">
                <div className="w-2 h-2 bg-red-600 rounded-full animate-ping" />
                <span className="text-xs font-black tabular-nums">{Math.floor(recordingTime / 60)}:{String(recordingTime % 60).padStart(2, '0')}</span>
-               <button onClick={stopRecording} className="p-1 px-2 bg-red-600 text-white rounded-lg text-[10px] font-bold uppercase tracking-wider">Durur ve Gönder</button>
+               <button onClick={stopRecording} className="p-1 px-2 bg-red-600 text-white rounded-lg text-[10px] font-bold uppercase tracking-wider">{t('chat.stopAndSend')}</button>
             </div>
           ) : (
             <button 
@@ -2286,7 +2262,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
               "p-1.5 sm:p-2 transition-colors shrink-0",
               encryptMode ? "text-amber-500 bg-amber-50 rounded-lg" : "text-slate-400 hover:text-slate-600"
             )}
-            title={encryptMode ? 'Şifreli Gönder: AÇIK' : 'Şifreli Gönder: KAPALI'}
+            title={encryptMode ? t('chat.encSendOn') : t('chat.encSendOff')}
           >
             <Lock size={18} />
           </button>
@@ -2299,7 +2275,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
               "p-1.5 sm:p-2 transition-colors shrink-0",
               viewOnceMode ? "text-purple-500 bg-purple-50 rounded-lg" : "text-slate-400 hover:text-slate-600"
             )}
-            title={viewOnceMode ? 'Tek Bakışlık: AÇIK' : 'Tek Bakışlık: KAPALI'}
+            title={viewOnceMode ? t('chat.voOn') : t('chat.voOff')}
           >
             <Eye size={18} />
           </button>
@@ -2311,7 +2287,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
               type="text" 
               value={inputText}
               onChange={(e) => setInputText(e.target.value)}
-              placeholder={isBeingHeld ? "Sohbet beklemeye alındı..." : "Mesaj yaz..."}
+              placeholder={isBeingHeld ? t('chat.holdPlaceholder') : t('chat.msgPlaceholder')}
               className="flex-1 min-w-0 bg-transparent border-none focus:ring-0 text-sm py-2 px-2 sm:px-4 text-slate-900 placeholder:text-slate-400"
             />
             <button 
@@ -2371,29 +2347,23 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
                 <Camera size={22} />
               </div>
               <div>
-                <h3 className="text-base font-black text-slate-900 dark:text-slate-100 leading-tight">Kamera Seç</h3>
-                <p className="text-xs text-slate-500 dark:text-slate-400 font-bold mt-2">Seçtiğin kameranın önizlemesini görüp çek</p>
+                <h3 className="text-base font-black text-slate-900 dark:text-slate-100 leading-tight">{t('chat.pickCamera')}</h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400 font-bold mt-2">{t('chat.cameraHint')}</p>
               </div>
               <div className="flex gap-3">
                 <button
                   onClick={() => openCameraPreview('user')}
                   className="flex-1 py-2.5 rounded-xl text-xs font-bold bg-blue-600 hover:bg-blue-700 active:scale-95 text-white transition-all"
-                >
-                  Ön Kamera
-                </button>
+                >{t('chat.frontCam')}</button>
                 <button
                   onClick={() => openCameraPreview('environment')}
                   className="flex-1 py-2.5 rounded-xl text-xs font-bold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700 active:scale-95 transition-all border border-slate-200 dark:border-slate-700"
-                >
-                  Arka Kamera
-                </button>
+                >{t('chat.backCam')}</button>
               </div>
               <button
                 onClick={() => setShowCameraPicker(false)}
                 className="w-full py-2 rounded-xl text-[11px] font-bold text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 transition-all"
-              >
-                Vazgeç
-              </button>
+              >{t('chat.cancelBtn')}</button>
             </motion.div>
           </div>
         )}
@@ -2414,13 +2384,11 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
                 <button
                   onClick={stopCameraPreview}
                   className="px-3 py-2 rounded-xl text-xs font-bold text-slate-300 hover:bg-white/10 transition-all"
-                >
-                  Vazgeç
-                </button>
+                >{t('chat.cancelBtn')}</button>
                 <button
                   onClick={takePhotoFromPreview}
                   className="w-14 h-14 rounded-full bg-white border-4 border-slate-400 hover:scale-105 active:scale-95 transition-all shadow-lg"
-                  title="Çek"
+                  title={t('chat.snap')}
                 />
                 <div className="w-14" />
               </div>
@@ -2452,9 +2420,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
                   <button
                     onClick={() => setCustomDialog(null)}
                     className="flex-1 py-2.5 rounded-xl text-xs font-bold text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 active:scale-95 transition-all border border-slate-200 dark:border-slate-700 cursor-pointer"
-                  >
-                    Vazgeç
-                  </button>
+                  >{t('chat.cancelBtn')}</button>
                 )}
                 <button
                   onClick={() => {
@@ -2464,9 +2430,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
                     setCustomDialog(null);
                   }}
                   className="flex-1 py-2.5 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white rounded-xl text-xs font-bold transition-all shadow-lg shadow-blue-600/10 cursor-pointer"
-                >
-                  Tamam
-                </button>
+                >{t('chat.ok')}</button>
               </div>
             </motion.div>
           </div>
@@ -2480,7 +2444,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
             <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.9 }}
               className="bg-white dark:bg-slate-900 rounded-3xl p-6 shadow-2xl max-w-md w-full border border-slate-100 dark:border-slate-800" onClick={e => e.stopPropagation()}>
               <div className="flex items-center justify-between mb-4">
-                <h3 className="text-sm font-black text-slate-900 dark:text-slate-100 flex items-center gap-2"><Lock size={14} /> Şifreli Mesaj</h3>
+                <h3 className="text-sm font-black text-slate-900 dark:text-slate-100 flex items-center gap-2"><Lock size={14} />{t('chat.encryptedMsg')}</h3>
                 <button onClick={() => setDecryptModal(null)} className="p-1 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full text-slate-400"><X size={18} /></button>
               </div>
                 <DecryptContent msg={decryptModal} onClose={() => setDecryptModal(null)} canBypass={isGroupAdmin} />
@@ -2496,7 +2460,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
             <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.9 }}
               className="bg-white dark:bg-slate-900 rounded-3xl p-6 shadow-2xl max-w-md w-full border border-slate-100 dark:border-slate-800 max-h-[85vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
               <div className="flex items-center justify-between mb-4">
-                <h3 className="text-sm font-black text-slate-900 dark:text-slate-100 flex items-center gap-2"><Eye size={14} className="text-purple-500" /> Tek Bakışlık Mesaj</h3>
+                <h3 className="text-sm font-black text-slate-900 dark:text-slate-100 flex items-center gap-2"><Eye size={14} className="text-purple-500" />{t('chat.viewOnceMsg')}</h3>
                 <button onClick={() => closeViewOnce()} className="p-1 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full text-slate-400"><X size={18} /></button>
               </div>
               {viewOnceModal.encrypted && !viewOnceUnlocked ? (
@@ -2516,9 +2480,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
                     <audio src={viewOnceModal.audioUrl} controls className="w-full" />
                   )}
                   <button onClick={() => closeViewOnce()}
-                    className="w-full py-2.5 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs font-bold transition-all">
-                    Kapat
-                  </button>
+                    className="w-full py-2.5 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs font-bold transition-all">{t('chat.close')}</button>
                 </div>
               )}
             </motion.div>
@@ -2583,7 +2545,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
               <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between shrink-0">
                 <div className="flex items-center gap-3">
                   <Shield size={22} className="text-amber-500" />
-                  <h3 className="text-lg font-black text-slate-900 dark:text-slate-100 tracking-tight">Grup Yönetimi</h3>
+                  <h3 className="text-lg font-black text-slate-900 dark:text-slate-100 tracking-tight">{t('chat.groupAdmin')}</h3>
                 </div>
                 <button onClick={() => setShowGroupAdmin(false)} className="p-1 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full text-slate-400"><X size={20} /></button>
               </div>
@@ -2591,34 +2553,33 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
               <div className="flex-1 overflow-y-auto custom-scrollbar p-6 space-y-6">
                 {/* Group Name Edit */}
                 <div className="bg-slate-50 dark:bg-slate-800 rounded-2xl p-4 border border-slate-100 dark:border-slate-700">
-                  <h4 className="text-xs font-black text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-3">Grup Adı</h4>
+                  <h4 className="text-xs font-black text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-3">{t('chat.groupName')}</h4>
                   {showEditGroupName ? (
                     <div className="flex gap-2">
                       <input type="text" value={editGroupName} onChange={e => setEditGroupName(e.target.value)}
-                        placeholder="Yeni grup adı..."
+                        placeholder={t('chat.newGroupName')}
                         className="flex-1 bg-white dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-700 rounded-xl px-4 py-2 text-sm font-bold outline-none focus:border-blue-500 transition-all text-slate-900 dark:text-slate-100"
                         autoFocus onKeyDown={e => e.key === 'Enter' && handleEditGroupName()} />
-                      <button onClick={handleEditGroupName} className="px-4 py-2 bg-blue-600 text-white rounded-xl text-xs font-bold hover:bg-blue-700 transition-all">Kaydet</button>
-                      <button onClick={() => setShowEditGroupName(false)} className="px-4 py-2 bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-xl text-xs font-bold hover:bg-slate-300 dark:hover:bg-slate-600 transition-all">İptal</button>
+                      <button onClick={handleEditGroupName} className="px-4 py-2 bg-blue-600 text-white rounded-xl text-xs font-bold hover:bg-blue-700 transition-all">{t('chat.save')}</button>
+                      <button onClick={() => setShowEditGroupName(false)} className="px-4 py-2 bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-xl text-xs font-bold hover:bg-slate-300 dark:hover:bg-slate-600 transition-all">{t('login.cancel')}</button>
                     </div>
                   ) : (
                     <div className="flex items-center justify-between">
                       <p className="text-sm font-bold text-slate-700 dark:text-slate-200">{chat.groupMetadata?.name}</p>
                       <button onClick={() => { setEditGroupName(chat.groupMetadata?.name || ''); setShowEditGroupName(true); }}
                         className="px-3 py-1.5 bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-400 rounded-xl text-[10px] font-bold hover:bg-blue-100 dark:hover:bg-blue-900 transition-all flex items-center gap-1">
-                        <Settings size={12} /> Düzenle
-                      </button>
+                        <Settings size={12} />{t('chat.edit')}</button>
                     </div>
                   )}
                 </div>
 
                 {/* Admin Transfer */}
                 <div className="bg-slate-50 dark:bg-slate-800 rounded-2xl p-4 border border-slate-100 dark:border-slate-700">
-                  <h4 className="text-xs font-black text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-3">Yönetici Devret</h4>
+                  <h4 className="text-xs font-black text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-3">{t('chat.transferAdmin')}</h4>
                   {showTransferAdmin ? (
                     <div className="space-y-2 max-h-40 overflow-y-auto">
                       {loadingMembers ? (
-                        <p className="text-xs text-slate-400 text-center py-4">Yükleniyor...</p>
+                        <p className="text-xs text-slate-400 text-center py-4">{t('chat.loading')}</p>
                       ) : (
                         allMembers.filter(m => m.uid !== user?.uid).map(m => (
                           <button key={m.uid} onClick={() => handleTransferAdmin(m.uid)}
@@ -2628,21 +2589,19 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
                           </button>
                         ))
                       )}
-                      <button onClick={() => setShowTransferAdmin(false)} className="w-full py-2 text-xs font-bold text-slate-500 hover:text-slate-700 transition-colors">İptal</button>
+                      <button onClick={() => setShowTransferAdmin(false)} className="w-full py-2 text-xs font-bold text-slate-500 hover:text-slate-700 transition-colors">{t('login.cancel')}</button>
                     </div>
                   ) : (
                     <button onClick={() => { loadGroupMembers(); setShowTransferAdmin(true); }}
-                      className="px-3 py-1.5 bg-amber-50 dark:bg-amber-950 text-amber-600 dark:text-amber-400 rounded-xl text-[10px] font-bold hover:bg-amber-100 dark:hover:bg-amber-900 transition-all">
-                      Yöneticiyi Devret
-                    </button>
+                      className="px-3 py-1.5 bg-amber-50 dark:bg-amber-950 text-amber-600 dark:text-amber-400 rounded-xl text-[10px] font-bold hover:bg-amber-100 dark:hover:bg-amber-900 transition-all">{t('chat.transferAdminBtn')}</button>
                   )}
                 </div>
 
                 {/* Kick/Ban Member */}
                 <div className="bg-slate-50 dark:bg-slate-800 rounded-2xl p-4 border border-slate-100 dark:border-slate-700">
-                  <h4 className="text-xs font-black text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-3">Üyeler</h4>
+                  <h4 className="text-xs font-black text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-3">{t('chat.members')}</h4>
                   {loadingMembers ? (
-                    <p className="text-xs text-slate-400 text-center py-4">Yükleniyor...</p>
+                    <p className="text-xs text-slate-400 text-center py-4">{t('chat.loading')}</p>
                   ) : (
                     <div className="space-y-2 max-h-60 overflow-y-auto">
                       {allMembers.map(m => {
@@ -2656,12 +2615,12 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
                             <div className="flex-1 min-w-0">
                               <p className="text-sm font-bold text-slate-700 dark:text-slate-200 truncate flex items-center gap-2">
                                 {m.displayName}
-                                {isAdmin && <span className="text-[8px] bg-amber-100 text-amber-600 px-1.5 py-0.5 rounded-full font-black uppercase tracking-wider">Admin</span>}
-                                {isMe && <span className="text-[8px] bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded-full font-black uppercase tracking-wider">Sen</span>}
+                                {isAdmin && <span className="text-[8px] bg-amber-100 text-amber-600 px-1.5 py-0.5 rounded-full font-black uppercase tracking-wider">{t('side.admin')}</span>}
+                                {isMe && <span className="text-[8px] bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded-full font-black uppercase tracking-wider">{t('chat.you')}</span>}
                               </p>
                               {bannedInfo && (
                                 <p className="text-[10px] text-red-500 font-bold">
-                                  Banlı {bannedInfo.bannedUntil ? `(süre: ${bannedInfo.bannedUntil?.seconds ? new Date(bannedInfo.bannedUntil.seconds*1000).toLocaleDateString() : 'Süresiz'})` : '(Süresiz)'}
+                                  {t('chat.banned')} {bannedInfo.bannedUntil ? `(${t('chat.until')}${bannedInfo.bannedUntil?.seconds ? new Date(bannedInfo.bannedUntil.seconds*1000).toLocaleDateString() : t('chat.indefinite')})` : `(${t('chat.indefinite')})`}
                                 </p>
                               )}
                             </div>
@@ -2669,15 +2628,13 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
                               <div className="flex gap-1">
                                 <button onClick={() => { setKickMemberId(m.uid); setKickMode('kick'); setKickDuration(0); setShowKickMember(true); }}
                                   className="px-2 py-1 bg-red-50 text-red-600 rounded-lg text-[9px] font-bold hover:bg-red-100 transition-all flex items-center gap-1">
-                                  <UserX size={10} /> At
-                                </button>
+                                  <UserX size={10} />{t('chat.kick')}</button>
                               </div>
                             )}
                             {bannedInfo && isGroupAdmin && (
                               <button onClick={() => handleUnbanMember(m.uid)}
                                 className="px-2 py-1 bg-green-50 text-green-600 rounded-lg text-[9px] font-bold hover:bg-green-100 transition-all flex items-center gap-1">
-                                <UserCheck size={10} /> Ban Kaldır
-                              </button>
+                                <UserCheck size={10} />{t('chat.unban')}</button>
                             )}
                           </div>
                         );
@@ -2689,20 +2646,14 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
                 {/* Kick Mode Modal */}
                 {showKickMember && kickMemberId && (
                 <div className="bg-amber-50 dark:bg-amber-950 rounded-2xl p-4 border border-amber-200 dark:border-amber-900">
-                    <h4 className="text-xs font-black text-amber-700 dark:text-amber-300 uppercase tracking-wider mb-3">Kullanıcıyı Gruptan At</h4>
+                    <h4 className="text-xs font-black text-amber-700 dark:text-amber-300 uppercase tracking-wider mb-3">{t('chat.kickUser')}</h4>
                     <div className="flex flex-col gap-1.5 mb-3">
                       <button onClick={() => setKickMode('kick')}
-                        className={cn("text-left px-3 py-2 rounded-xl text-[11px] font-bold border transition-all", kickMode === 'kick' ? "bg-white dark:bg-slate-900 border-amber-400 text-amber-700 dark:text-amber-300" : "border-amber-200 dark:border-amber-800 text-amber-600 dark:text-amber-400 opacity-70 hover:opacity-100")}>
-                        Sadece Sohbetten At - yeniden katılabilir
-                      </button>
+                        className={cn("text-left px-3 py-2 rounded-xl text-[11px] font-bold border transition-all", kickMode === 'kick' ? "bg-white dark:bg-slate-900 border-amber-400 text-amber-700 dark:text-amber-300" : "border-amber-200 dark:border-amber-800 text-amber-600 dark:text-amber-400 opacity-70 hover:opacity-100")}>{t('chat.kickOnly')}</button>
                       <button onClick={() => setKickMode('temp')}
-                        className={cn("text-left px-3 py-2 rounded-xl text-[11px] font-bold border transition-all", kickMode === 'temp' ? "bg-white dark:bg-slate-900 border-amber-400 text-amber-700 dark:text-amber-300" : "border-amber-200 dark:border-amber-800 text-amber-600 dark:text-amber-400 opacity-70 hover:opacity-100")}>
-                        Süreli Banla - süre dolunca geri gelebilir
-                      </button>
+                        className={cn("text-left px-3 py-2 rounded-xl text-[11px] font-bold border transition-all", kickMode === 'temp' ? "bg-white dark:bg-slate-900 border-amber-400 text-amber-700 dark:text-amber-300" : "border-amber-200 dark:border-amber-800 text-amber-600 dark:text-amber-400 opacity-70 hover:opacity-100")}>{t('chat.kickTemp')}</button>
                       <button onClick={() => setKickMode('untilAllowed')}
-                        className={cn("text-left px-3 py-2 rounded-xl text-[11px] font-bold border transition-all", kickMode === 'untilAllowed' ? "bg-white dark:bg-slate-900 border-amber-400 text-amber-700 dark:text-amber-300" : "border-amber-200 dark:border-amber-800 text-amber-600 dark:text-amber-400 opacity-70 hover:opacity-100")}>
-                        Yönetici İzin Verene Kadar At
-                      </button>
+                        className={cn("text-left px-3 py-2 rounded-xl text-[11px] font-bold border transition-all", kickMode === 'untilAllowed' ? "bg-white dark:bg-slate-900 border-amber-400 text-amber-700 dark:text-amber-300" : "border-amber-200 dark:border-amber-800 text-amber-600 dark:text-amber-400 opacity-70 hover:opacity-100")}>{t('chat.kickUntilAllowedLong')}</button>
                     </div>
                     {kickMode === 'temp' && (
                     <div className="flex items-center gap-2 mb-4">
@@ -2710,21 +2661,19 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
                         className="w-20 bg-white dark:bg-slate-900 border-2 border-amber-200 dark:border-amber-800 rounded-xl px-3 py-2 text-sm font-bold text-center outline-none focus:border-amber-500 transition-all text-slate-900 dark:text-slate-100" />
                       <select value={kickDurationUnit} onChange={e => setKickDurationUnit(e.target.value as any)}
                         className="bg-white dark:bg-slate-900 border-2 border-amber-200 dark:border-amber-800 rounded-xl px-3 py-2 text-sm font-bold outline-none focus:border-amber-500 transition-all text-slate-900 dark:text-slate-100">
-                        <option value="minutes">Dakika</option>
-                        <option value="hours">Saat</option>
-                        <option value="days">Gün</option>
+                        <option value="minutes">{t('chat.minutes')}</option>
+                        <option value="hours">{t('chat.hours')}</option>
+                        <option value="days">{t('chat.days')}</option>
                       </select>
                     </div>
                     )}
                     <div className="flex gap-2">
                       <button onClick={() => handleKickMember(kickMemberId)} disabled={kickMode === 'temp' && kickDuration <= 0}
                         className={cn("flex-1 py-2.5 rounded-xl text-xs font-bold transition-all text-white", kickMode === 'temp' && kickDuration <= 0 ? "bg-red-300 cursor-not-allowed" : "bg-red-600 hover:bg-red-700")}>
-                        {kickMode === 'kick' ? 'Sadece At' : kickMode === 'temp' ? 'Banla ve At' : 'İzin Verene Kadar At'}
+                        {kickMode === 'kick' ? t('chat.kickOnlyBtn') : kickMode === 'temp' ? t('chat.kickBanBtn') : t('chat.kickUntilBtn')}
                       </button>
                       <button onClick={() => { setShowKickMember(false); setKickMemberId(null); setKickDuration(0); setKickMode('kick'); }}
-                        className="flex-1 py-2.5 bg-slate-200 text-slate-600 rounded-xl text-xs font-bold hover:bg-slate-300 transition-all">
-                        İptal
-                      </button>
+                        className="flex-1 py-2.5 bg-slate-200 text-slate-600 rounded-xl text-xs font-bold hover:bg-slate-300 transition-all">{t('login.cancel')}</button>
                     </div>
                   </div>
                 )}
@@ -2732,9 +2681,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
 
               {/* Footer Info */}
               <div className="p-4 border-t border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-800 rounded-b-3xl shrink-0">
-                <p className="text-[9px] text-slate-400 font-bold text-center">
-                  Sadece grup yöneticisi bu ayarları değiştirebilir
-                </p>
+                <p className="text-[9px] text-slate-400 font-bold text-center">{t('chat.adminOnlySettings')}</p>
               </div>
             </motion.div>
           </div>
@@ -2747,14 +2694,14 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
           <div className="bg-white dark:bg-slate-800 rounded-3xl w-full max-w-md max-h-[80vh] flex flex-col overflow-hidden shadow-2xl" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between p-4 border-b border-slate-100 dark:border-slate-700 shrink-0">
               <div>
-                <h3 className="text-sm font-black text-slate-900 dark:text-slate-100 uppercase tracking-wider">Grup Bilgileri</h3>
-                <p className="text-[10px] text-slate-400 font-bold mt-0.5">{chat.groupMetadata?.name || 'Grup'} • {chat.participants.length} üye</p>
+                <h3 className="text-sm font-black text-slate-900 dark:text-slate-100 uppercase tracking-wider">{t('chat.groupInfo')}</h3>
+                <p className="text-[10px] text-slate-400 font-bold mt-0.5">{chat.groupMetadata?.name || t('chat.group')} • {chat.participants.length} {t('side.members')}</p>
               </div>
               <button onClick={() => setShowGroupInfo(false)} className="p-1 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-full transition-colors"><X size={20} className="text-slate-500" /></button>
             </div>
             <div className="flex-1 overflow-y-auto p-4 space-y-4">
               {loadingMembers ? (
-                <p className="text-xs text-slate-400 text-center py-8 font-bold">Yükleniyor...</p>
+                <p className="text-xs text-slate-400 text-center py-8 font-bold">{t('chat.loading')}</p>
               ) : (
                 <>
                   {(() => {
@@ -2765,25 +2712,25 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
                       <>
                         {admin && (
                           <div>
-                            <p className="text-[10px] font-black uppercase tracking-wider text-amber-500 mb-2">Yönetici</p>
+                            <p className="text-[10px] font-black uppercase tracking-wider text-amber-500 mb-2">{t('chat.admin')}</p>
                             <button onClick={() => setViewProfileMember(admin)}
                               className="w-full flex items-center gap-3 p-3 bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-900 rounded-2xl hover:bg-amber-100 dark:hover:bg-amber-900 transition-all text-left">
                               <img src={admin.photoURL} className="w-10 h-10 rounded-full object-cover" />
                               <div className="flex-1 min-w-0">
                                 <p className="text-sm font-bold text-slate-800 dark:text-slate-100 truncate flex items-center gap-2">
                                   {admin.displayName}
-                                  <span className="text-[8px] bg-amber-500 text-white px-1.5 py-0.5 rounded-full font-black uppercase">Admin</span>
+                                  <span className="text-[8px] bg-amber-500 text-white px-1.5 py-0.5 rounded-full font-black uppercase">{t('side.admin')}</span>
                                 </p>
-                                <p className="text-[10px] text-slate-500 dark:text-slate-400 font-bold">UIN: #{admin.uin || 'Yok'}</p>
+                                <p className="text-[10px] text-slate-500 dark:text-slate-400 font-bold">UIN: #{admin.uin || t('chat.none')}</p>
                               </div>
                             </button>
                           </div>
                         )}
                         <div>
-                          <p className="text-[10px] font-black uppercase tracking-wider text-slate-400 mb-2">Diğer Katılımcılar</p>
+                          <p className="text-[10px] font-black uppercase tracking-wider text-slate-400 mb-2">{t('chat.others')}</p>
                           <div className="space-y-2">
                             {others.length === 0 && (
-                              <p className="text-xs text-slate-400 text-center py-4 font-medium">Başka katılımcı yok.</p>
+                              <p className="text-xs text-slate-400 text-center py-4 font-medium">{t('chat.noOthers')}</p>
                             )}
                             {others.map(m => (
                               <button key={m.uid} onClick={() => setViewProfileMember(m)}
@@ -2792,9 +2739,9 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
                                 <div className="flex-1 min-w-0">
                                   <p className="text-sm font-bold text-slate-700 dark:text-slate-200 truncate flex items-center gap-2">
                                     {m.displayName}
-                                    {m.uid === user?.uid && <span className="text-[8px] bg-blue-500 text-white px-1.5 py-0.5 rounded-full font-black uppercase">Sen</span>}
+                                    {m.uid === user?.uid && <span className="text-[8px] bg-blue-500 text-white px-1.5 py-0.5 rounded-full font-black uppercase">{t('chat.you')}</span>}
                                   </p>
-                                  <p className="text-[10px] text-slate-500 dark:text-slate-400 font-bold">UIN: #{m.uin || 'Yok'}</p>
+                                  <p className="text-[10px] text-slate-500 dark:text-slate-400 font-bold">UIN: #{m.uin || t('chat.none')}</p>
                                 </div>
                               </button>
                             ))}
@@ -2807,7 +2754,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
               )}
             </div>
             <div className="p-3 border-t border-slate-100 dark:border-slate-700 shrink-0">
-              <p className="text-[9px] text-slate-400 font-bold text-center">Profilini görmek için üyeye dokun</p>
+              <p className="text-[9px] text-slate-400 font-bold text-center">{t('chat.tapToViewProfile')}</p>
             </div>
           </div>
         </div>
