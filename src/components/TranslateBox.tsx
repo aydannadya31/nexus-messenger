@@ -49,7 +49,7 @@ export function TranslateToggle({ source, target, onPick }: {
       {open && (
         <>
           <div className="fixed inset-0 z-[9998]" onClick={() => setOpen(false)} />
-          <div className="absolute bottom-full right-0 mb-2 z-[9999] w-48 max-h-64 overflow-y-auto bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-2xl p-1.5">
+          <div className="absolute bottom-full right-0 mb-2 z-[9999] w-48 max-h-80 overflow-y-auto bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-2xl p-1.5">
             {LANGS.filter(l => l.code !== source).map(l => (
               <button
                 key={l.code}
