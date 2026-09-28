@@ -7,6 +7,7 @@ import { UserProfile, Chat } from '../types';
 import { X, Search, UserPlus, Users, ArrowRight, Check, Globe, Filter, LogIn, MessageSquarePlus } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
+import { useI18n } from '../lib/i18n';
 
 const COUNTRIES: { code: string; name: string }[] = [
   { code: 'TUR', name: 'Türkiye' }, { code: 'USA', name: 'United States' }, { code: 'GBR', name: 'United Kingdom' },
@@ -41,6 +42,7 @@ interface NewChatModalProps {
 }
 
 export const NewChatModal: React.FC<NewChatModalProps> = ({ onClose, onChatCreated }) => {
+  const { t } = useI18n();
   const { user, profile } = useAuth();
   const { addToast } = useToast();
   const [tab, setTab] = useState<'people' | 'groups'>('people');
@@ -156,7 +158,7 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({ onClose, onChatCreat
       onClose();
     } catch (err) {
       console.error("startPrivateChat error:", err);
-      addToast('Sohbet başlatılamadı: ' + (err instanceof Error ? err.message : 'Bilinmeyen hata'), 'error');
+      addToast(t('nc.startChatFailed') + ': ' + (err instanceof Error ? err.message : t('nc.unknownError')), 'error');
     }
   };
 
@@ -173,10 +175,10 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({ onClose, onChatCreat
         status: 'pending', timestamp: serverTimestamp()
       });
       setFriendStatus(prev => ({ ...prev, [otherUser.uid]: 'pending_sent' }));
-      addToast('Arkadaşlık isteği gönderildi!', 'success');
+      addToast(t('nc.requestSent'), 'success');
     } catch (err) {
       console.error("sendFriendRequest error:", err);
-      addToast('İstek gönderilemedi: ' + (err instanceof Error ? err.message : 'Bilinmeyen hata'), 'error');
+      addToast(t('nc.requestFailed') + ': ' + (err instanceof Error ? err.message : t('nc.unknownError')), 'error');
     }
   };
 
@@ -198,7 +200,7 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({ onClose, onChatCreat
       onClose();
     } catch (err) {
       console.error("createGroup error:", err);
-      addToast('Grup oluşturulamadı: ' + (err instanceof Error ? err.message : 'Bilinmeyen hata'), 'error');
+      addToast(t('nc.groupCreateFailed') + ': ' + (err instanceof Error ? err.message : t('nc.unknownError')), 'error');
     }
   };
 
@@ -235,13 +237,13 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({ onClose, onChatCreat
     if (!user) return;
     const banEntry = group.groupMetadata?.bannedUsers?.find(b => b.uid === user.uid);
     if (banEntry && (!banEntry.bannedUntil || new Date(banEntry.bannedUntil.seconds * 1000 || banEntry.bannedUntil) > new Date())) {
-      addToast('Bu gruptan banlandınız!', 'error');
+      addToast(t('nc.bannedFromGroup'), 'error');
       return;
     }
     if (group.groupMetadata?.password) { setSelectedGroup(group); return; }
     if (group.participants?.includes(user.uid)) { onChatCreated(group.id); onClose(); return; }
     await updateDoc(doc(db, 'chats', group.id), { participants: arrayUnion(user.uid) });
-    addToast('Gruba başarıyla katıldınız!', 'success');
+    addToast(t('nc.joinedGroup'), 'success');
     onChatCreated(group.id);
     onClose();
   };
@@ -251,15 +253,15 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({ onClose, onChatCreat
     if (joinPassword.trim() === selectedGroup.groupMetadata?.password) {
       const banEntry = selectedGroup.groupMetadata?.bannedUsers?.find(b => b.uid === user.uid);
       if (banEntry && (!banEntry.bannedUntil || new Date(banEntry.bannedUntil.seconds * 1000 || banEntry.bannedUntil) > new Date())) {
-        addToast('Bu gruptan banlandınız!', 'error');
+        addToast(t('nc.bannedFromGroup'), 'error');
         return;
       }
       await updateDoc(doc(db, 'chats', selectedGroup.id), { participants: arrayUnion(user.uid) });
-      addToast('Gruba başarıyla katıldınız!', 'success');
+      addToast(t('nc.joinedGroup'), 'success');
       onChatCreated(selectedGroup.id);
       onClose();
     } else {
-      addToast('Hatalı şifre!', 'error');
+      addToast(t('login.wrongPw'), 'error');
     }
   };
 
@@ -276,7 +278,7 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({ onClose, onChatCreat
         className="bg-white border border-slate-200 rounded-3xl w-full max-w-md overflow-hidden shadow-2xl flex flex-col max-h-[90vh] pointer-events-auto">
         
         <div className="p-6 border-b border-slate-100 flex items-center justify-between shrink-0">
-          <h2 className="text-xl font-bold text-slate-900 tracking-tight">Kullanıcı Listesi</h2>
+          <h2 className="text-xl font-bold text-slate-900 tracking-tight">{t('side.userListTitle')}</h2>
           <button onClick={onClose} className="p-2 hover:bg-slate-100 rounded-full text-slate-400 transition-colors"><X size={22} /></button>
         </div>
 
@@ -285,8 +287,8 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({ onClose, onChatCreat
             <>
               {/* Tabs */}
               <div className="flex rounded-2xl bg-slate-100 p-1">
-                <button onClick={() => setTab('people')} className={cn("flex-1 py-2.5 rounded-xl text-xs font-bold uppercase tracking-wider transition-all", tab === 'people' ? "bg-white text-slate-900 shadow-sm" : "text-slate-500")}>Kişiler</button>
-                <button onClick={() => setTab('groups')} className={cn("flex-1 py-2.5 rounded-xl text-xs font-bold uppercase tracking-wider transition-all", tab === 'groups' ? "bg-white text-slate-900 shadow-sm" : "text-slate-500")}>Gruplar</button>
+                <button onClick={() => setTab('people')} className={cn("flex-1 py-2.5 rounded-xl text-xs font-bold uppercase tracking-wider transition-all", tab === 'people' ? "bg-white text-slate-900 shadow-sm" : "text-slate-500")}>{t('nc.people')}</button>
+                <button onClick={() => setTab('groups')} className={cn("flex-1 py-2.5 rounded-xl text-xs font-bold uppercase tracking-wider transition-all", tab === 'groups' ? "bg-white text-slate-900 shadow-sm" : "text-slate-500")}>{t('side.groups')}</button>
               </div>
 
               {tab === 'people' && (
@@ -297,7 +299,7 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({ onClose, onChatCreat
                       <Globe className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
                       <select value={countryFilter} onChange={e => setCountryFilter(e.target.value)}
                         className="w-full bg-slate-50 border border-slate-100 rounded-2xl py-2.5 pl-9 pr-3 text-xs font-bold text-slate-700 outline-none appearance-none cursor-pointer">
-                        <option value="">Tüm Ülkeler</option>
+                        <option value="">{t('nc.allCountries')}</option>
                         {COUNTRIES.map(c => (<option key={c.code} value={c.code}>{c.name}</option>))}
                       </select>
                     </div>
@@ -306,11 +308,11 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({ onClose, onChatCreat
                   <div className="relative">
                     <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
                     <input type="text" value={peopleSearch} onChange={e => setPeopleSearch(e.target.value)}
-                      placeholder="Kişi ara..." className="w-full bg-slate-100 border-none rounded-2xl py-3.5 pl-12 pr-4 text-sm text-slate-900 placeholder:text-slate-400 focus:ring-2 focus:ring-blue-500/50 transition-all outline-none" />
+                      placeholder={t('nc.searchPerson')} className="w-full bg-slate-100 border-none rounded-2xl py-3.5 pl-12 pr-4 text-sm text-slate-900 placeholder:text-slate-400 focus:ring-2 focus:ring-blue-500/50 transition-all outline-none" />
                   </div>
                   <div className="space-y-1 max-h-80 overflow-y-auto custom-scrollbar pr-2">
                     {loading ? (
-                      <div className="text-center py-12"><div className="w-8 h-8 border-3 border-blue-100 border-t-blue-600 rounded-full animate-spin mx-auto mb-3" /><p className="text-xs font-bold text-slate-400 uppercase">Yükleniyor</p></div>
+                      <div className="text-center py-12"><div className="w-8 h-8 border-3 border-blue-100 border-t-blue-600 rounded-full animate-spin mx-auto mb-3" /><p className="text-xs font-bold text-slate-400 uppercase">{t('nc.loading')}</p></div>
                     ) : filteredUsers.length > 0 ? filteredUsers.map(u => {
                       const fs = friendStatus[u.uid] || 'none';
                       const isFriend = fs === 'approved';
@@ -324,7 +326,7 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({ onClose, onChatCreat
                           <div className="flex items-center gap-1 shrink-0">
                             {isFriend ? (
                               <button onClick={() => startPrivateChat(u)}
-                                className="px-2 sm:px-3 py-1 bg-blue-50 text-blue-600 rounded-lg sm:rounded-xl text-[8px] sm:text-[10px] font-black uppercase tracking-wider hover:bg-blue-100 transition-all active:scale-95 flex items-center gap-1"><MessageSquarePlus size={12} className="hidden sm:block" />Sohbet</button>
+                                className="px-2 sm:px-3 py-1 bg-blue-50 text-blue-600 rounded-lg sm:rounded-xl text-[8px] sm:text-[10px] font-black uppercase tracking-wider hover:bg-blue-100 transition-all active:scale-95 flex items-center gap-1"><MessageSquarePlus size={12} className="hidden sm:block" />{t('nc.chat')}</button>
                             ) : (
                               <button onClick={() => sendFriendRequest(u)}
                                 className={cn("px-2 sm:px-3 py-1 rounded-lg sm:rounded-xl text-[8px] sm:text-[10px] font-black uppercase tracking-wider transition-all active:scale-95 flex items-center gap-1",
@@ -334,19 +336,19 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({ onClose, onChatCreat
                                 )}
                                 disabled={fs === 'pending_sent' || fs === 'pending_received'}>
                                 {fs === 'pending_sent' ? '⏳' : fs === 'pending_received' ? '📨' : '➕'}
-                                <span className="hidden sm:inline">{fs === 'pending_sent' ? 'Bekliyor' : fs === 'pending_received' ? 'İstek Var' : 'İstek Gönder'}</span>
+                                <span className="hidden sm:inline">{fs === 'pending_sent' ? t('nc.pending') : fs === 'pending_received' ? t('nc.requestReceived') : t('nc.sendRequest')}</span>
                               </button>
                             )}
                           </div>
                         </div>
                       );
                     }) : (
-                      <div className="text-center py-12"><p className="text-sm font-bold text-slate-400 uppercase">Sonuç yok</p></div>
+                      <div className="text-center py-12"><p className="text-sm font-bold text-slate-400 uppercase">{t('nc.noResults')}</p></div>
                     )}
                   </div>
                   <button onClick={() => setIsGroupMode(true)} className="w-full flex items-center gap-4 p-4 bg-blue-50 text-blue-600 rounded-2xl hover:bg-blue-100 transition-colors font-bold shadow-sm mt-2">
                     <div className="p-2 bg-blue-600 text-white rounded-xl"><Users size={20} /></div>
-                    Yeni Grup Sohbeti
+                    {t('nc.newGroupChat')}
                   </button>
                 </>
               )}
@@ -358,7 +360,7 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({ onClose, onChatCreat
                       <Globe className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
                       <select value={groupCountryFilter} onChange={e => { setGroupCountryFilter(e.target.value); }}
                         className="w-full bg-slate-50 border border-slate-100 rounded-2xl py-2.5 pl-9 pr-3 text-xs font-bold text-slate-700 outline-none appearance-none cursor-pointer">
-                        <option value="">Tüm Ülkeler</option>
+                        <option value="">{t('nc.allCountries')}</option>
                         {COUNTRIES.map(c => (<option key={c.code} value={c.code}>{c.name}</option>))}
                       </select>
                     </div>
@@ -367,23 +369,23 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({ onClose, onChatCreat
                   <div className="relative">
                     <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
                     <input type="text" value={groupSearch} onChange={e => { setGroupSearch(e.target.value); searchGroups(e.target.value); }}
-                      placeholder="Grup adı ile ara..." className="w-full bg-slate-100 border-none rounded-2xl py-3.5 pl-12 pr-4 text-sm text-slate-900 placeholder:text-slate-400 focus:ring-2 focus:ring-blue-500/50 transition-all outline-none" />
+                      placeholder={t('nc.searchGroup')} className="w-full bg-slate-100 border-none rounded-2xl py-3.5 pl-12 pr-4 text-sm text-slate-900 placeholder:text-slate-400 focus:ring-2 focus:ring-blue-500/50 transition-all outline-none" />
                   </div>
                   <div className="space-y-1 max-h-80 overflow-y-auto custom-scrollbar pr-2">
                     {groupSearchLoading ? (
-                      <div className="text-center py-12"><div className="w-8 h-8 border-3 border-blue-100 border-t-blue-600 rounded-full animate-spin mx-auto mb-3" /><p className="text-xs font-bold text-slate-400 uppercase">Yükleniyor</p></div>
+                      <div className="text-center py-12"><div className="w-8 h-8 border-3 border-blue-100 border-t-blue-600 rounded-full animate-spin mx-auto mb-3" /><p className="text-xs font-bold text-slate-400 uppercase">{t('nc.loading')}</p></div>
                     ) : foundGroups.length > 0 ? foundGroups.map(g => (
                       <div key={g.id} onClick={() => requestJoinGroup(g)}
                         className="flex items-center gap-4 p-4 rounded-2xl cursor-pointer transition-all border hover:bg-slate-50 border-transparent hover:border-slate-100 group">
                         <div className="p-3 bg-slate-100 rounded-xl"><Users size={18} className="text-slate-500" /></div>
                         <div className="flex-1">
-                          <p className="text-sm font-bold text-slate-900">{g.groupMetadata?.name || 'İsimsiz Grup'}</p>
-                          <p className="text-xs text-slate-500 font-medium">{g.participants?.length || 0} üye • {g.groupMetadata?.password ? '🔒 Şifreli' : '🔓 Açık'}</p>
+                          <p className="text-sm font-bold text-slate-900">{g.groupMetadata?.name || t('nc.anonymousGroup')}</p>
+                          <p className="text-xs text-slate-500 font-medium">{g.participants?.length || 0} {t('side.members')} • {g.groupMetadata?.password ? '🔒 ' + t('nc.encrypted') : '🔓 ' + t('nc.open')}</p>
                         </div>
                         <div className="p-2 bg-green-50 rounded-xl text-green-600 group-hover:bg-green-100 transition-all"><LogIn size={18} /></div>
                       </div>
                     )) : (
-                      <div className="text-center py-12"><p className="text-sm font-bold text-slate-400 uppercase">Grup bulunamadı</p></div>
+                      <div className="text-center py-12"><p className="text-sm font-bold text-slate-400 uppercase">{t('nc.groupNotFound')}</p></div>
                     )}
                   </div>
                 </>
@@ -395,11 +397,11 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({ onClose, onChatCreat
           {isGroupMode && !selectedGroup && (
             <div>
               <button onClick={() => { setIsGroupMode(false); setSelectedUsers([]); setGroupName(''); setGroupPassword(''); setStep(1); }}
-                className="text-xs font-bold text-slate-400 hover:text-slate-600 mb-4 flex items-center gap-1"><ArrowRight size={14} className="rotate-180" /> Geri</button>
+                className="text-xs font-bold text-slate-400 hover:text-slate-600 mb-4 flex items-center gap-1"><ArrowRight size={14} className="rotate-180" /> {t('nc.back')}</button>
               <div className="relative mb-4">
                 <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
                 <input type="text" value={peopleSearch} onChange={e => setPeopleSearch(e.target.value)}
-                  placeholder="Üye ekle..." className="w-full bg-slate-100 border-none rounded-2xl py-3.5 pl-12 pr-4 text-sm text-slate-900 placeholder:text-slate-400 focus:ring-2 focus:ring-blue-500/50 transition-all outline-none" />
+                  placeholder={t('nc.addMember')} className="w-full bg-slate-100 border-none rounded-2xl py-3.5 pl-12 pr-4 text-sm text-slate-900 placeholder:text-slate-400 focus:ring-2 focus:ring-blue-500/50 transition-all outline-none" />
               </div>
               <div className="space-y-1 max-h-60 overflow-y-auto custom-scrollbar pr-2">
                 {filteredUsers.map(u => {
@@ -415,7 +417,7 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({ onClose, onChatCreat
                 })}
               </div>
               <div className="mt-4 flex items-center justify-between bg-slate-50 p-4 rounded-xl">
-                <span className="text-xs font-bold text-slate-500">{selectedUsers.length} kişi seçildi</span>
+                <span className="text-xs font-bold text-slate-500">{t('nc.peopleSelected', { n: selectedUsers.length })}</span>
                 <button disabled={selectedUsers.length === 0} onClick={() => setStep(2)}
                   className="bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 text-white p-3 rounded-xl transition-all"><ArrowRight size={20} /></button>
               </div>
@@ -425,28 +427,28 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({ onClose, onChatCreat
           {/* Group name & password step */}
           {isGroupMode && step === 2 && !selectedGroup && (
             <div>
-              <button onClick={() => setStep(1)} className="text-xs font-bold text-slate-400 hover:text-slate-600 mb-4 flex items-center gap-1"><ArrowRight size={14} className="rotate-180" /> Geri</button>
-              <input type="text" value={groupName} onChange={e => setGroupName(e.target.value)} placeholder="Grup ismi..."
+              <button onClick={() => setStep(1)} className="text-xs font-bold text-slate-400 hover:text-slate-600 mb-4 flex items-center gap-1"><ArrowRight size={14} className="rotate-180" /> {t('nc.back')}</button>
+              <input type="text" value={groupName} onChange={e => setGroupName(e.target.value)} placeholder={t('nc.groupName')}
                 className="w-full text-center text-xl font-bold bg-transparent border-b-2 border-slate-200 focus:border-blue-500 outline-none pb-2 mb-4" autoFocus />
               <div className="flex flex-wrap gap-2 justify-center mb-4">
                 {selectedUsers.map(u => <span key={u.uid} className="px-3 py-1 bg-slate-100 rounded-full text-[10px] font-bold text-slate-500">{u.displayName}</span>)}
               </div>
               <div className="space-y-2 mb-4">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><Globe size={12} /> Grup Ülkesi</label>
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><Globe size={12} /> {t('nc.groupCountry')}</label>
                 <select value={groupCountry} onChange={e => setGroupCountry(e.target.value)}
                   className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl px-4 py-3 text-sm font-bold outline-none focus:border-blue-500 appearance-none cursor-pointer">
-                  <option value="">Ülke seçilmedi</option>
+                  <option value="">{t('nc.noCountrySelected')}</option>
                   {COUNTRIES.map(c => <option key={c.code} value={c.code}>{c.name}</option>)}
                 </select>
               </div>
               <div className="space-y-2 mb-4">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">🔒 Grup Şifresi (opsiyonel)</label>
-                <input type="text" value={groupPassword} onChange={e => setGroupPassword(e.target.value)} placeholder="Şifre girilmezse herkes katılabilir"
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">🔒 {t('nc.groupPassword')}</label>
+                <input type="text" value={groupPassword} onChange={e => setGroupPassword(e.target.value)} placeholder={t('nc.noPasswordHint')}
                   className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl px-4 py-3 text-sm font-bold outline-none focus:border-blue-500" />
               </div>
               <div className="flex gap-3">
-                <button onClick={() => setStep(1)} className="flex-1 py-4 font-bold text-slate-500 bg-slate-100 hover:bg-slate-200 rounded-2xl">Geri</button>
-                <button onClick={createGroup} disabled={!groupName.trim() || selectedUsers.length === 0} className="flex-1 py-4 font-bold text-white bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 rounded-2xl">Grubu Oluştur</button>
+                <button onClick={() => setStep(1)} className="flex-1 py-4 font-bold text-slate-500 bg-slate-100 hover:bg-slate-200 rounded-2xl">{t('nc.back')}</button>
+                <button onClick={createGroup} disabled={!groupName.trim() || selectedUsers.length === 0} className="flex-1 py-4 font-bold text-white bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 rounded-2xl">{t('nc.createGroup')}</button>
               </div>
             </div>
           )}
@@ -455,12 +457,12 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({ onClose, onChatCreat
           {selectedGroup && (
             <div>
               <p className="text-sm font-bold mb-2">{selectedGroup.groupMetadata?.name}</p>
-              <p className="text-xs text-amber-600 font-bold mb-4">Bu grup şifre korumalı.</p>
-              <input type="text" value={joinPassword} onChange={e => setJoinPassword(e.target.value)} placeholder="Grup şifresi..."
+              <p className="text-xs text-amber-600 font-bold mb-4">{t('nc.passwordProtected')}</p>
+              <input type="text" value={joinPassword} onChange={e => setJoinPassword(e.target.value)} placeholder={t('nc.groupPasswordPlaceholder')}
                 className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl px-4 py-3 text-sm font-bold outline-none focus:border-green-500 mb-4" autoFocus />
               <div className="flex gap-3">
-                <button onClick={() => setSelectedGroup(null)} className="flex-1 py-3 font-bold text-slate-500 bg-slate-100 hover:bg-slate-200 rounded-2xl text-xs">İptal</button>
-                <button onClick={joinWithPassword} disabled={!joinPassword.trim()} className="flex-1 py-3 font-bold text-white bg-green-600 hover:bg-green-700 disabled:bg-slate-300 rounded-2xl text-xs">Katıl</button>
+                <button onClick={() => setSelectedGroup(null)} className="flex-1 py-3 font-bold text-slate-500 bg-slate-100 hover:bg-slate-200 rounded-2xl text-xs">{t('login.cancel')}</button>
+                <button onClick={joinWithPassword} disabled={!joinPassword.trim()} className="flex-1 py-3 font-bold text-white bg-green-600 hover:bg-green-700 disabled:bg-slate-300 rounded-2xl text-xs">{t('nc.join')}</button>
               </div>
             </div>
           )}

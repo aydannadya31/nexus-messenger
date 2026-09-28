@@ -8,12 +8,14 @@ import { cn } from '../lib/utils';
 import { useAuth } from './AuthProvider';
 import { motion, AnimatePresence } from 'motion/react';
 import { format } from 'date-fns';
+import { useI18n } from '../lib/i18n';
 
 interface AdminPanelProps {
   onClose: () => void;
 }
 
 export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
+  const { t } = useI18n();
   const { user } = useAuth();
   const { addToast } = useToast();
   const [step, setStep] = useState<'email-check' | 'password' | 'panel'>('email-check');
@@ -82,15 +84,15 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
 
   const verifyAdmin = async (password: string): Promise<boolean> => {
     try {
-      if (!user) { addToast('Önce giriş yapmalısınız.', 'error'); return false; }
+      if (!user) { addToast(t('adm.loginFirst'), 'error'); return false; }
       const configDoc = await getDoc(doc(db, 'config', 'admin'));
       if (!configDoc.exists()) {
-        addToast('Admin yapılandırması bulunamadı.', 'error');
+        addToast(t('adm.noConfig'), 'error');
         return false;
       }
       const storedHash = configDoc.data().passwordHash;
       if (!storedHash) {
-        addToast('Admin şifre hash\'i bulunamadı.', 'error');
+        addToast(t('adm.noHash'), 'error');
         return false;
       }
       const enteredHash = await sha256(password);
@@ -100,7 +102,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
       return true;
     } catch (err) {
       console.error('verifyAdmin error:', err);
-      addToast('Admin doğrulama hatası.', 'error');
+      addToast(t('adm.verifyError'), 'error');
       return false;
     }
   };
@@ -112,7 +114,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
     if (ok) {
       setStep('panel');
     } else {
-      setPasswordError('Hatalı şifre!');
+      setPasswordError(t('login.wrongPw'));
     }
     setVerifying(false);
   };
@@ -120,11 +122,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
   // Email management
   const addAdminEmail = async () => {
     if (!newAdminEmail.trim() || !/\S+@\S+\.\S+/.test(newAdminEmail)) {
-      addToast('Geçerli bir email adresi girin.', 'error');
+      addToast(t('adm.invalidEmail'), 'error');
       return;
     }
     if (adminEmails.includes(newAdminEmail.trim())) {
-      addToast('Bu email zaten listede.', 'warning');
+      addToast(t('adm.emailInList'), 'warning');
       return;
     }
     const updated = [...adminEmails, newAdminEmail.trim()];
@@ -132,10 +134,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
       await setDoc(doc(db, 'config', 'admin'), { adminEmails: updated }, { merge: true });
       setAdminEmails(updated);
       setNewAdminEmail('');
-      addToast('Email eklendi.', 'success');
+      addToast(t('adm.emailAdded'), 'success');
     } catch (err) {
       console.error('Add email error:', err);
-      addToast('Email eklenirken hata oluştu.', 'error');
+      addToast(t('adm.emailAddFail'), 'error');
     }
   };
 
@@ -144,10 +146,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
     try {
       await setDoc(doc(db, 'config', 'admin'), { adminEmails: updated }, { merge: true });
       setAdminEmails(updated);
-      addToast('Email kaldırıldı.', 'success');
+      addToast(t('adm.emailRemoved'), 'success');
     } catch (err) {
       console.error('Remove email error:', err);
-      addToast('Email kaldırılırken hata oluştu.', 'error');
+      addToast(t('adm.emailRemoveFail'), 'error');
     }
   };
 
@@ -260,9 +262,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
         if (chatData.type === 'private') {
           const otherId = chatData.participants.find(p => p !== u.uid);
           const otherUser = users.find(us => us.uid === otherId);
-          chatNames[chatId] = otherUser?.displayName || otherId || 'Bilinmeyen';
+          chatNames[chatId] = otherUser?.displayName || otherId || t('adm.unknown');
         } else {
-          chatNames[chatId] = chatData.groupMetadata?.name || 'Grup';
+          chatNames[chatId] = chatData.groupMetadata?.name || t('adm.group');
         }
 
         try {
@@ -294,7 +296,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
       setUserChats(chatNames);
     } catch (err) {
       console.error('loadUserMessages error:', err);
-      addToast('Kullanıcı mesajları yüklenemedi. Admin yetkilerinizi kontrol edin.', 'error');
+      addToast(t('adm.userMsgsFail'), 'error');
     }
   };
 
@@ -305,13 +307,13 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
       "px-1.5 py-0.5 rounded-md text-[9px] font-black uppercase",
       m.viewOnce ? "bg-purple-500/20 text-purple-300" : m.encrypted ? "bg-amber-500/20 text-amber-300" : "bg-slate-600/40 text-slate-300"
     )}>
-      {m.viewOnce ? 'Tek Bakışlık' : m.encrypted ? 'Şifreli' : 'Şifresiz'}
+      {m.viewOnce ? t('adm.viewOnce') : m.encrypted ? t('nc.encrypted') : t('adm.noEncrypt')}
     </span>
   );
 
   const kindBadge = (m: Message) => (
     <span className="px-1.5 py-0.5 rounded-md text-[9px] font-black uppercase bg-blue-500/20 text-blue-300">
-      {m.type === 'image' ? 'Resim' : m.type === 'video' ? 'Video' : m.type === 'audio' ? 'Ses' : m.type === 'call' ? 'Arama' : 'Metin'}
+      {m.type === 'image' ? t('adm.img') : m.type === 'video' ? t('adm.video') : m.type === 'audio' ? t('adm.audio') : m.type === 'call' ? t('adm.call') : t('adm.text')}
     </span>
   );
 
@@ -327,7 +329,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
       setGroupMessages(msgSnap.docs.map(d => ({ id: d.id, ...d.data() }) as Message));
     } catch (err) {
       console.error('loadGroupMessages error:', err);
-      addToast('Grup mesajları yüklenemedi.', 'error');
+      addToast(t('adm.groupMsgsFail'), 'error');
     }
   };
 
@@ -368,7 +370,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
             ? { ...m, msg: { ...m.msg, blockedByAdmin: false, blockedByAdminAt: null } as any }
             : m
         ));
-        addToast('Mesaj engeli kaldırıldı.', 'success');
+        addToast(t('adm.blockRemoved'), 'success');
       } else {
         await updateDoc(msgRef, { blockedByAdmin: true, blockedByAdminAt: serverTimestamp() });
         setUserMessages(prev => prev.map(m =>
@@ -376,11 +378,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
             ? { ...m, msg: { ...m.msg, blockedByAdmin: true, blockedByAdminAt: serverTimestamp() } as any }
             : m
         ));
-        addToast('Mesaj engellendi.', 'success');
+        addToast(t('adm.blockAdded'), 'success');
       }
     } catch (err) {
       console.error('Toggle block error:', err);
-      addToast('Engelleme işlemi başarısız.', 'error');
+      addToast(t('adm.blockFail'), 'error');
     }
   };
 
@@ -410,7 +412,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
   };
 
   const deleteUserAndData = async (u: UserProfile) => {
-    if (!window.confirm(`${u.displayName} (${u.uin}) kullanıcısını ve TÜM verilerini kalıcı olarak silmek istediğinize emin misiniz? Bu işlem geri alınamaz!`)) return;
+    if (!window.confirm(t('adm.deleteUserConfirm', { name: u.displayName, uin: u.uin }))) return;
 
     try {
       const chatsQuery = query(collection(db, 'chats'), where('participants', 'array-contains', u.uid));
@@ -446,24 +448,24 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
           className="bg-white rounded-3xl p-8 shadow-2xl max-w-sm w-full"
         >
           <div className="flex items-center justify-between mb-6">
-            <h2 className="text-lg font-black text-slate-900 tracking-tight">Yönetim Paneli</h2>
+            <h2 className="text-lg font-black text-slate-900 tracking-tight">{t('adm.title')}</h2>
             <button onClick={onClose} className="p-1 hover:bg-slate-100 rounded-full"><X size={20} /></button>
           </div>
           <div className="w-16 h-16 bg-red-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
             <Shield size={32} className="text-red-500" />
           </div>
-          <p className="text-xs text-slate-500 font-bold text-center mb-2 uppercase tracking-widest">Yetkisiz Erişim</p>
+          <p className="text-xs text-slate-500 font-bold text-center mb-2 uppercase tracking-widest">{t('adm.unauthorized')}</p>
           <p className="text-sm text-slate-700 text-center font-bold mb-6">
-            Email adresiniz (<span className="text-blue-600">{user?.email || 'yok'}</span>) yönetici listesinde bulunmamaktadır.
+            {t('adm.emailNotListed')} (<span className="text-blue-600">{user?.email || t('adm.none')}</span>) {t('adm.emailNotListedEnd')}
           </p>
           <p className="text-[11px] text-slate-400 text-center mb-6">
-            Admin panelini kullanabilmek için yetkili bir email adresine sahip olmanız gerekmektedir.
+            {t('adm.needAuthorizedEmail')}
           </p>
           <button
             onClick={onClose}
             className="w-full py-3 bg-slate-200 hover:bg-slate-300 text-slate-800 font-bold rounded-2xl transition-all text-sm"
           >
-            Kapat
+            {t('adm.close')}
           </button>
         </motion.div>
       </div>
@@ -479,19 +481,19 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
           className="bg-white rounded-3xl p-8 shadow-2xl max-w-sm w-full"
         >
           <div className="flex items-center justify-between mb-6">
-            <h2 className="text-lg font-black text-slate-900 tracking-tight">Yönetim Paneli</h2>
+            <h2 className="text-lg font-black text-slate-900 tracking-tight">{t('adm.title')}</h2>
             <button onClick={onClose} className="p-1 hover:bg-slate-100 rounded-full"><X size={20} /></button>
           </div>
           <div className="w-16 h-16 bg-slate-900 rounded-2xl flex items-center justify-center mx-auto mb-4">
             <Shield size={32} className="text-blue-400" />
           </div>
-          <p className="text-xs text-slate-500 font-bold text-center mb-6 uppercase tracking-widest">Yetkili Girişi</p>
+          <p className="text-xs text-slate-500 font-bold text-center mb-6 uppercase tracking-widest">{t('adm.authorizedEntry')}</p>
           <input
             type="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && handlePasswordSubmit()}
-            placeholder="Şifre..."
+            placeholder={t('adm.passwordPlaceholder')}
             className="w-full bg-slate-100 border-2 border-slate-200 rounded-2xl px-4 py-3 text-sm font-bold text-center outline-none focus:border-blue-500 transition-all mb-4"
             autoFocus
           />
@@ -503,7 +505,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
           >
             {verifying ? (
               <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin mx-auto" />
-            ) : 'Giriş'}
+            ) : t('login.enter')}
           </button>
         </motion.div>
       </div>
@@ -516,38 +518,38 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
       <header className="bg-slate-900 border-b border-slate-800 px-6 py-4 flex items-center justify-between shrink-0">
         <div className="flex items-center gap-3">
           <Shield size={22} className="text-blue-500" />
-          <h1 className="text-lg font-black text-white tracking-tight">Yönetim Paneli</h1>
+          <h1 className="text-lg font-black text-white tracking-tight">{t('adm.title')}</h1>
         </div>
         <div className="flex items-center gap-4">
           <button
             onClick={() => { setTab('users'); setSelectedUser(null); }}
             className={cn("px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wider transition-all", tab === 'users' ? "bg-blue-600 text-white" : "bg-slate-800 text-slate-400 hover:text-white")}
           >
-            Kullanıcılar
+            {t('up.title')}
           </button>
           <button
             onClick={() => { setTab('groups'); setSelectedGroup(null); }}
             className={cn("px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wider transition-all", tab === 'groups' ? "bg-blue-600 text-white" : "bg-slate-800 text-slate-400 hover:text-white")}
           >
-            Gruplar
+            {t('side.groups')}
           </button>
           <button
             onClick={() => setTab('admin-msgs')}
             className={cn("px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wider transition-all", tab === 'admin-msgs' ? "bg-blue-600 text-white" : "bg-slate-800 text-slate-400 hover:text-white")}
           >
-            Yönetici Mesajları
+            {t('adm.tabAdminMsgs')}
           </button>
           <button
             onClick={() => setTab('deleted')}
             className={cn("px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wider transition-all", tab === 'deleted' ? "bg-blue-600 text-white" : "bg-slate-800 text-slate-400 hover:text-white")}
           >
-            Silinen Mesajlar
+            {t('adm.tabDeleted')}
           </button>
           <button
             onClick={() => setTab('delete-requests')}
             className={cn("px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wider transition-all relative", tab === 'delete-requests' ? "bg-amber-600 text-white" : "bg-slate-800 text-slate-400 hover:text-white")}
           >
-            Silme İstekleri
+            {t('adm.tabDeleteRequests')}
             {deleteRequests.filter(r => r.status === 'pending').length > 0 && (
               <span className="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] bg-red-500 text-white rounded-full text-[8px] font-black flex items-center justify-center px-1">
                 {deleteRequests.filter(r => r.status === 'pending').length}
@@ -558,7 +560,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
             onClick={() => setTab('encrypted')}
             className={cn("px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wider transition-all", tab === 'encrypted' ? "bg-purple-600 text-white" : "bg-slate-800 text-slate-400 hover:text-white")}
           >
-            Şifreli Mesajlar
+            {t('adm.tabEncrypted')}
             {encryptedMessages.length > 0 && (
               <span className="ml-1.5 text-[10px] text-purple-300">({encryptedMessages.length})</span>
             )}
@@ -567,7 +569,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
             onClick={() => setTab('emails')}
             className={cn("px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wider transition-all flex items-center gap-1.5", tab === 'emails' ? "bg-green-600 text-white" : "bg-slate-800 text-slate-400 hover:text-white")}
           >
-            <Mail size={14} /> E-Postalar
+            <Mail size={14} /> {t('adm.tabEmails')}
           </button>
           <button onClick={onClose} className="p-2 hover:bg-slate-800 rounded-full text-slate-400"><X size={20} /></button>
         </div>
@@ -583,7 +585,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                   <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
                   <input
                     type="text" value={search} onChange={(e) => setSearch(e.target.value)}
-                    placeholder="Kullanıcı ara..." autoFocus
+                    placeholder={t('adm.searchUser')} autoFocus
                     className="w-full bg-slate-800 border border-slate-700 rounded-xl py-2.5 pl-9 pr-3 text-xs text-white placeholder:text-slate-500 outline-none focus:ring-2 focus:ring-blue-500/30 transition-all"
                   />
                 </div>
@@ -628,7 +630,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                       {selectedUser.bannedUntil ? (
                         <div className="flex items-center gap-2">
                           <span className="text-[10px] text-red-400 font-bold">
-                            Yasak: {format(selectedUser.bannedUntil.toDate(), 'dd.MM HH:mm')}
+                            {t('adm.bannedUntil')} {format(selectedUser.bannedUntil.toDate(), 'dd.MM HH:mm')}
                           </span>
                           <button onClick={() => unbanUser(selectedUser)} className="px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white rounded-xl text-[10px] font-bold uppercase tracking-wider transition-all">
                             <UserCheck size={14} />
@@ -647,16 +649,16 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                             onChange={(e) => setBanDuration({ ...banDuration, unit: e.target.value as any })}
                             className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-white outline-none"
                           >
-                            <option value="minutes">Dk</option>
-                            <option value="hours">Saat</option>
-                            <option value="days">Gün</option>
+                            <option value="minutes">{t('adm.min')}</option>
+                            <option value="hours">{t('adm.hour')}</option>
+                            <option value="days">{t('adm.day')}</option>
                           </select>
                           <button onClick={() => banUser(selectedUser)} className="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-xl text-[10px] font-bold uppercase tracking-wider transition-all">
                             <Ban size={14} />
                           </button>
                         </div>
                       )}
-                      <button onClick={() => deleteUserAndData(selectedUser)} className="px-3 py-1.5 bg-red-700 hover:bg-red-800 text-white rounded-xl text-[10px] font-bold uppercase tracking-wider transition-all" title="Kullanıcıyı ve tüm verilerini sil">
+                      <button onClick={() => deleteUserAndData(selectedUser)} className="px-3 py-1.5 bg-red-700 hover:bg-red-800 text-white rounded-xl text-[10px] font-bold uppercase tracking-wider transition-all" title={t('adm.deleteUserTitle')}>
                         <UserX size={14} />
                       </button>
                     </div>
@@ -665,7 +667,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                   {/* Messages */}
                   <div className="flex-1 overflow-y-auto custom-scrollbar p-4 space-y-2">
                     {userMessages.length === 0 ? (
-                      <p className="text-center text-slate-600 text-sm font-bold py-10">Mesaj bulunamadı</p>
+                      <p className="text-center text-slate-600 text-sm font-bold py-10">{t('adm.noMessagesFound')}</p>
                     ) : (
                       userMessages.slice(0, 200).map(({ chatId, msg, chatName }) => {
                         const isDeleted = (msg.deletedBy?.length || 0) > 0;
@@ -695,10 +697,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                                         ? "bg-green-600 hover:bg-green-700 text-white"
                                         : "bg-amber-600 hover:bg-amber-700 text-white"
                                     )}
-                                    title={isBlocked ? "Engeli Kaldır" : "Mesajı Engelle"}
+                                    title={isBlocked ? t('adm.unblockBtn') : t('adm.blockBtn')}
                                   >
                                     {isBlocked ? <EyeOff size={10} /> : <Eye size={10} />}
-                                    {isBlocked ? 'Engel Kaldır' : 'Engelle'}
+                                    {isBlocked ? t('adm.unblock') : t('adm.block')}
                                   </button>
                                 )}
                                 {isDeleted && (
@@ -706,7 +708,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                                     onClick={() => permanentlyDeleteMessage(chatId, msg.id!)}
                                     className="px-2 py-1 bg-red-600 hover:bg-red-700 text-white rounded-lg text-[10px] font-bold transition-all flex items-center gap-1"
                                   >
-                                    <Trash2 size={10} /> Kalıcı Sil
+                                    <Trash2 size={10} /> {t('adm.deletePermanently')}
                                   </button>
                                 )}
                               </div>
@@ -716,7 +718,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                             {isBlocked ? (
                               <div className="bg-amber-900/40 border border-amber-700/50 rounded-xl p-3 mb-2">
                                 <p className="text-[11px] text-red-400 font-bold text-center">
-                                  AI Destekli Sistem tarafından içerik zararlı bulunmuş ve kaldırılmıştır.
+                                  {t('adm.aiBlockedWarning')}
                                 </p>
                               </div>
                             ) : null}
@@ -724,7 +726,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                             {/* Admin her zaman içeriği görebilir */}
                             {msg.type === 'text' && msg.text && (
                               <p className={cn("text-sm text-slate-300", isDeleted && "line-through text-red-400")}>
-                                {isDeleted ? '[SİLİNMİŞ] ' : ''}{msg.text}
+                                {isDeleted ? t('adm.deletedPrefix') : ''}{msg.text}
                               </p>
                             )}
 
@@ -758,7 +760,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
 
                             {!msg.type || (msg.type === 'text' && !msg.text) ? (
                               <p className={cn("text-sm text-slate-300", isDeleted && "line-through text-red-400")}>
-                                {isDeleted ? '[SİLİNMİŞ] ' : ''}Bilinmeyen mesaj türü
+                                {isDeleted ? t('adm.deletedPrefix') : ''}{t('adm.unknownMsgType')}
                               </p>
                             ) : null}
                           </div>
@@ -771,7 +773,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                 <div className="flex-1 flex items-center justify-center">
                   <div className="text-center">
                     <Shield size={48} className="text-slate-700 mx-auto mb-4" />
-                    <p className="text-slate-500 text-sm font-bold">Bir kullanıcı seçin</p>
+                    <p className="text-slate-500 text-sm font-bold">{t('adm.selectUser')}</p>
                   </div>
                 </div>
               )}
@@ -783,16 +785,16 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
           <div className="flex-1 flex flex-col overflow-hidden">
             <div className="flex items-center gap-3 px-6 py-4 border-b border-slate-800 bg-slate-900/50 shrink-0">
               <Shield size={20} className="text-blue-400" />
-              <h2 className="text-lg font-black text-white">Gruplar</h2>
-              <span className="text-xs font-bold text-slate-500">({groups.length} grup)</span>
+              <h2 className="text-lg font-black text-white">{t('side.groups')}</h2>
+              <span className="text-xs font-bold text-slate-500">({t('adm.groupCount', { n: groups.length })})</span>
             </div>
             {loadingGroups ? (
               <div className="flex-1 flex items-center justify-center">
-                <p className="text-slate-500 text-sm font-bold">Yükleniyor...</p>
+                <p className="text-slate-500 text-sm font-bold">{t('nc.loading')}...</p>
               </div>
             ) : groups.length === 0 ? (
               <div className="flex-1 flex items-center justify-center">
-                <p className="text-slate-500 text-sm font-bold">Henüz grup yok.</p>
+                <p className="text-slate-500 text-sm font-bold">{t('adm.noGroupsYet')}</p>
               </div>
             ) : (
               <div className="flex-1 flex overflow-hidden">
@@ -807,8 +809,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                         selectedGroup?.id === g.id ? "bg-blue-600/20" : "hover:bg-slate-800/60"
                       )}
                     >
-                      <p className="text-sm font-bold text-white truncate">{g.groupMetadata?.name || 'Adsız Grup'}</p>
-                      <p className="text-[11px] text-slate-400 truncate">Admin: {uidName(g.groupMetadata?.adminId)}</p>
+                      <p className="text-sm font-bold text-white truncate">{g.groupMetadata?.name || t('adm.anonymousGroup')}</p>
+                      <p className="text-[11px] text-slate-400 truncate">{t('adm.adminLabel')} {uidName(g.groupMetadata?.adminId)}</p>
                     </button>
                   ))}
                 </div>
@@ -816,17 +818,17 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                 <div className="flex-1 flex flex-col overflow-hidden">
                   {!selectedGroup ? (
                     <div className="flex-1 flex items-center justify-center">
-                      <p className="text-slate-500 text-sm font-bold">Bir grup seçin</p>
+                      <p className="text-slate-500 text-sm font-bold">{t('adm.selectGroup')}</p>
                     </div>
                   ) : (
                     <>
                       {/* Admin bilgisi */}
                       <div className="px-6 py-4 border-b border-slate-800 bg-slate-900/40 shrink-0">
-                        <p className="text-base font-black text-white mb-2">{selectedGroup.groupMetadata?.name || 'Adsız Grup'}</p>
+                        <p className="text-base font-black text-white mb-2">{selectedGroup.groupMetadata?.name || t('adm.anonymousGroup')}</p>
                         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
-                          <span className="text-slate-400">Admin: <span className="text-blue-300 font-bold">{uidName(selectedGroup.groupMetadata?.adminId)}</span></span>
-                          <span className="text-slate-400">Kurucu: <span className="text-purple-300 font-bold">{uidName(selectedGroup.groupMetadata?.createdBy)}</span></span>
-                          <span className="text-slate-400">Üye: <span className="text-white font-bold">{selectedGroup.participants?.length ?? 0}</span></span>
+                          <span className="text-slate-400">{t('adm.adminLabel')} <span className="text-blue-300 font-bold">{uidName(selectedGroup.groupMetadata?.adminId)}</span></span>
+                          <span className="text-slate-400">{t('adm.founderLabel')} <span className="text-purple-300 font-bold">{uidName(selectedGroup.groupMetadata?.createdBy)}</span></span>
+                          <span className="text-slate-400">{t('adm.memberLabel')} <span className="text-white font-bold">{selectedGroup.participants?.length ?? 0}</span></span>
                         </div>
                         {(() => {
                           const hist: string[] = [];
@@ -837,7 +839,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                           if (hist.length < 2) return null;
                           return (
                             <div className="mt-3 flex flex-wrap items-center gap-1.5">
-                              <span className="text-[10px] font-black uppercase tracking-wider text-slate-500 mr-1">Admin Geçmişi:</span>
+                              <span className="text-[10px] font-black uppercase tracking-wider text-slate-500 mr-1">{t('adm.adminHistory')}</span>
                               {hist.map((id, i) => (
                                 <React.Fragment key={id + i}>
                                   {i > 0 && <span className="text-slate-600 text-xs">→</span>}
@@ -845,7 +847,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                                     "px-2 py-0.5 rounded-md text-[11px] font-bold",
                                     id === current ? "bg-blue-500/20 text-blue-300 border border-blue-500/40" : "bg-slate-800 text-slate-300 border border-slate-700"
                                   )}>
-                                    {uidName(id)}{i === 0 ? ' (kurucu)' : ''}
+                                    {uidName(id)}{i === 0 ? ` ${t('adm.founderTag')}` : ''}
                                   </span>
                                 </React.Fragment>
                               ))}
@@ -856,7 +858,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                       {/* Grup mesajları */}
                       <div className="flex-1 overflow-y-auto custom-scrollbar p-4 space-y-2">
                         {groupMessages.length === 0 ? (
-                          <p className="text-slate-600 text-sm font-bold text-center py-10">Bu grupta mesaj yok.</p>
+                          <p className="text-slate-600 text-sm font-bold text-center py-10">{t('adm.noGroupMessages')}</p>
                         ) : groupMessages.map(msg => {
                           const isDeleted = (msg.deletedBy?.length || 0) > 0;
                           const isBlocked = msg.blockedByAdmin === true;
@@ -872,14 +874,14 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                                 {kindBadge(msg)}
                               </div>
                               {isBlocked ? (
-                                <p className="text-xs font-bold text-amber-300">Bu mesaj yönetici tarafından engellendi.</p>
+                                <p className="text-xs font-bold text-amber-300">{t('adm.blockedByAdmin')}</p>
                               ) : isDeleted ? (
-                                <p className="text-xs text-red-400 italic">[Silinmiş mesaj]</p>
+                                <p className="text-xs text-red-400 italic">{t('adm.deletedMsgTag')}</p>
                               ) : msg.type === 'text' ? (
                                 <p className="text-sm text-slate-200 break-words">{msg.text}</p>
                               ) : (
                                 <p className="text-sm text-slate-400 italic">
-                                  {msg.type === 'image' ? '📷 Görsel' : msg.type === 'video' ? '🎥 Video' : msg.type === 'audio' ? '🎵 Ses' : msg.type === 'call' ? '📞 Arama' : msg.type === 'file' ? '📎 Dosya' : 'Medya'}
+                                  {msg.type === 'image' ? t('adm.mediaImage') : msg.type === 'video' ? t('adm.mediaVideo') : msg.type === 'audio' ? t('adm.mediaAudio') : msg.type === 'call' ? t('adm.mediaCall') : msg.type === 'file' ? t('adm.mediaFile') : t('adm.mediaOther')}
                                 </p>
                               )}
                             </div>
@@ -896,9 +898,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
 
         {tab === 'admin-msgs' && (
           <div className="flex-1 overflow-y-auto custom-scrollbar p-6">
-            <h2 className="text-lg font-black text-white mb-6">Yöneticiye Gelen Mesajlar</h2>
+            <h2 className="text-lg font-black text-white mb-6">{t('adm.msgsToAdmin')}</h2>
             {adminMessages.length === 0 ? (
-              <p className="text-slate-500 text-sm font-bold">Henüz mesaj yok.</p>
+              <p className="text-slate-500 text-sm font-bold">{t('side.noMessagesYet')}</p>
             ) : (
               <div className="space-y-3">
                 {adminMessages.map((m) => {
@@ -921,10 +923,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
 
         {tab === 'deleted' && (
           <div className="flex-1 overflow-y-auto custom-scrollbar p-6">
-            <h2 className="text-lg font-black text-white mb-6">Silinen Mesajlar</h2>
-            <p className="text-[10px] text-slate-500 font-bold mb-4">Her iki kullanıcı tarafından silinen mesajlar burada görünür.</p>
+            <h2 className="text-lg font-black text-white mb-6">{t('adm.tabDeleted')}</h2>
+            <p className="text-[10px] text-slate-500 font-bold mb-4">{t('adm.deletedDesc')}</p>
             {deletedMessages.length === 0 ? (
-              <p className="text-slate-500 text-sm font-bold">Henüz silinen mesaj yok.</p>
+              <p className="text-slate-500 text-sm font-bold">{t('adm.noDeletedYet')}</p>
             ) : (
               <div className="space-y-3">
                 {deletedMessages.map((m) => {
@@ -940,9 +942,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                       </div>
                       <div className="mb-3">
                         {m.type === 'text' && <p className="text-sm text-slate-200">{m.text}</p>}
-                        {m.type === 'image' && <p className="text-sm text-blue-400">📷 Resim mesajı</p>}
-                        {m.type === 'video' && <p className="text-sm text-blue-400">🎥 Video mesajı</p>}
-                        {m.type === 'audio' && <p className="text-sm text-blue-400">🎤 Ses mesajı</p>}
+                        {m.type === 'image' && <p className="text-sm text-blue-400">{t('adm.imageMsg')}</p>}
+                        {m.type === 'video' && <p className="text-sm text-blue-400">{t('adm.videoMsg')}</p>}
+                        {m.type === 'audio' && <p className="text-sm text-blue-400">{t('adm.audioMsg')}</p>}
                       </div>
                       <div className="flex gap-2">
                         <button
@@ -964,23 +966,23 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                               a.click();
                             } else if (m.text) {
                               navigator.clipboard.writeText(m.text).catch(() => {});
-                              addToast('Metin panoya kopyalandı.', 'success');
+                              addToast(t('adm.copied'), 'success');
                             }
                           }}
                           className="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-white rounded-lg text-[10px] font-bold"
                         >
-                          Bilgisayara Kaydet
+                          {t('adm.saveToPC')}
                         </button>
                         <button
                           onClick={() => setConfirmDeleteId(m.id)}
                           className="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-lg text-[10px] font-bold"
                         >
-                          Silmeyi Onayla
+                          {t('adm.confirmDelete')}
                         </button>
                       </div>
                       {confirmDeleteId === m.id && (
                         <div className="mt-3 p-3 bg-red-900/30 rounded-xl border border-red-800">
-                          <p className="text-xs text-red-300 font-bold mb-2">Bu mesajı kalıcı olarak silmek istediğinize emin misiniz?</p>
+                          <p className="text-xs text-red-300 font-bold mb-2">{t('adm.deleteMsgConfirm')}</p>
                           <div className="flex gap-2">
                             <button
                               onClick={async () => {
@@ -993,13 +995,13 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                               }}
                               className="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-lg text-[10px] font-bold"
                             >
-                              Evet, Sil
+                              {t('adm.yesDelete')}
                             </button>
                             <button
                               onClick={() => setConfirmDeleteId(null)}
                               className="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-white rounded-lg text-[10px] font-bold"
                             >
-                              İptal
+                              {t('login.cancel')}
                             </button>
                           </div>
                         </div>
@@ -1014,10 +1016,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
 
         {tab === 'delete-requests' && (
           <div className="flex-1 overflow-y-auto custom-scrollbar p-6">
-            <h2 className="text-lg font-black text-white mb-2">Silme İstekleri</h2>
-            <p className="text-[10px] text-slate-500 font-bold mb-6">Mesaj, grup ve sohbet silme talepleri. Onaylarsanız kalıcı olarak silinir, reddederseniz veri korunur.</p>
+            <h2 className="text-lg font-black text-white mb-2">{t('adm.tabDeleteRequests')}</h2>
+            <p className="text-[10px] text-slate-500 font-bold mb-6">{t('adm.deleteReqDesc')}</p>
             {deleteRequests.filter(r => r.status === 'pending').length === 0 ? (
-              <p className="text-slate-500 text-sm font-bold">Bekleyen silme isteği yok.</p>
+              <p className="text-slate-500 text-sm font-bold">{t('adm.noPendingRequests')}</p>
             ) : (
               <div className="space-y-4">
                 {deleteRequests.filter(r => r.status === 'pending').map((req) => {
@@ -1032,22 +1034,22 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                       <div key={req.id} className="bg-slate-800 rounded-2xl p-4 border border-red-700/50">
                         <div className="flex items-center gap-2 mb-2">
                           <Trash2 size={14} className="text-red-500" />
-                          <span className="text-xs font-bold text-red-400">Grup Otomatik Silindi</span>
+                          <span className="text-xs font-bold text-red-400">{t('adm.groupAutoDeleted')}</span>
                           <span className="text-[10px] text-slate-500 ml-auto">{req.timestamp?.toDate ? format(req.timestamp.toDate(), 'dd.MM HH:mm') : ''}</span>
                         </div>
                         <div className="mb-3 space-y-1">
-                          <p className="text-sm font-bold text-slate-200">{chatInfo.groupMetadata?.name || 'İsimsiz Grup'}</p>
-                          <p className="text-[10px] text-slate-400 font-bold">{msgCount} mesaj · {participants.length} katılımcı</p>
-                          <p className="text-[10px] text-slate-500">Grup ID: {req.chatId?.slice(0, 20)}...</p>
+                          <p className="text-sm font-bold text-slate-200">{chatInfo.groupMetadata?.name || t('nc.anonymousGroup')}</p>
+                          <p className="text-[10px] text-slate-400 font-bold">{t('adm.reqStats', { msgs: msgCount, users: participants.length })}</p>
+                          <p className="text-[10px] text-slate-500">{t('adm.groupId')} {req.chatId?.slice(0, 20)}...</p>
                         </div>
                         <div className="bg-slate-900/50 rounded-xl p-3 mb-3 max-h-32 overflow-y-auto">
-                          <p className="text-[9px] text-slate-500 font-bold mb-2">YEDEKLENEN MESAJLAR ({msgCount})</p>
+                          <p className="text-[9px] text-slate-500 font-bold mb-2">{t('adm.backedUp', { count: msgCount })}</p>
                           {req.messages?.slice(0, 10).map((msg: any, i: number) => (
                             <p key={i} className="text-[10px] text-slate-400 truncate border-b border-slate-700/50 py-1 last:border-0">
                               <span className="text-slate-500">{msg.senderId?.slice(0,6)}:</span> {msg.text || (msg.type === 'image' ? '📷' : msg.type === 'video' ? '🎥' : msg.type === 'audio' ? '🎤' : '📄')}
                             </p>
                           ))}
-                          {msgCount > 10 && <p className="text-[10px] text-slate-600 pt-1">...ve {msgCount - 10} mesaj daha</p>}
+                          {msgCount > 10 && <p className="text-[10px] text-slate-600 pt-1">{t('adm.moreMsgs', { n: msgCount - 10 })}</p>}
                         </div>
                         <div className="flex gap-2">
                           <button onClick={async () => {
@@ -1057,7 +1059,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                               } catch (e) { console.error(e); }
                             }}
                             className="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-lg text-[10px] font-bold">
-                            Silmeyi Onayla ✅
+                            {t('adm.confirmDelete')} ✅
                           </button>
                           <button onClick={async () => {
                               try {
@@ -1065,7 +1067,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                               } catch (e) { console.error(e); }
                             }}
                             className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-[10px] font-bold">
-                            Reddet (Veri Kalsın)
+                            {t('adm.rejectKeepData')}
                           </button>
                         </div>
                       </div>
@@ -1079,11 +1081,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                       <div className="flex items-center gap-2 mb-2">
                         <Trash2 size={14} className="text-amber-500" />
                         <span className="text-xs font-bold text-amber-400">{reqUserDisplay?.displayName || req.requestedBy?.slice(0, 8)}</span>
-                        <span className="text-[10px] text-slate-500">tarafından silindi</span>
+                        <span className="text-[10px] text-slate-500">{t('adm.deletedBy')}</span>
                         <span className="text-[10px] text-slate-500 ml-auto">{req.timestamp?.toDate ? format(req.timestamp.toDate(), 'dd.MM HH:mm') : ''}</span>
                       </div>
                       <div className="flex items-center gap-2 mb-3">
-                        <span className="text-[10px] text-slate-400 font-bold">Sohbet: {req.chatId?.slice(0, 12)}...</span>
+                        <span className="text-[10px] text-slate-400 font-bold">{t('adm.chatLabel')} {req.chatId?.slice(0, 12)}...</span>
                       </div>
                       <div className="flex gap-2">
                         <button onClick={async () => {
@@ -1093,7 +1095,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                             } catch (e) { console.error(e); }
                           }}
                           className="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-lg text-[10px] font-bold">
-                          Kalıcı Sil ✅
+                          {t('adm.deletePermanently')} ✅
                         </button>
                         <button onClick={async () => {
                             try {
@@ -1102,7 +1104,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                             } catch (e) { console.error(e); }
                           }}
                           className="px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white rounded-lg text-[10px] font-bold">
-                          Geri Yükle 🔄
+                          {t('adm.restore')} 🔄
                         </button>
                       </div>
                     </div>
@@ -1113,13 +1115,13 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
             {/* Show approved/rejected history */}
             {deleteRequests.filter(r => r.status !== 'pending').length > 0 && (
               <div className="mt-8">
-                <h3 className="text-sm font-black text-slate-400 mb-4 uppercase tracking-wider">Geçmiş İşlemler</h3>
+                <h3 className="text-sm font-black text-slate-400 mb-4 uppercase tracking-wider">{t('adm.history')}</h3>
                 <div className="space-y-2">
                   {deleteRequests.filter(r => r.status !== 'pending').slice(0, 10).map((req) => (
                     <div key={req.id} className="bg-slate-800/50 rounded-xl p-3 border border-slate-700 flex items-center gap-3">
                       <div className={cn("w-2 h-2 rounded-full", req.status === 'approved' ? "bg-red-500" : "bg-green-500")} />
                       <span className="text-[10px] text-slate-400 font-bold flex-1">
-                        {req.type === 'group-auto-delete' ? 'Grup Silme' : 'Mesaj Silme'} - {req.status === 'approved' ? 'Onaylandı' : 'Reddedildi'}
+                        {req.type === 'group-auto-delete' ? t('adm.groupDelete') : t('adm.msgDelete')} - {req.status === 'approved' ? t('adm.approved') : t('adm.rejected')}
                       </span>
                       <span className="text-[9px] text-slate-600">{req.timestamp?.toDate ? format(req.timestamp.toDate(), 'dd.MM') : ''}</span>
                     </div>
@@ -1132,10 +1134,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
 
         {tab === 'encrypted' && (
           <div className="flex-1 overflow-y-auto custom-scrollbar p-6">
-            <h2 className="text-lg font-black text-white mb-2">🔒 Şifreli Mesaj Denetimi</h2>
-            <p className="text-[10px] text-slate-500 font-bold mb-6">Uçtan uca AES-256-GCM ile şifrelenmiş mesajlar. İçerik çözülemez.</p>
+            <h2 className="text-lg font-black text-white mb-2">{t('adm.encAuditTitle')}</h2>
+            <p className="text-[10px] text-slate-500 font-bold mb-6">{t('adm.encAuditDesc')}</p>
             {encryptedMessages.length === 0 ? (
-              <p className="text-slate-500 text-sm font-bold">Henüz şifreli mesaj yok.</p>
+              <p className="text-slate-500 text-sm font-bold">{t('adm.noEncryptedYet')}</p>
             ) : (
               <div className="space-y-3">
                 {encryptedMessages.map((m) => {
@@ -1151,14 +1153,14 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                         </span>
                       </div>
                       <div className="mb-2">
-                        {m.type === 'text' && <p className="text-sm text-slate-400 italic">🔒 İçerik şifreli (AES-256-GCM)</p>}
-                        {m.type === 'image' && <p className="text-sm text-blue-400">📷 Şifreli Resim</p>}
-                        {m.type === 'video' && <p className="text-sm text-blue-400">🎥 Şifreli Video</p>}
-                        {m.type === 'audio' && <p className="text-sm text-blue-400">🎤 Şifreli Ses</p>}
+                        {m.type === 'text' && <p className="text-sm text-slate-400 italic">{t('adm.encContent')}</p>}
+                        {m.type === 'image' && <p className="text-sm text-blue-400">{t('adm.encImage')}</p>}
+                        {m.type === 'video' && <p className="text-sm text-blue-400">{t('adm.encVideo')}</p>}
+                        {m.type === 'audio' && <p className="text-sm text-blue-400">{t('adm.encAudio')}</p>}
                       </div>
                       <div className="bg-slate-900/50 rounded-xl p-3 border border-slate-700">
                         <p className="text-[9px] text-slate-500 font-bold text-center">
-                          Sadece doğru şifreye sahip kullanıcı çözebilir
+                          {t('adm.encOnlyOwner')}
                         </p>
                       </div>
                     </div>
@@ -1172,9 +1174,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
         {tab === 'emails' && (
           <div className="flex-1 overflow-y-auto custom-scrollbar p-6">
             <h2 className="text-lg font-black text-white mb-2 flex items-center gap-2">
-              <Mail size={20} className="text-green-400" /> Yetkili E-Postalar
+              <Mail size={20} className="text-green-400" /> {t('adm.authorizedEmails')}
             </h2>
-            <p className="text-[10px] text-slate-500 font-bold mb-6">Admin paneline erişebilecek email adreslerini yönetin.</p>
+            <p className="text-[10px] text-slate-500 font-bold mb-6">{t('adm.emailsDesc')}</p>
 
             {/* Add new email */}
             <div className="flex items-center gap-2 mb-6">
@@ -1183,20 +1185,20 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                 value={newAdminEmail}
                 onChange={(e) => setNewAdminEmail(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && addAdminEmail()}
-                placeholder="Yeni email adresi..."
+                placeholder={t('adm.newEmailPlaceholder')}
                 className="flex-1 bg-slate-800 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-white placeholder:text-slate-500 outline-none focus:ring-2 focus:ring-green-500/30 transition-all"
               />
               <button
                 onClick={addAdminEmail}
                 className="px-4 py-2.5 bg-green-600 hover:bg-green-700 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1.5"
               >
-                <Plus size={14} /> Ekle
+                <Plus size={14} /> {t('adm.add')}
               </button>
             </div>
 
             {/* Email list */}
             {adminEmails.length === 0 ? (
-              <p className="text-slate-500 text-sm font-bold">Henüz yetkili email bulunmuyor.</p>
+              <p className="text-slate-500 text-sm font-bold">{t('adm.noAuthorizedEmails')}</p>
             ) : (
               <div className="space-y-2">
                 {adminEmails.map((email) => (
@@ -1206,7 +1208,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                     <button
                       onClick={() => removeAdminEmail(email)}
                       className="p-1.5 hover:bg-red-600/20 rounded-lg text-slate-400 hover:text-red-400 transition-all"
-                      title="Kaldır"
+                      title={t('adm.remove')}
                     >
                       <Trash size={14} />
                     </button>
