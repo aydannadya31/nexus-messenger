@@ -153,4 +153,13 @@ export const chatDict: Dict = {
   'chat.others': { tr: 'Diğer Katılımcılar', en: 'Other Participants', de: 'Weitere Teilnehmer', fr: 'Autres participants', ar: 'المشاركون الآخرون', ko: '다른 참가자', zh: '其他参与者', ja: 'その他の参加者', hi: 'अन्य प्रतिभागी' },
   'chat.noOthers': { tr: 'Başka katılımcı yok.', en: 'No other participants.', de: 'Keine weiteren Teilnehmer.', fr: 'Aucun autre participant.', ar: 'لا يوجد مشاركون آخرون.', ko: '다른 참가자가 없습니다.', zh: '没有其他参与者。', ja: '他の参加者はいません।', hi: 'कोई अन्य प्रतिभागी नहीं है।' },
   'chat.tapToViewProfile': { tr: 'Profilini görmek için üyeye dokun', en: 'Tap a member to view their profile', de: 'Tippe auf ein Mitglied, um das Profil zu sehen', fr: 'Touchez un membre pour voir son profil', ar: 'انقر على عضو لعرض ملفه', ko: '멤버를 탭하여 프로필 보기', zh: '点按成员查看资料', ja: 'メンバーをタップしてプロフィールを見る', hi: 'सदस्य पर टैप करके प्रोफ़ाइल देखें' },
+
+  'chat.trTitle': { tr: 'Mesajı Çevir', en: 'Translate Message', de: 'Nachricht übersetzen', fr: 'Traduire le message', ar: 'ترجمة الرسالة', ko: '메시지 번역', zh: '翻译消息', ja: 'メッセージを翻訳', hi: 'संदेश अनुवाद करें' },
+  'chat.trOff': { tr: 'Çeviriyi Kapat', en: 'Turn Off Translation', de: 'Übersetzung ausschalten', fr: 'Désactiver la traduction', ar: 'إيقاف الترجمة', ko: '번역 끄기', zh: '关闭翻译', ja: '翻訳をオフ', hi: 'अनुवाद बंद करें' },
+  'chat.trWorking': { tr: 'çevriliyor...', en: 'translating...', de: 'wird übersetzt...', fr: 'traduction...', ar: 'جارٍ الترجمة...', ko: '번역 중...', zh: '翻译中...', ja: '翻訳中...', hi: 'अनुवाद हो रहा है...' },
+  'chat.trFailed': { tr: 'çevrilemedi', en: 'could not translate', de: 'Übersetzung fehlgeschlagen', fr: 'traduction impossible', ar: 'فشلت الترجمة', ko: '번역 실패', zh: '翻译失败', ja: '翻訳できませんでした', hi: 'अनुवाद विफल' },
+  'chat.trRetry': { tr: 'Yeniden Çevir', en: 'Translate Again', de: 'Erneut übersetzen', fr: 'Retraduire', ar: 'إعادة الترجمة', ko: '다시 번역', zh: '重新翻译', ja: '再翻訳', hi: 'फिर से अनुवाद करें' },
+  'chat.trSend': { tr: 'Çeviriyi Gönder', en: 'Send Translation', de: 'Übersetzung senden', fr: 'Envoyer la traduction', ar: 'إرسال الترجمة', ko: '번역 보내기', zh: '发送译文', ja: '翻訳を送信', hi: 'अनुवाद भेजें' },
+  'chat.trSameLang': { tr: 'Kaynak ve hedef dil aynı', en: 'Source and target language are the same', de: 'Quell- und Zielsprache sind identisch', fr: 'Les langues source et cible sont identiques', ar: 'لغة المصدر والهدف متطابقتان', ko: '원본 언어와 대상 언어가 같습니다', zh: '源语言和目标语言相同', ja: '元の言語と翻訳先の言語が同じです', hi: 'स्रोत और लक्ष्य भाषा समान हैं' },
+  'chat.trPlaceholder': { tr: 'Çeviri burada görünecek', en: 'Translation will appear here', de: 'Übersetzung erscheint hier', fr: 'La traduction apparaîtra ici', ar: 'ستظهر الترجمة هنا', ko: '번역이 여기에 표시됩니다', zh: '译文将显示在这里', ja: 'ここに翻訳が表示されます', hi: 'अनुवाद यहाँ दिखाई देगा' },
 };

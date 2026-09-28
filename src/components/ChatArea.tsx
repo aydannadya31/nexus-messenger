@@ -7,6 +7,7 @@ import { useCall } from './CallProvider';
 import { Chat, Message, UserProfile, Call } from '../types';
 import { cn } from '../lib/utils';
 import ProfileModal from './ProfileModal';
+import { TranslateBox, TranslateToggle, useTranslateTarget } from './TranslateBox';
 import { Image, MoreVertical, Send, Smile, Phone, Video, MessageSquarePlus, Clock, Play, Mic, Square, Pause, Trash2, ListChecks, X, Info, Eye, EyeOff, Lock, LogOut, Shield, UserX, UserCheck, Ban, Settings, Reply, Pencil, Download, ChevronLeft, Camera } from 'lucide-react';
 import { format } from 'date-fns';
 import { motion, AnimatePresence } from 'motion/react';
@@ -211,6 +212,7 @@ interface ChatAreaProps {
 export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
   const { user } = useAuth();
   const { t, lang } = useI18n();
+  const { target: trTarget, setTarget: setTrTarget } = useTranslateTarget();
   const { startCall, activeCall, acceptCall } = useCall();
   const [messages, setMessages] = useState<Message[]>([]);
   const [chat, setChat] = useState<Chat | null>(null);
@@ -1198,9 +1200,10 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
     );
   };
 
-  const handleSend = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!inputText.trim() || !user || !chatId) return;
+  const handleSend = async (e?: React.FormEvent, override?: string) => {
+    e?.preventDefault();
+    const raw = override ?? inputText;
+    if (!raw.trim() || !user || !chatId) return;
     if (isBannedFromGroup) {
       showCustomAlert(t('chat.bannedTitle'), t('chat.bannedDesc'));
       return;
@@ -1209,7 +1212,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
     if (!editingMsg?.id && !isGroupAdmin && !isSystemAdmin) {
       const cutoff = Date.now() - 60000;
       const recentSame = messages.filter(m => {
-        if (m.senderId !== user.uid || m.text !== inputText) return false;
+        if (m.senderId !== user.uid || m.text !== raw) return false;
         const t = m.timestamp;
         const ms = t?.toMillis ? t.toMillis() : t?.seconds ? t.seconds * 1000 : 0;
         return ms >= cutoff;
@@ -1220,7 +1223,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
       }
     }
 
-    const text = inputText;
+    const text = raw;
     setInputText('');
 
     if (editingMsg?.id) {
@@ -2279,7 +2282,14 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
           >
             <Eye size={18} />
           </button>
+
+          {/* Çeviri düğmesi */}
+          <TranslateToggle source={lang} target={trTarget} onPick={setTrTarget} />
           </div>
+
+          {trTarget && (
+            <TranslateBox target={trTarget} original={inputText} onSend={(txt) => handleSend(undefined, txt)} />
+          )}
 
           {/* Mesaj yazma alanı — butonların alt satırı */}
           <form onSubmit={handleSend} className="flex items-center mt-1.5 pl-1">
