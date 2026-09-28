@@ -325,22 +325,6 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
             <Logo className="w-7 h-7 sm:w-8 sm:h-8 shrink-0" />
             <h1 className="text-lg sm:text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-100 truncate min-w-0 nexus-name-shine">Nexus Messenger</h1>
           </div>
-          <div className="flex items-center gap-1.5 shrink-0">
-            <button
-              onClick={() => setShowThemePanel(true)}
-              title={t('set.theme')}
-              className="p-2 bg-slate-100/50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-xl text-slate-400 hover:text-blue-500 transition-all active:scale-95"
-            >
-              <Palette size={16} />
-            </button>
-            <button
-              onClick={() => setShowLangPanel(true)}
-              title={t('set.language')}
-              className="p-2 bg-slate-100/50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-xl text-slate-400 hover:text-blue-500 transition-all active:scale-95"
-            >
-              <Languages size={16} />
-            </button>
-          </div>
         </div>
         <div className="flex items-center justify-between gap-1 flex-wrap">
           <div className="flex flex-col items-center gap-0.5">
@@ -409,6 +393,26 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
               <LogOut size={20} />
             </button>
             <span className="text-[8px] text-slate-400 font-bold text-center">{t('side.logout')}</span>
+          </div>
+          <div className="flex flex-col items-center gap-0.5">
+            <button
+              onClick={() => setShowThemePanel(true)}
+              title={t('set.theme')}
+              className="p-2.5 bg-slate-100/50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-xl text-slate-400 hover:text-blue-500 transition-all active:scale-95"
+            >
+              <Palette size={20} />
+            </button>
+            <span className="text-[8px] text-slate-400 font-bold text-center">{t('set.theme')}</span>
+          </div>
+          <div className="flex flex-col items-center gap-0.5">
+            <button
+              onClick={() => setShowLangPanel(true)}
+              title={t('set.language')}
+              className="p-2.5 bg-slate-100/50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-xl text-slate-400 hover:text-blue-500 transition-all active:scale-95"
+            >
+              <Languages size={20} />
+            </button>
+            <span className="text-[8px] text-slate-400 font-bold text-center">{t('set.language')}</span>
           </div>
           <div className="flex flex-col items-center gap-0.5">
             <button 

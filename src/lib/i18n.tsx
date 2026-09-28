@@ -1,4 +1,8 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
+import { chatDict } from './i18n.chat';
+import { admDict } from './i18n.admin';
+import { ncDict } from './i18n.newchat';
+import { upDict } from './i18n.users';
 
 export type LangCode = 'tr' | 'en' | 'ar' | 'de' | 'fr' | 'ko' | 'zh' | 'ja' | 'hi';
 
@@ -18,7 +22,7 @@ export const LANGS: Lang[] = [
 
 type Dict = Record<string, Partial<Record<LangCode, string>>>;
 
-const D: Dict = {
+const core: Dict = {
   'app.syncing': { tr: 'Syncing Core...', en: 'Syncing Core...' },
   'app.banned': { tr: 'Hesabınız Banlanmış', en: 'Your Account Is Banned' },
   'app.bannedDesc': { tr: 'Hesabınız geçici olarak askıya alınmıştır.', en: 'Your account has been temporarily suspended.' },
@@ -109,9 +113,27 @@ const D: Dict = {
   'pre.graphite': { tr: 'Grafit', en: 'Graphite', de: 'Graphit', fr: 'Graphite', ar: 'جرافيت', ko: '그래파이트', zh: '石墨', ja: 'グラファイト', hi: 'ग्रेफाइट' },
 };
 
+const D: Dict = { ...core, ...chatDict, ...admDict, ...ncDict, ...upDict };
+
 export const flagUrl = (code: string) => `https://flagcdn.com/24x18/${code}.png`;
 
-type I18nCtx = { lang: LangCode; setLang: (l: LangCode) => void; t: (key: string) => string };
+let currentLang: LangCode = 'tr';
+try {
+  const saved = localStorage.getItem('nexus.lang');
+  if (saved && LANGS.some((l) => l.code === saved)) currentLang = saved as LangCode;
+} catch {
+  currentLang = 'tr';
+}
+
+export function translate(key: string, vars?: Record<string, string | number>): string {
+  let s = D[key]?.[currentLang] || D[key]?.tr || key;
+  if (vars) {
+    for (const [k, v] of Object.entries(vars)) s = s.split(`{${k}}`).join(String(v));
+  }
+  return s;
+}
+
+type I18nCtx = { lang: LangCode; setLang: (l: LangCode) => void; t: typeof translate };
 
 const Ctx = createContext<I18nCtx>({ lang: 'tr', setLang: () => {}, t: (k) => k });
 
@@ -121,15 +143,15 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     return (saved === 'tr' || saved === 'en' || saved === 'ar' || saved === 'de' || saved === 'fr' || saved === 'ko' || saved === 'zh' || saved === 'ja' || saved === 'hi') ? saved as LangCode : 'tr';
   });
 
+  currentLang = lang;
+
   useEffect(() => {
     localStorage.setItem('nexus.lang', lang);
     document.documentElement.lang = lang;
     document.documentElement.dir = lang === 'ar' ? 'rtl' : 'ltr';
   }, [lang]);
 
-  const t = (key: string) => D[key]?.[lang] || D[key]?.tr || key;
-
-  return <Ctx.Provider value={{ lang, setLang: setLangState, t }}>{children}</Ctx.Provider>;
+  return <Ctx.Provider value={{ lang, setLang: setLangState, t: translate }}>{children}</Ctx.Provider>;
 }
 
 export function useI18n() {
