@@ -735,8 +735,26 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
     setShowCameraPicker(false);
     setShowUploadMenu(false);
     if (!user || !chatId) return;
+    cameraStreamRef.current?.getTracks().forEach(t => t.stop());
+    cameraStreamRef.current = null;
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: facing }, audio: false });
+      let stream: MediaStream | null = null;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { exact: facing } }, audio: false });
+      } catch {
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: facing }, audio: false });
+        } catch {
+          stream = null;
+        }
+      }
+      if (!stream) throw new Error('camera unavailable');
+      const reported = stream.getVideoTracks()[0]?.getSettings?.().facingMode;
+      if (reported && reported !== facing) {
+        stream.getTracks().forEach(t => t.stop());
+        showCustomAlert(t('chat.camErr'), t('chat.camNoImage'));
+        return;
+      }
       cameraStreamRef.current = stream;
       setShowCameraPreview(true);
     } catch (error) {
@@ -749,10 +767,16 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
     if (!showCameraPreview) return;
     const video = cameraPreviewRef.current;
     const stream = cameraStreamRef.current;
-    if (video && stream) {
-      video.srcObject = stream;
-      video.play().catch(() => {});
-    }
+    if (!video || !stream) return;
+    video.srcObject = stream;
+    video.play().catch(() => {});
+    const failsafe = setTimeout(() => {
+      if (!video.videoWidth) {
+        stopCameraPreview();
+        showCustomAlert(t('chat.camErr'), t('chat.camNoImage'));
+      }
+    }, 2500);
+    return () => clearTimeout(failsafe);
   }, [showCameraPreview]);
 
   useEffect(() => () => {
@@ -764,7 +788,11 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
     if (!user || !chatId) return;
     const video = cameraPreviewRef.current;
     const stream = cameraStreamRef.current;
-    if (!video || !stream || !video.videoWidth) return;
+    if (!video || !stream || !video.videoWidth) {
+      stopCameraPreview();
+      showCustomAlert(t('chat.camErr'), t('chat.camNoImage'));
+      return;
+    }
     try {
       const canvas = document.createElement('canvas');
       canvas.width = video.videoWidth;
