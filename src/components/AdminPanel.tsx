@@ -1296,6 +1296,21 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                         >
                           {t('adm.confirmDelete')}
                         </button>
+                        <button
+                          onClick={async () => {
+                            try {
+                              await updateDoc(doc(db, 'chats', m.chatId, 'messages', m.id), { deletedBy: [] });
+                              setDeletedMessages(prev => prev.filter(x => !(x.id === m.id && x.chatId === m.chatId)));
+                              if (selKey) setSelectedKeys(prev => { const n = new Set(prev); n.delete(selKey); return n; });
+                              addToast(t('adm.restored'), 'success');
+                            } catch (e) {
+                              console.error("Restore error:", e);
+                            }
+                          }}
+                          className="px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white rounded-lg text-[10px] font-bold"
+                        >
+                          {t('adm.restore')} 🔄
+                        </button>
                       </div>
                       {confirmDeleteId === m.id && (
                         <div className="mt-3 p-3 bg-red-900/30 rounded-xl border border-red-800">

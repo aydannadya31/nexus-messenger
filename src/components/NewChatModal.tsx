@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { collection, query, getDocs, addDoc, serverTimestamp, where, limit, orderBy, doc, getDoc, updateDoc, arrayUnion } from 'firebase/firestore';
+import { collection, query, getDocs, addDoc, serverTimestamp, where, limit, orderBy, doc, getDoc, updateDoc, arrayUnion, setDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { useAuth } from './AuthProvider';
 import { useToast } from '../lib/toast';
@@ -240,8 +240,8 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({ onClose, onChatCreat
       addToast(t('nc.bannedFromGroup'), 'error');
       return;
     }
-    if (group.groupMetadata?.password) { setSelectedGroup(group); return; }
     if (group.participants?.includes(user.uid)) { onChatCreated(group.id); onClose(); return; }
+    if (group.groupMetadata?.password) { setSelectedGroup(group); return; }
     await updateDoc(doc(db, 'chats', group.id), { participants: arrayUnion(user.uid) });
     addToast(t('nc.joinedGroup'), 'success');
     onChatCreated(group.id);
@@ -256,9 +256,21 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({ onClose, onChatCreat
         addToast(t('nc.bannedFromGroup'), 'error');
         return;
       }
-      await updateDoc(doc(db, 'chats', selectedGroup.id), { participants: arrayUnion(user.uid) });
-      addToast(t('nc.joinedGroup'), 'success');
-      onChatCreated(selectedGroup.id);
+      if (selectedGroup.participants?.includes(user.uid)) { onChatCreated(selectedGroup.id); onClose(); return; }
+      const reqRef = doc(db, 'chats', selectedGroup.id, 'joinRequests', user.uid);
+      const existing = await getDoc(reqRef);
+      if (existing.exists()) {
+        addToast(t('nc.joinRequestPending'), 'info');
+        onClose();
+        return;
+      }
+      await setDoc(reqRef, {
+        displayName: profile?.displayName || user.displayName || '',
+        photoURL: profile?.photoURL || user.photoURL || '',
+        uin: profile?.uin || '',
+        requestedAt: serverTimestamp()
+      });
+      addToast(t('nc.joinRequestSent'), 'success');
       onClose();
     } else {
       addToast(t('login.wrongPw'), 'error');

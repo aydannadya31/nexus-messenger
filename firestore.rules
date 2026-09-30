@@ -91,6 +91,12 @@ service cloud.firestore {
           (isAdmin() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['blockedByAdmin', 'blockedByAdminAt']))
         );
       }
+
+      // Password-protected group join requests (doc id = requesting uid)
+      match /joinRequests/{uid} {
+        allow create: if isSignedIn() && request.auth.uid == uid;
+        allow read, delete: if isParticipant(chatId) || isAdmin();
+      }
     }
 
     // Calls

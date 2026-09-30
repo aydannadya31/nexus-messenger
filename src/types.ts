@@ -38,6 +38,8 @@ export interface Chat {
       bannedBy?: string;
     }>;
     password?: string;
+    roles?: Record<string, 'editor' | 'viewer'>;
+    holdEnabled?: boolean;
   };
   lastMessage?: {
     text: string;
@@ -48,6 +50,7 @@ export interface Chat {
   updatedAt: any;
   heldBy?: string | null;
   holdExpiresAt?: any;
+  holdCounts?: Record<string, { date: string; count: number }>;
   groupCountry?: string;
   muted?: boolean;
   historyHidden?: boolean;

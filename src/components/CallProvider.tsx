@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
-import { collection, query, where, onSnapshot, addDoc, serverTimestamp, doc, updateDoc, runTransaction } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, addDoc, setDoc, getDoc, serverTimestamp, doc, updateDoc, runTransaction } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { useAuth } from './AuthProvider';
 import { Call } from '../types';
@@ -79,8 +79,12 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
         ? `${mediaTypeName} görüşme — Başlangıç: ${hhmm(answeredAt || startMs)}, Bitiş: ${hhmm(endMs)}, Süre: ${mins} dakika`
         : `Cevapsız görüşme — ${hhmm(startMs)}`;
 
-      await addDoc(collection(db, 'chats', chatId, 'messages'), {
-        senderId: currentUser.uid,
+      const msgRef = doc(db, 'chats', chatId, 'messages', `call_${callId}`);
+      const existing = await getDoc(msgRef);
+      if (existing.exists()) return;
+
+      await setDoc(msgRef, {
+        senderId: 'system',
         timestamp: serverTimestamp(),
         type: 'call',
         callType: mediaType,
@@ -94,8 +98,8 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
       await updateDoc(doc(db, 'chats', chatId), {
         lastMessage: {
           text,
-          senderId: currentUser.uid,
-          senderName: currentUser.displayName,
+          senderId: 'system',
+          senderName: '',
           timestamp: serverTimestamp()
         },
         updatedAt: serverTimestamp()

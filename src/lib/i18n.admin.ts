@@ -98,6 +98,7 @@ export const admDict: Dict = {
   'adm.deletedBy': { tr: 'tarafından silindi', en: 'deleted by', de: 'gelöscht von', fr: 'supprimé par', ar: 'حُذف بواسطة', ko: '삭제됨', zh: '删除者', ja: '削除者', hi: 'द्वारा हटाया गया' },
   'adm.chatLabel': { tr: 'Sohbet:', en: 'Chat:', de: 'Chat:', fr: 'Discussion :', ar: 'محادثة:', ko: '채팅:', zh: '聊天:', ja: 'チャット:', hi: 'चैट:' },
   'adm.restore': { tr: 'Geri Yükle', en: 'Restore', de: 'Wiederherstellen', fr: 'Restaurer', ar: 'استعادة', ko: '복원', zh: '恢复', ja: '復元', hi: 'पुनर्स्थापित करें' },
+  'adm.restored': { tr: 'Mesaj geri yüklendi.', en: 'Message restored.', de: 'Nachricht wiederhergestellt.', fr: 'Message restauré.', ar: 'تمت استعادة الرسالة.', ko: '메시지가 복원되었습니다.', zh: '消息已恢复。', ja: 'メッセージを復元しました।', hi: 'संदेश पुनर्स्थापित हुआ।' },
   'adm.history': { tr: 'Geçmiş İşlemler', en: 'History', de: 'Verlauf', fr: 'Historique', ar: 'السجل', ko: '기록', zh: '历史记录', ja: '履歴', hi: 'इतिहास' },
   'adm.groupDelete': { tr: 'Grup Silme', en: 'Group deletion', de: 'Gruppenlöschung', fr: 'Suppression de groupe', ar: 'حذف المجموعة', ko: '그룹 삭제', zh: '群组删除', ja: 'グループ削除', hi: 'समूह हटाना' },
   'adm.msgDelete': { tr: 'Mesaj Silme', en: 'Message deletion', de: 'Nachrichtenlöschung', fr: 'Suppression de message', ar: 'حذف الرسالة', ko: '메시지 삭제', zh: '消息删除', ja: 'メッセージ削除', hi: 'संदेश हटाना' },

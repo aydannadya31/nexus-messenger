@@ -320,6 +320,48 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
   const [loadingMembers, setLoadingMembers] = useState(false);
 
   const isGroupAdmin = chat?.type === 'group' && chat?.groupMetadata?.adminId === user?.uid;
+  const canManageGroup = isGroupAdmin || isSystemAdmin;
+
+  const [joinRequests, setJoinRequests] = useState<{ uid: string; displayName?: string; photoURL?: string; uin?: string }[]>([]);
+  useEffect(() => {
+    if (!showGroupAdmin || !chatId || !canManageGroup) return;
+    return onSnapshot(collection(db, 'chats', chatId, 'joinRequests'), snap => {
+      setJoinRequests(snap.docs.map(d => ({ uid: d.id, ...(d.data() as { displayName?: string; photoURL?: string; uin?: string }) })));
+    });
+  }, [showGroupAdmin, chatId, canManageGroup]);
+
+  const handleToggleRole = async (uid: string, role: 'editor' | 'viewer') => {
+    if (!chatId || !canManageGroup) return;
+    try {
+      await updateDoc(doc(db, 'chats', chatId), { [`groupMetadata.roles.${uid}`]: role });
+    } catch (err) {
+      console.error("Role toggle error:", err);
+    }
+  };
+
+  const handleToggleHoldEnabled = async () => {
+    if (!chatId || !chat || !canManageGroup) return;
+    try {
+      await updateDoc(doc(db, 'chats', chatId), { 'groupMetadata.holdEnabled': chat.groupMetadata?.holdEnabled === false });
+    } catch (err) {
+      console.error("holdEnabled toggle error:", err);
+    }
+  };
+
+  const handleJoinRequest = async (uid: string, approve: boolean) => {
+    if (!chatId || !canManageGroup) return;
+    try {
+      await deleteDoc(doc(db, 'chats', chatId, 'joinRequests', uid));
+      if (approve) {
+        await updateDoc(doc(db, 'chats', chatId), {
+          participants: arrayUnion(uid),
+          [`groupMetadata.roles.${uid}`]: 'viewer'
+        });
+      }
+    } catch (err) {
+      console.error("Join request error:", err);
+    }
+  };
 
   const showCustomAlert = (title: string, message: string) => {
     setCustomDialog({
@@ -522,8 +564,8 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
     setReactionMenu({ msgId, x: e.clientX, y: e.clientY });
   };
 
-  const amIHolding = chat?.heldBy === user?.uid;
-  const isBeingHeld = !!chat?.heldBy && !amIHolding;
+  const amIHolding = !!(chat?.heldBy && (!chat?.holdExpiresAt?.toDate || chat.holdExpiresAt.toDate().getTime() > Date.now())) && chat?.heldBy === user?.uid;
+  const isBeingHeld = !!(chat?.heldBy && (!chat?.holdExpiresAt?.toDate || chat.holdExpiresAt.toDate().getTime() > Date.now())) && chat?.heldBy !== user?.uid;
 
   // Check if current user is banned from this group
   const isBannedFromGroup = chat?.type === 'group' && chat?.groupMetadata?.bannedUsers?.some(b => {
@@ -532,14 +574,51 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
     return new Date(b.bannedUntil.seconds * 1000 || b.bannedUntil) > new Date();
   });
 
+  const isViewer = chat?.type === 'group' && !!user?.uid && chat?.groupMetadata?.roles?.[user.uid] === 'viewer' && !isGroupAdmin && !isSystemAdmin;
+  const sendBlocked = isBeingHeld || isViewer;
+
+  const [, setHoldTick] = useState(0);
+  useEffect(() => {
+    if (!chat?.heldBy || !chat?.holdExpiresAt?.toDate) return;
+    const ms = chat.holdExpiresAt.toDate().getTime() - Date.now();
+    if (ms <= 0) {
+      if (chat.heldBy === user?.uid && chatId) {
+        updateDoc(doc(db, 'chats', chatId), { heldBy: null, holdExpiresAt: null }).catch(() => {});
+      }
+      setHoldTick(v => v + 1);
+      return;
+    }
+    const timer = setTimeout(() => setHoldTick(v => v + 1), Math.min(ms + 100, 2147483000));
+    return () => clearTimeout(timer);
+  }, [chat?.heldBy, chat?.holdExpiresAt, chatId, user?.uid]);
+
   const handleHoldToggle = async () => {
     if (!chatId || !user || !chat) return;
-    if (chat.type === 'group' && !isGroupAdmin) return;
+    if (chat.type === 'group') {
+      if (!isGroupAdmin) return;
+      if (chat.groupMetadata?.holdEnabled === false) return;
+    }
     try {
       if (amIHolding) {
         await updateDoc(doc(db, 'chats', chatId), { heldBy: null, holdExpiresAt: null });
       } else {
-        await updateDoc(doc(db, 'chats', chatId), { heldBy: user.uid, holdExpiresAt: new Date(Date.now() + 24*60*60*1000) });
+        const expires = new Date(Date.now() + 30 * 60 * 1000);
+        if (chat.type !== 'group') {
+          const today = new Date().toISOString().slice(0, 10);
+          const rec = chat.holdCounts?.[user.uid];
+          const used = rec && rec.date === today ? rec.count : 0;
+          if (used >= 10) {
+            showCustomAlert(t('chat.holdQuotaTitle'), t('chat.holdQuotaDesc'));
+            return;
+          }
+          await updateDoc(doc(db, 'chats', chatId), {
+            heldBy: user.uid,
+            holdExpiresAt: expires,
+            [`holdCounts.${user.uid}`]: { date: today, count: used + 1 }
+          });
+          return;
+        }
+        await updateDoc(doc(db, 'chats', chatId), { heldBy: user.uid, holdExpiresAt: expires });
       }
     } catch (err) {
       console.error("Hold toggle error:", err);
@@ -831,6 +910,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
 
   const startPhotoCapture = async () => {
     setShowUploadMenu(false);
+    if (sendBlocked) return;
     try {
       const devices = await navigator.mediaDevices.enumerateDevices();
       const cams = devices.filter(d => d.kind === 'videoinput');
@@ -852,6 +932,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
     const file = e.target.files?.[0];
     e.target.value = '';
     if (!file || !user || !chatId) return;
+    if (sendBlocked) return;
 
     const enc = askEncryptFields();
     if (enc === null) return;
@@ -910,6 +991,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
   }, [videoPreviewStream]);
 
   const startRecording = async () => {
+    if (sendBlocked) return;
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const mediaRecorder = new MediaRecorder(stream);
@@ -955,6 +1037,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
   };
 
   const startVideoRecording = async () => {
+    if (sendBlocked) return;
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: { width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 15 } } });
       setVideoPreviewStream(stream);
@@ -1110,6 +1193,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
     const file = e.target.files?.[0];
     e.target.value = '';
     if (!file || !user || !chatId) return;
+    if (sendBlocked) return;
 
     const isVideo = file.type.startsWith('video/');
     const enc = askEncryptFields();
@@ -1225,6 +1309,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
     e?.preventDefault();
     const raw = override ?? inputText;
     if (!raw.trim() || !user || !chatId) return;
+    if (sendBlocked) return;
     if (isBannedFromGroup) {
       showCustomAlert(t('chat.bannedTitle'), t('chat.bannedDesc'));
       return;
@@ -1478,11 +1563,11 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
           {/* Beklemeye Al */}
           <button 
             onClick={handleHoldToggle}
-            disabled={chat?.type === 'group' && !isGroupAdmin}
-            className={cn("transition-colors p-1 rounded-full relative", chat?.type === 'group' && !isGroupAdmin
+            disabled={(chat?.type === 'group' && !isGroupAdmin) || (chat?.type === 'group' && chat?.groupMetadata?.holdEnabled === false)}
+            className={cn("transition-colors p-1 rounded-full relative", (chat?.type === 'group' && !isGroupAdmin) || (chat?.type === 'group' && chat?.groupMetadata?.holdEnabled === false)
               ? "text-slate-400 opacity-40 cursor-not-allowed"
               : amIHolding ? "text-amber-500 bg-amber-50 dark:bg-amber-950 hover:bg-amber-100 dark:hover:bg-amber-900" : "hover:text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-950")}
-            title={chat?.type === 'group' && !isGroupAdmin ? t('chat.adminOnly') : amIHolding ? t('chat.unhold') : t('chat.hold')}
+            title={(chat?.type === 'group' && !isGroupAdmin) || (chat?.type === 'group' && chat?.groupMetadata?.holdEnabled === false) ? t('chat.adminOnly') : amIHolding ? t('chat.unhold') : t('chat.hold')}
           >
             {amIHolding ? <Play size={18} /> : <Pause size={18} />}
           </button>
@@ -1506,15 +1591,9 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
           {/* Group Admin Button */}
           {chat?.type === 'group' && (
             <button 
-              disabled={!isGroupAdmin}
-              onClick={() => { if (!isGroupAdmin) return; setShowGroupAdmin(true); loadGroupMembers(); }}
-              className={cn(
-                "transition-colors p-1 rounded-full text-slate-400",
-                isGroupAdmin
-                  ? "hover:text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-950"
-                  : "opacity-40 cursor-not-allowed"
-              )}
-              title={isGroupAdmin ? t('chat.adminPanel') : t('chat.adminOnly')}
+              onClick={() => { setShowGroupAdmin(true); loadGroupMembers(); }}
+              className="transition-colors p-1 rounded-full text-slate-400 hover:text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-950"
+              title={canManageGroup ? t('chat.adminPanel') : t('chat.groupAdmin')}
             >
               <Shield size={18} />
             </button>
@@ -1712,11 +1791,8 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
             {messages.filter(m => {
               const db = m.deletedBy as string[] | undefined;
               if (db?.length) {
-                if (user?.uid && db.includes(user.uid)) {
-                  if (!showDeletedMessages) return false;
-                } else {
-                  return false;
-                }
+                if (user?.uid && chat?.participants?.every(p => db.includes(p))) return false;
+                if (user?.uid && db.includes(user.uid) && !showDeletedMessages) return false;
               }
               return m.text?.toLowerCase().includes(chatSearchQuery.toLowerCase());
             }).length} {t('chat.results')}
@@ -1752,14 +1828,43 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
             .filter(msg => {
               const db = msg.deletedBy as string[] | undefined;
               if (!db?.length) return true;
+              if (user?.uid && chat?.participants?.every(p => db.includes(p))) return false;
               if (user?.uid && db.includes(user.uid)) return showDeletedMessages;
-              return false;
+              return true;
             })
             .filter(msg => !chatSearchQuery || msg.text?.toLowerCase().includes(chatSearchQuery.toLowerCase()))
             .map((msg, idx) => {
               const isMe = msg.senderId === user?.uid;
               const sender = participantInfo[msg.senderId];
               const isDeleted = msg.deletedBy && user?.uid && (msg.deletedBy as string[]).includes(user.uid);
+
+              if (msg.type === 'call') {
+                return (
+                  <motion.div
+                    key={msg.id || idx}
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="flex justify-center"
+                  >
+                    <div className={cn(
+                      "flex items-center gap-2 px-4 py-1.5 rounded-full border text-[11px] font-bold max-w-[90%] sm:max-w-[70%]",
+                      msg.blockedByAdmin && !isSystemAdmin
+                        ? "bg-amber-50 dark:bg-amber-950 border-amber-200 dark:border-amber-900 text-red-600 dark:text-red-400"
+                        : "bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300"
+                    )}>
+                      <Phone size={13} className="shrink-0 opacity-70" />
+                      <span className="truncate">
+                        {msg.blockedByAdmin && !isSystemAdmin
+                          ? t('adm.aiBlockedWarning')
+                          : (msg.text || (msg.callType === 'video' ? t('chat.videoCall') : t('chat.voiceCall')))}
+                      </span>
+                      <span className="text-[9px] font-medium opacity-60 shrink-0">
+                        {msg.timestamp ? format(msg.timestamp.toDate(), 'HH:mm') : ''}
+                      </span>
+                    </div>
+                  </motion.div>
+                );
+              }
 
               return (
               <motion.div 
@@ -1868,13 +1973,6 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
                         )
                       )}
 
-                      {msg.type === 'call' && (
-                        <div className="flex items-center gap-2 text-sm font-medium leading-relaxed">
-                          <Phone size={14} className="shrink-0 opacity-70" />
-                          <span>{msg.text || (msg.callType === 'video' ? t('chat.videoCall') : t('chat.voiceCall'))}</span>
-                        </div>
-                      )}
-                      
                       {msg.type === 'image' && msg.imageUrl && (
                         <div className={cn(
                           "relative rounded-lg overflow-hidden mb-1 max-w-full",
@@ -2324,12 +2422,13 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
               type="text" 
               value={inputText}
               onChange={(e) => setInputText(e.target.value)}
-              placeholder={isBeingHeld ? t('chat.holdPlaceholder') : t('chat.msgPlaceholder')}
-              className="flex-1 min-w-0 bg-transparent border-none focus:ring-0 text-sm py-2 px-2 sm:px-4 text-slate-900 dark:text-slate-100 placeholder:text-slate-400"
+              disabled={sendBlocked}
+              placeholder={isViewer ? t('chat.viewerPlaceholder') : isBeingHeld ? t('chat.holdPlaceholder') : t('chat.msgPlaceholder')}
+              className="flex-1 min-w-0 bg-transparent border-none focus:ring-0 text-sm py-2 px-2 sm:px-4 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 disabled:cursor-not-allowed"
             />
             <button 
               type="submit"
-              disabled={!inputText.trim()}
+              disabled={!inputText.trim() || sendBlocked}
               className={cn(
                 "p-2 rounded-xl transition-all flex items-center justify-center shadow-lg",
                 inputText.trim() 
@@ -2603,14 +2702,16 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
                   ) : (
                     <div className="flex items-center justify-between">
                       <p className="text-sm font-bold text-slate-700 dark:text-slate-200">{chat.groupMetadata?.name}</p>
-                      <button onClick={() => { setEditGroupName(chat.groupMetadata?.name || ''); setShowEditGroupName(true); }}
-                        className="px-3 py-1.5 bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-400 rounded-xl text-[10px] font-bold hover:bg-blue-100 dark:hover:bg-blue-900 transition-all flex items-center gap-1">
-                        <Settings size={12} />{t('chat.edit')}</button>
+                      {canManageGroup && (
+                        <button onClick={() => { setEditGroupName(chat.groupMetadata?.name || ''); setShowEditGroupName(true); }}
+                          className="px-3 py-1.5 bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-400 rounded-xl text-[10px] font-bold hover:bg-blue-100 dark:hover:bg-blue-900 transition-all flex items-center gap-1">
+                          <Settings size={12} />{t('chat.edit')}</button>
+                      )}
                     </div>
                   )}
                 </div>
 
-                {/* Admin Transfer */}
+                {canManageGroup && (
                 <div className="bg-slate-50 dark:bg-slate-800 rounded-2xl p-4 border border-slate-100 dark:border-slate-700">
                   <h4 className="text-xs font-black text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-3">{t('chat.transferAdmin')}</h4>
                   {showTransferAdmin ? (
@@ -2633,6 +2734,29 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
                       className="px-3 py-1.5 bg-amber-50 dark:bg-amber-950 text-amber-600 dark:text-amber-400 rounded-xl text-[10px] font-bold hover:bg-amber-100 dark:hover:bg-amber-900 transition-all">{t('chat.transferAdminBtn')}</button>
                   )}
                 </div>
+                )}
+
+                <div className="bg-slate-50 dark:bg-slate-800 rounded-2xl p-4 border border-slate-100 dark:border-slate-700">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <h4 className="text-xs font-black text-slate-500 dark:text-slate-400 uppercase tracking-wider">{t('chat.holdToggle')}</h4>
+                      <p className="text-[10px] text-slate-400 font-bold mt-1">{t('chat.holdToggleDesc')}</p>
+                    </div>
+                    <button
+                      onClick={handleToggleHoldEnabled}
+                      disabled={!canManageGroup}
+                      className={cn(
+                        "shrink-0 px-3 py-1.5 rounded-xl text-[10px] font-bold transition-all",
+                        !canManageGroup ? "opacity-40 cursor-not-allowed bg-slate-200 dark:bg-slate-700 text-slate-400"
+                          : chat.groupMetadata?.holdEnabled === false
+                            ? "bg-slate-200 dark:bg-slate-700 text-slate-500 dark:text-slate-300 hover:bg-slate-300"
+                            : "bg-amber-100 dark:bg-amber-950 text-amber-600 dark:text-amber-400 hover:bg-amber-200"
+                      )}
+                    >
+                      {chat.groupMetadata?.holdEnabled === false ? t('chat.disabled') : t('chat.enabled')}
+                    </button>
+                  </div>
+                </div>
 
                 {/* Kick/Ban Member */}
                 <div className="bg-slate-50 dark:bg-slate-800 rounded-2xl p-4 border border-slate-100 dark:border-slate-700">
@@ -2645,6 +2769,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
                         const isAdmin = m.uid === chat.groupMetadata?.adminId;
                         const isMe = m.uid === user?.uid;
                         const bannedInfo = chat.groupMetadata?.bannedUsers?.find(b => b.uid === m.uid);
+                        const memberRole = chat.groupMetadata?.roles?.[m.uid] || 'editor';
                         return (
                           <div key={m.uid} className={cn("flex items-center gap-3 p-3 rounded-xl border transition-all", 
                             bannedInfo ? "bg-red-50 dark:bg-red-950 border-red-200 dark:border-red-900" : "bg-white dark:bg-slate-900 border-slate-100 dark:border-slate-700")}>
@@ -2653,6 +2778,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
                               <p className="text-sm font-bold text-slate-700 dark:text-slate-200 truncate flex items-center gap-2">
                                 {m.displayName}
                                 {isAdmin && <span className="text-[8px] bg-amber-100 text-amber-600 px-1.5 py-0.5 rounded-full font-black uppercase tracking-wider">{t('side.admin')}</span>}
+                                {!isAdmin && <span className={cn("text-[8px] px-1.5 py-0.5 rounded-full font-black uppercase tracking-wider", memberRole === 'viewer' ? "bg-purple-100 text-purple-600 dark:bg-purple-950 dark:text-purple-400" : "bg-blue-100 text-blue-600 dark:bg-blue-950 dark:text-blue-400")}>{memberRole === 'viewer' ? t('chat.roleViewer') : t('chat.roleEditor')}</span>}
                                 {isMe && <span className="text-[8px] bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded-full font-black uppercase tracking-wider">{t('chat.you')}</span>}
                               </p>
                               {bannedInfo && (
@@ -2661,14 +2787,22 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
                                 </p>
                               )}
                             </div>
-                            {!isAdmin && !isMe && !bannedInfo && (
+                            {canManageGroup && !isAdmin && !isMe && (
+                              <button onClick={() => handleToggleRole(m.uid, memberRole === 'viewer' ? 'editor' : 'viewer')}
+                                className={cn("px-2 py-1 rounded-lg text-[9px] font-bold transition-all", memberRole === 'viewer'
+                                  ? "bg-purple-50 text-purple-600 hover:bg-purple-100"
+                                  : "bg-blue-50 text-blue-600 hover:bg-blue-100")}>
+                                {memberRole === 'viewer' ? t('chat.makeEditor') : t('chat.makeViewer')}
+                              </button>
+                            )}
+                            {canManageGroup && !isAdmin && !isMe && !bannedInfo && (
                               <div className="flex gap-1">
                                 <button onClick={() => { setKickMemberId(m.uid); setKickMode('kick'); setKickDuration(0); setShowKickMember(true); }}
                                   className="px-2 py-1 bg-red-50 text-red-600 rounded-lg text-[9px] font-bold hover:bg-red-100 transition-all flex items-center gap-1">
                                   <UserX size={10} />{t('chat.kick')}</button>
                               </div>
                             )}
-                            {bannedInfo && isGroupAdmin && (
+                            {bannedInfo && canManageGroup && (
                               <button onClick={() => handleUnbanMember(m.uid)}
                                 className="px-2 py-1 bg-green-50 text-green-600 rounded-lg text-[9px] font-bold hover:bg-green-100 transition-all flex items-center gap-1">
                                 <UserCheck size={10} />{t('chat.unban')}</button>
@@ -2679,6 +2813,29 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
                     </div>
                   )}
                 </div>
+
+                {canManageGroup && joinRequests.length > 0 && (
+                <div className="bg-slate-50 dark:bg-slate-800 rounded-2xl p-4 border border-slate-100 dark:border-slate-700">
+                  <h4 className="text-xs font-black text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-3">{t('chat.joinRequests')} ({joinRequests.length})</h4>
+                  <div className="space-y-2 max-h-48 overflow-y-auto">
+                    {joinRequests.map(r => (
+                      <div key={r.uid} className="flex items-center gap-3 p-3 bg-white dark:bg-slate-900 rounded-xl border border-slate-100 dark:border-slate-700">
+                        <img src={r.photoURL} className="w-8 h-8 rounded-full object-cover" />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-bold text-slate-700 dark:text-slate-200 truncate">{r.displayName}</p>
+                          <p className="text-[10px] text-slate-400 font-bold">UIN: #{r.uin || t('chat.none')}</p>
+                        </div>
+                        <button onClick={() => handleJoinRequest(r.uid, true)}
+                          className="px-2 py-1 bg-green-50 text-green-600 rounded-lg text-[9px] font-bold hover:bg-green-100 transition-all flex items-center gap-1">
+                          <UserCheck size={10} />{t('chat.approve')}</button>
+                        <button onClick={() => handleJoinRequest(r.uid, false)}
+                          className="px-2 py-1 bg-red-50 text-red-600 rounded-lg text-[9px] font-bold hover:bg-red-100 transition-all flex items-center gap-1">
+                          <UserX size={10} />{t('chat.reject')}</button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                )}
 
                 {/* Kick Mode Modal */}
                 {showKickMember && kickMemberId && (
