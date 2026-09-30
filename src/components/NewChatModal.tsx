@@ -185,6 +185,13 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({ onClose, onChatCreat
   const createGroup = async () => {
     if (!user || !groupName.trim() || selectedUsers.length === 0) return;
     try {
+      const nameLower = groupName.trim().toLowerCase();
+      const existing = await getDocs(query(collection(db, 'chats'), where('type', '==', 'group')));
+      const duplicate = existing.docs.some(d => (d.data().groupMetadata?.name || '').trim().toLowerCase() === nameLower);
+      if (duplicate) {
+        addToast(t('nc.groupNameTaken'), 'warning');
+        return;
+      }
       const participants = [user.uid, ...selectedUsers.map(u => u.uid)];
       const newChatRef = await addDoc(collection(db, 'chats'), {
         participants, type: 'group',

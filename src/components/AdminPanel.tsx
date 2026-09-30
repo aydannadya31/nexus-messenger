@@ -3,7 +3,7 @@ import { collection, query, getDocs, doc, getDoc, where, orderBy, deleteDoc, upd
 import { db } from '../lib/firebase';
 import { useToast } from '../lib/toast';
 import { UserProfile, Message, Chat } from '../types';
-import { X, Search, Shield, UserX, UserCheck, Trash2, Clock, MessageSquare, Ban, Mail, Plus, Trash, Eye, EyeOff, Play, Pause, Download } from 'lucide-react';
+import { X, Search, Shield, UserX, UserCheck, Trash2, Clock, MessageSquare, Ban, Mail, Plus, Trash, Eye, EyeOff, Play, Pause, Download, Pencil } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import { cn } from '../lib/utils';
 import { useAuth } from './AuthProvider';
@@ -356,6 +356,57 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
       return { ...m, blockedByAdmin: blocked, blockedByAdminAt: blocked ? serverTimestamp() : null } as any;
     }));
   };
+
+  const renameGroup = async (g: Chat) => {
+    const current = g.groupMetadata?.name || '';
+    const name = window.prompt(t('adm.groupRenamePrompt'), current);
+    if (name === null) return;
+    const trimmed = name.trim();
+    if (!trimmed || trimmed === current) return;
+    try {
+      await updateDoc(doc(db, 'chats', g.id), { 'groupMetadata.name': trimmed });
+      setGroups(prev => prev.map(x => x.id === g.id && x.groupMetadata ? { ...x, groupMetadata: { ...x.groupMetadata, name: trimmed } } : x));
+      setSelectedGroup(prev => prev && prev.id === g.id && prev.groupMetadata ? { ...prev, groupMetadata: { ...prev.groupMetadata, name: trimmed } } : prev);
+      addToast(t('adm.groupRenamed'), 'success');
+    } catch (err) {
+      console.error('Rename group error:', err);
+      addToast(t('adm.bulkFail'), 'error');
+    }
+  };
+
+  const toggleGroupPassive = async (g: Chat) => {
+    const next = !g.groupMetadata?.passive;
+    try {
+      await updateDoc(doc(db, 'chats', g.id), { 'groupMetadata.passive': next });
+      const patch = (x: Chat) => x.id === g.id && x.groupMetadata ? { ...x, groupMetadata: { ...x.groupMetadata, passive: next } } : x;
+      setGroups(prev => prev.map(patch));
+      setSelectedGroup(prev => prev ? patch(prev) : prev);
+      addToast(next ? t('adm.groupPassiveOn') : t('adm.groupPassiveOff'), 'success');
+    } catch (err) {
+      console.error('Toggle group passive error:', err);
+      addToast(t('adm.bulkFail'), 'error');
+    }
+  };
+
+  const deleteGroup = async (g: Chat) => {
+    if (!window.confirm(t('adm.deleteGroupConfirm', { name: g.groupMetadata?.name || t('adm.anonymousGroup') }))) return;
+    try {
+      const msgSnap = await getDocs(collection(db, 'chats', g.id, 'messages'));
+      await Promise.all(msgSnap.docs.map(d => deleteDoc(doc(db, 'chats', g.id, 'messages', d.id))));
+      await deleteDoc(doc(db, 'chats', g.id));
+      setGroups(prev => prev.filter(x => x.id !== g.id));
+      if (selectedGroup?.id === g.id) {
+        setSelectedGroup(null);
+        setGroupMessages([]);
+        setGroupSelectedKeys(new Set());
+      }
+      addToast(t('adm.groupDeleted', { name: g.groupMetadata?.name || t('adm.anonymousGroup') }), 'success');
+    } catch (err) {
+      console.error('Delete group error:', err);
+      addToast(t('adm.bulkFail'), 'error');
+    }
+  };
+
 
   const deletedItems: BulkItem[] = deletedMessages
     .filter(m => m.id && m.chatId && selectedKeys.has(msgKey(m.chatId, m.id)))
@@ -1049,6 +1100,32 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                           <span className="text-slate-400">{t('adm.adminLabel')} <span className="text-blue-300 font-bold">{uidName(selectedGroup.groupMetadata?.adminId)}</span></span>
                           <span className="text-slate-400">{t('adm.founderLabel')} <span className="text-purple-300 font-bold">{uidName(selectedGroup.groupMetadata?.createdBy)}</span></span>
                           <span className="text-slate-400">{t('adm.memberLabel')} <span className="text-white font-bold">{selectedGroup.participants?.length ?? 0}</span></span>
+                        </div>
+                        <div className="mt-3 flex flex-wrap items-center gap-1.5">
+                          <button
+                            onClick={() => renameGroup(selectedGroup)}
+                            className="px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider bg-slate-800 text-slate-300 hover:text-white hover:bg-slate-700 transition-all flex items-center gap-1"
+                          >
+                            <Pencil size={10} /> {t('adm.renameGroupBtn')}
+                          </button>
+                          <button
+                            onClick={() => toggleGroupPassive(selectedGroup)}
+                            className={cn(
+                              "px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all flex items-center gap-1",
+                              selectedGroup.groupMetadata?.passive
+                                ? "bg-green-600 hover:bg-green-700 text-white"
+                                : "bg-amber-600 hover:bg-amber-700 text-white"
+                            )}
+                          >
+                            {selectedGroup.groupMetadata?.passive ? <Eye size={10} /> : <EyeOff size={10} />}
+                            {selectedGroup.groupMetadata?.passive ? t('adm.setActive') : t('adm.setPassive')}
+                          </button>
+                          <button
+                            onClick={() => deleteGroup(selectedGroup)}
+                            className="px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider bg-red-600 hover:bg-red-700 text-white transition-all flex items-center gap-1"
+                          >
+                            <Trash2 size={10} /> {t('adm.deleteGroupBtn')}
+                          </button>
                         </div>
                         {(() => {
                           const hist: string[] = [];

@@ -575,7 +575,8 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
   });
 
   const isViewer = chat?.type === 'group' && !!user?.uid && chat?.groupMetadata?.roles?.[user.uid] === 'viewer' && !isGroupAdmin && !isSystemAdmin;
-  const sendBlocked = isBeingHeld || isViewer;
+  const isPassiveGroup = chat?.type === 'group' && !!chat?.groupMetadata?.passive;
+  const sendBlocked = isBeingHeld || isViewer || isPassiveGroup;
 
   const holdQuotaLeft = (!chat || chat.type === 'group' || !user?.uid) ? null : (() => {
     const today = new Date().toISOString().slice(0, 10);
@@ -2240,6 +2241,14 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
         </div>
       )}
 
+      {/* Passive Group Banner */}
+      {isPassiveGroup && !isBannedFromGroup && (
+        <div className="p-3 bg-orange-50 dark:bg-orange-950 border-t border-orange-200 dark:border-orange-900 flex items-center gap-2 shrink-0">
+          <EyeOff size={14} className="text-orange-600 dark:text-orange-400" />
+          <span className="text-[10px] font-bold text-orange-700 dark:text-orange-300">{t('chat.passiveBanner')}</span>
+        </div>
+      )}
+
       {(editingMsg || replyTo) && !isBeingHeld && !isBannedFromGroup && (
         <div className="px-6 py-2 bg-blue-50 dark:bg-blue-950 border-t border-blue-100 dark:border-blue-900 flex items-center gap-2 shrink-0">
           {editingMsg ? (
@@ -2440,7 +2449,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
               value={inputText}
               onChange={(e) => setInputText(e.target.value)}
               disabled={sendBlocked}
-              placeholder={isViewer ? t('chat.viewerPlaceholder') : isBeingHeld ? t('chat.holdPlaceholder') : t('chat.msgPlaceholder')}
+              placeholder={isPassiveGroup ? t('chat.passivePlaceholder') : isViewer ? t('chat.viewerPlaceholder') : isBeingHeld ? t('chat.holdPlaceholder') : t('chat.msgPlaceholder')}
               className="flex-1 min-w-0 bg-transparent border-none focus:ring-0 text-sm py-2 px-2 sm:px-4 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 disabled:cursor-not-allowed"
             />
             <button 

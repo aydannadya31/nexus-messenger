@@ -40,6 +40,7 @@ export interface Chat {
     password?: string;
     roles?: Record<string, 'editor' | 'viewer'>;
     holdEnabled?: boolean;
+    passive?: boolean;
   };
   lastMessage?: {
     text: string;
