@@ -445,23 +445,17 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
   const handleAdminLeaveGroup = async () => {
     if (!chatId || !chat || !user || chat.type !== 'group') return;
     try {
-      const remainingParticipants = chat.participants.filter(id => id !== user.uid);
-      if (remainingParticipants.length < 2) {
-        // Auto-delete group: save data to admin panel first
-        await handleGroupAutoDelete(chatId);
-        return;
-      }
-      // Find most active user (or first participant) as new admin
-      let newAdminId = remainingParticipants[0];
-      const currentHistory = chat.groupMetadata?.adminHistory || [];
-      await updateDoc(doc(db, 'chats', chatId), {
-        participants: remainingParticipants,
-        'groupMetadata.adminId': newAdminId,
-        'groupMetadata.adminHistory': [...currentHistory, newAdminId]
+      await addDoc(collection(db, 'adminDeleteRequests'), {
+        type: 'group-leave',
+        chatId,
+        chatName: chat.groupMetadata?.name || '',
+        requestedBy: user.uid,
+        timestamp: serverTimestamp(),
+        status: 'pending'
       });
-      // Let the snapshot listener handle state updates
+      showCustomAlert(t('chat.leaveGroup'), t('chat.leaveRequested'));
     } catch (error) {
-      console.error("Admin leave group error:", error);
+      console.error("Admin leave request error:", error);
     }
   };
 
@@ -1177,24 +1171,23 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
       t('chat.clearConfirm'),
       async () => {
         try {
-          const messagesRef = collection(db, 'chats', chatId, 'messages');
-          const q = query(messagesRef);
-          const querySnapshot = await getDocs(q);
-          const deletePromises = querySnapshot.docs.map(d => deleteDoc(doc(db, 'chats', chatId, 'messages', d.id)));
-          await Promise.all(deletePromises);
-          
-          // Update lastMessage
           await updateDoc(doc(db, 'chats', chatId), {
-            lastMessage: {
-              text: t('chat.historyCleared'),
-              senderId: user?.uid || '',
-              senderName: user?.displayName || '',
-              timestamp: serverTimestamp()
-            },
+            historyHidden: true,
+            historyHiddenAt: serverTimestamp(),
+            historyHiddenBy: user?.uid || '',
             updatedAt: serverTimestamp()
           });
+          await addDoc(collection(db, 'adminDeleteRequests'), {
+            type: 'clear-history',
+            chatId,
+            chatName: chat?.groupMetadata?.name || '',
+            requestedBy: user?.uid || '',
+            timestamp: serverTimestamp(),
+            status: 'pending'
+          });
+          showCustomAlert(t('chat.clearTitle'), t('chat.clearPending'));
         } catch (error) {
-          console.error("Clear chat error:", error);
+          console.error("Clear chat request error:", error);
         }
       }
     );
@@ -1722,6 +1715,12 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
 
         <AnimatePresence>
           {messages
+            .filter(msg => {
+              if (!chat?.historyHidden || isSystemAdmin || !chat.historyHiddenAt?.toDate) return true;
+              const hiddenAt = chat.historyHiddenAt.toDate().getTime();
+              const ts = msg.timestamp?.toDate?.()?.getTime();
+              return ts == null || ts >= hiddenAt;
+            })
             .filter(msg => {
               const db = msg.deletedBy as string[] | undefined;
               if (!db?.length) return true;

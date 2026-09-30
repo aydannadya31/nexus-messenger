@@ -50,6 +50,9 @@ export interface Chat {
   holdExpiresAt?: any;
   groupCountry?: string;
   muted?: boolean;
+  historyHidden?: boolean;
+  historyHiddenAt?: any;
+  historyHiddenBy?: string;
 }
 
 export interface Message {

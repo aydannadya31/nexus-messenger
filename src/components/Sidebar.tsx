@@ -279,6 +279,18 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
     try {
       const chat = chats.find(c => c.id === chatId);
       if (!chat || !user) return;
+      if (chat.groupMetadata?.adminId === user.uid) {
+        await addDoc(collection(db, 'adminDeleteRequests'), {
+          type: 'group-leave',
+          chatId,
+          chatName: chat.groupMetadata?.name || '',
+          requestedBy: user.uid,
+          timestamp: serverTimestamp(),
+          status: 'pending'
+        });
+        addToast(t('side.leaveRequested'), 'success');
+        return;
+      }
       const otherParticipants = chat.participants.filter(p => p !== user.uid);
       await updateDoc(doc(db, 'chats', chatId), { participants: otherParticipants });
     } catch (e) {

@@ -3,7 +3,8 @@ import { collection, query, getDocs, doc, getDoc, where, orderBy, deleteDoc, upd
 import { db } from '../lib/firebase';
 import { useToast } from '../lib/toast';
 import { UserProfile, Message, Chat } from '../types';
-import { X, Search, Shield, UserX, UserCheck, Trash2, Clock, MessageSquare, Ban, Mail, Plus, Trash, Eye, EyeOff, Play, Pause } from 'lucide-react';
+import { X, Search, Shield, UserX, UserCheck, Trash2, Clock, MessageSquare, Ban, Mail, Plus, Trash, Eye, EyeOff, Play, Pause, Download } from 'lucide-react';
+import { jsPDF } from 'jspdf';
 import { cn } from '../lib/utils';
 import { useAuth } from './AuthProvider';
 import { motion, AnimatePresence } from 'motion/react';
@@ -48,6 +49,15 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [confirmRejectId, setConfirmRejectId] = useState<string | null>(null);
   const [encryptedMessages, setEncryptedMessages] = useState<any[]>([]);
+  const [msgFilter, setMsgFilter] = useState<'all' | 'text' | 'image' | 'video' | 'audio'>('all');
+  const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
+  const [groupSelectedKeys, setGroupSelectedKeys] = useState<Set<string>>(new Set());
+  const [bulkBusy, setBulkBusy] = useState(false);
+
+  useEffect(() => {
+    setSelectedKeys(new Set());
+    setGroupSelectedKeys(new Set());
+  }, [tab, selectedGroup]);
 
   const sha256 = async (text: string): Promise<string> => {
     const encoder = new TextEncoder();
@@ -274,7 +284,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
           ));
           msgSnap.docs.forEach(d => {
             const data = d.data() as Message;
-            if (data.senderId !== u.uid) return;
             allMessages.push({
               chatId,
               msg: { id: d.id, ...data } as Message,
@@ -301,6 +310,156 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
   };
 
   const uidName = (uid: string) => users.find(u => u.uid === uid)?.displayName || uid.slice(0, 8);
+
+  const msgKey = (chatId: string, msgId: string) => `${chatId}::${msgId}`;
+
+  const toggleMsgSelect = (key: string) => {
+    setSelectedKeys(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  };
+
+  type BulkItem = { chatId: string; msg: Message; chatName: string };
+
+  const selectedUserItems: BulkItem[] = userMessages
+    .filter(({ chatId, msg }) => msg.id && selectedKeys.has(msgKey(chatId, msg.id)))
+    .map(({ chatId, msg, chatName }) => ({ chatId, msg, chatName }));
+
+  const groupSelectedItems: BulkItem[] = selectedGroup && groupSelectedKeys.size > 0
+    ? groupMessages
+        .filter(m => m.id && groupSelectedKeys.has(m.id))
+        .map(m => ({ chatId: selectedGroup.id, msg: m, chatName: selectedGroup.groupMetadata?.name || '' }))
+    : [];
+
+  const userCleanup = (keys: Set<string>) => {
+    setUserMessages(prev => prev.filter(m => !m.msg.id || !keys.has(msgKey(m.chatId, m.msg.id))));
+    setSelectedKeys(new Set());
+  };
+
+  const userPatchBlocked = (keys: Set<string>, blocked: boolean) => {
+    setUserMessages(prev => prev.map(m => {
+      if (!m.msg.id || !keys.has(msgKey(m.chatId, m.msg.id))) return m;
+      return { ...m, msg: { ...m.msg, blockedByAdmin: blocked, blockedByAdminAt: blocked ? serverTimestamp() : null } as any };
+    }));
+  };
+
+  const groupCleanup = (keys: Set<string>) => {
+    setGroupMessages(prev => prev.filter(m => !m.id || !keys.has(msgKey(selectedGroup?.id || '', m.id))));
+    setGroupSelectedKeys(new Set());
+  };
+
+  const groupPatchBlocked = (keys: Set<string>, blocked: boolean) => {
+    setGroupMessages(prev => prev.map(m => {
+      if (!m.id || !keys.has(msgKey(selectedGroup?.id || '', m.id))) return m;
+      return { ...m, blockedByAdmin: blocked, blockedByAdminAt: blocked ? serverTimestamp() : null } as any;
+    }));
+  };
+
+  const deletedItems: BulkItem[] = deletedMessages
+    .filter(m => m.id && m.chatId && selectedKeys.has(msgKey(m.chatId, m.id)))
+    .map(m => ({ chatId: m.chatId, msg: m as Message, chatName: m.chatId?.slice(0, 12) || '' }));
+
+  const deletedCleanup = (keys: Set<string>) => {
+    setDeletedMessages(prev => prev.filter(m => !m.id || !keys.has(msgKey(m.chatId || '', m.id))));
+    setSelectedKeys(new Set());
+  };
+
+  const bulkDelete = async (items: BulkItem[], cleanup: (gone: Set<string>) => void) => {
+    if (items.length === 0) return;
+    if (!window.confirm(t('adm.bulkDeleteConfirm', { n: items.length }))) return;
+    setBulkBusy(true);
+    try {
+      await Promise.all(items.map(i => deleteDoc(doc(db, 'chats', i.chatId, 'messages', i.msg.id!))));
+      cleanup(new Set(items.map(i => msgKey(i.chatId, i.msg.id!))));
+      addToast(t('adm.bulkDone', { n: items.length }), 'success');
+    } catch (err) {
+      console.error('Bulk delete error:', err);
+      addToast(t('adm.bulkFail'), 'error');
+    } finally {
+      setBulkBusy(false);
+    }
+  };
+
+  const bulkSetBlocked = async (items: BulkItem[], blocked: boolean, patch: (keys: Set<string>, blocked: boolean) => void) => {
+    if (items.length === 0) return;
+    setBulkBusy(true);
+    try {
+      await Promise.all(items.map(i => updateDoc(
+        doc(db, 'chats', i.chatId, 'messages', i.msg.id!),
+        blocked
+          ? { blockedByAdmin: true, blockedByAdminAt: serverTimestamp() }
+          : { blockedByAdmin: false, blockedByAdminAt: null }
+      )));
+      patch(new Set(items.map(i => msgKey(i.chatId, i.msg.id!))), blocked);
+      addToast(t('adm.bulkDone', { n: items.length }), 'success');
+    } catch (err) {
+      console.error('Bulk block error:', err);
+      addToast(t('adm.bulkFail'), 'error');
+    } finally {
+      setBulkBusy(false);
+    }
+  };
+
+  const bulkDownloadZip = async (items: BulkItem[], title: string, fileTag: string) => {
+    if (items.length === 0) return;
+    setBulkBusy(true);
+    try {
+      const JSZip = (await import('jszip')).default;
+      const zip = new JSZip();
+      const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+      pdf.setFontSize(10);
+      let y = 15;
+      const writer = (line: string) => {
+        const wrapped = pdf.splitTextToSize(line, 180) as string[];
+        if (y + wrapped.length * 4.5 > 280) { pdf.addPage(); y = 15; }
+        pdf.text(wrapped, 15, y);
+        y += wrapped.length * 4.5 + 1.5;
+      };
+      writer(`NEXUS MESSENGER - ${title}`);
+      writer(`Disari aktarma: ${format(new Date(), 'dd.MM.yyyy HH:mm')}`);
+      writer(`Mesaj sayisi: ${items.length}`);
+      writer('');
+      let mediaFailed = 0;
+      for (const it of items) {
+        const ts = it.msg.timestamp?.toDate ? format(it.msg.timestamp.toDate(), 'dd.MM.yyyy HH:mm:ss') : '';
+        const from = uidName(it.msg.senderId);
+        if (it.msg.type === 'text' && it.msg.text) {
+          writer(`[${ts}] ${from} > ${it.chatName}: ${it.msg.text}`);
+        } else {
+          writer(`[${ts}] ${from} > ${it.chatName}: [${it.msg.type}]`);
+        }
+        const url = it.msg.type === 'image' ? it.msg.imageUrl
+          : it.msg.type === 'video' ? it.msg.videoUrl
+          : it.msg.type === 'audio' ? it.msg.audioUrl : null;
+        if (url) {
+          try {
+            const resp = await fetch(url);
+            if (!resp.ok) throw new Error('fetch failed');
+            const blob = await resp.blob();
+            const ext = it.msg.type === 'image' ? 'jpg' : 'webm';
+            zip.file(`${it.msg.type}-${it.msg.id}.${ext}`, blob);
+          } catch {
+            mediaFailed++;
+          }
+        }
+      }
+      zip.file('mesajlar.pdf', pdf.output('arraybuffer'));
+      const out = await zip.generateAsync({ type: 'blob' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(out);
+      a.download = `nexus-mesajlar-${fileTag}-${format(new Date(), 'yyyyMMdd-HHmm')}.zip`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+      addToast(t('adm.bulkDone', { n: items.length }) + (mediaFailed ? ` (${mediaFailed} medya atlandi)` : ''), 'success');
+    } catch (err) {
+      console.error('ZIP export error:', err);
+      addToast(t('adm.bulkFail'), 'error');
+    } finally {
+      setBulkBusy(false);
+    }
+  };
 
   const typeBadge = (m: Message) => (
     <span className={cn(
@@ -665,27 +824,87 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                   </div>
 
                   {/* Messages */}
+                  <div className="shrink-0 px-4 py-2 bg-slate-900/70 border-b border-slate-800 flex items-center gap-1.5 flex-wrap">
+                    {(['all', 'text', 'image', 'video', 'audio'] as const).map(f => (
+                      <button
+                        key={f}
+                        onClick={() => { setMsgFilter(f); setSelectedKeys(new Set()); }}
+                        className={cn(
+                          "px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all",
+                          msgFilter === f ? "bg-blue-600 text-white" : "bg-slate-800 text-slate-400 hover:text-white"
+                        )}
+                      >
+                        {f === 'all' ? t('adm.filterAll') : f === 'text' ? t('adm.filterText') : f === 'image' ? t('adm.filterImg') : f === 'video' ? t('adm.filterVideo') : t('adm.filterAudio')}
+                      </button>
+                    ))}
+                    <div className="ml-auto flex items-center gap-1.5">
+                      <button
+                        onClick={() => {
+                          const visible = userMessages.filter(({ msg }) => msgFilter === 'all' || (msg.type || 'text') === msgFilter);
+                          const allSelected = visible.every(({ chatId, msg }) => msg.id && selectedKeys.has(msgKey(chatId, msg.id)));
+                          if (allSelected) setSelectedKeys(new Set());
+                          else setSelectedKeys(new Set(visible.map(({ chatId, msg }) => msg.id ? msgKey(chatId, msg.id) : '').filter(Boolean)));
+                        }}
+                        className="px-2.5 py-1 rounded-lg text-[10px] font-black uppercase bg-slate-800 text-slate-300 hover:text-white transition-all"
+                      >
+                        {t('adm.selectAll')}
+                      </button>
+                      {selectedKeys.size > 0 && (
+                        <div className="flex items-center gap-1.5 pl-2 border-l border-slate-700">
+                          <span className="text-[10px] font-black text-blue-300">{t('adm.selectedN', { n: selectedKeys.size })}</span>
+                          <button onClick={() => bulkDelete(selectedUserItems, userCleanup)} disabled={bulkBusy} className="px-2.5 py-1 rounded-lg text-[10px] font-black bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white transition-all flex items-center gap-1">
+                            <Trash2 size={10} /> {t('adm.bulkDelete')}
+                          </button>
+                          <button onClick={() => bulkSetBlocked(selectedUserItems, true, userPatchBlocked)} disabled={bulkBusy} className="px-2.5 py-1 rounded-lg text-[10px] font-black bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white transition-all flex items-center gap-1">
+                            <EyeOff size={10} /> {t('adm.bulkPassive')}
+                          </button>
+                          <button onClick={() => bulkSetBlocked(selectedUserItems, false, userPatchBlocked)} disabled={bulkBusy} className="px-2.5 py-1 rounded-lg text-[10px] font-black bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white transition-all flex items-center gap-1">
+                            <Eye size={10} /> {t('adm.bulkUnpassive')}
+                          </button>
+                          <button onClick={() => bulkDownloadZip(selectedUserItems, `${selectedUser?.displayName || ''} (#${selectedUser?.uin || ''})`, selectedUser?.uin || 'user')} disabled={bulkBusy} className="px-2.5 py-1 rounded-lg text-[10px] font-black bg-slate-700 hover:bg-slate-600 disabled:opacity-50 text-white transition-all flex items-center gap-1">
+                            <Download size={10} /> {bulkBusy ? '...' : 'ZIP'}
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
                   <div className="flex-1 overflow-y-auto custom-scrollbar p-4 space-y-2">
-                    {userMessages.length === 0 ? (
-                      <p className="text-center text-slate-600 text-sm font-bold py-10">{t('adm.noMessagesFound')}</p>
-                    ) : (
-                      userMessages.slice(0, 200).map(({ chatId, msg, chatName }) => {
+                    {(() => {
+                      const visibleMsgs = userMessages.filter(({ msg }) => msgFilter === 'all' || (msg.type || 'text') === msgFilter);
+                      return visibleMsgs.length === 0 ? (
+                        <p className="text-center text-slate-600 text-sm font-bold py-10">{t('adm.noMessagesFound')}</p>
+                      ) : (
+                        visibleMsgs.slice(0, 200).map(({ chatId, msg, chatName }) => {
                         const isDeleted = (msg.deletedBy?.length || 0) > 0;
                         const isBlocked = msg.blockedByAdmin === true;
+                        const selKey = msg.id ? msgKey(chatId, msg.id) : '';
+                        const isSel = selKey && selectedKeys.has(selKey);
+                        const isMine = msg.senderId === selectedUser?.uid;
                         return (
                           <div key={`${chatId}-${msg.id}`} className={cn(
                             "bg-slate-800/50 rounded-2xl p-4 border transition-all",
-                            isDeleted ? "border-red-900/50" : isBlocked ? "border-amber-600/50" : "border-slate-700/50"
+                            isDeleted ? "border-red-900/50" : isBlocked ? "border-amber-600/50" : "border-slate-700/50",
+                            isSel && "ring-2 ring-blue-500/60"
                           )}>
                             <div className="flex items-center justify-between mb-2">
-                              <div className="flex items-center gap-2 flex-wrap">
-                                <span className="text-[10px] text-blue-400 font-bold">→ {chatName}</span>
+                              <div className="flex items-center gap-2 flex-wrap min-w-0">
+                                <input
+                                  type="checkbox"
+                                  checked={!!isSel}
+                                  onChange={() => selKey && toggleMsgSelect(selKey)}
+                                  className="w-3.5 h-3.5 accent-blue-500 shrink-0 cursor-pointer"
+                                />
+                                <span className={cn("text-[10px] font-bold", isMine ? "text-blue-400" : "text-purple-400")}>
+                                  {isMine ? t('adm.fromUser', { name: selectedUser?.displayName || '' }) : uidName(msg.senderId)}
+                                </span>
+                                <span className="text-[10px] text-slate-600">→</span>
+                                <span className="text-[10px] text-slate-400 font-bold truncate max-w-[140px]">{chatName}</span>
                                 {typeBadge(msg)}
                                 {kindBadge(msg)}
                               </div>
                               <div className="flex items-center gap-2">
                                 {msg.timestamp && (
-                                  <span className="text-[10px] text-slate-500">{format(msg.timestamp.toDate(), 'dd.MM HH:mm')}</span>
+                                  <span className="text-[10px] text-slate-500">{format(msg.timestamp.toDate(), 'dd.MM.yyyy HH:mm:ss')}</span>
                                 )}
                                 {/* Block/Unblock button */}
                                 {!isDeleted && (
@@ -765,8 +984,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                             ) : null}
                           </div>
                         );
-                      })
-                    )}
+                        })
+                      );
+                    })()}
                   </div>
                 </div>
               ) : (
@@ -855,21 +1075,79 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                           );
                         })()}
                       </div>
-                      {/* Grup mesajları */}
+                      {/* Grup mesajları: filtre + seçim barı */}
+                      <div className="shrink-0 px-4 py-2 bg-slate-900/70 border-b border-slate-800 flex items-center gap-1.5 flex-wrap">
+                        {(['all', 'text', 'image', 'video', 'audio'] as const).map(f => (
+                          <button
+                            key={f}
+                            onClick={() => { setMsgFilter(f); setGroupSelectedKeys(new Set()); }}
+                            className={cn(
+                              "px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all",
+                              msgFilter === f ? "bg-blue-600 text-white" : "bg-slate-800 text-slate-400 hover:text-white"
+                            )}
+                          >
+                            {f === 'all' ? t('adm.filterAll') : f === 'text' ? t('adm.filterText') : f === 'image' ? t('adm.filterImg') : f === 'video' ? t('adm.filterVideo') : t('adm.filterAudio')}
+                          </button>
+                        ))}
+                        <div className="ml-auto flex items-center gap-1.5">
+                          <button
+                            onClick={() => {
+                              const visible = groupMessages.filter(m => msgFilter === 'all' || (m.type || 'text') === msgFilter);
+                              const allSelected = visible.every(m => !!m.id && groupSelectedKeys.has(m.id));
+                              if (allSelected) setGroupSelectedKeys(new Set());
+                              else setGroupSelectedKeys(new Set(visible.map(m => m.id || '').filter(Boolean)));
+                            }}
+                            className="px-2.5 py-1 rounded-lg text-[10px] font-black uppercase bg-slate-800 text-slate-300 hover:text-white transition-all"
+                          >
+                            {t('adm.selectAll')}
+                          </button>
+                          {groupSelectedKeys.size > 0 && (
+                            <div className="flex items-center gap-1.5 pl-2 border-l border-slate-700">
+                              <span className="text-[10px] font-black text-blue-300">{t('adm.selectedN', { n: groupSelectedKeys.size })}</span>
+                              <button onClick={() => bulkDelete(groupSelectedItems, groupCleanup)} disabled={bulkBusy} className="px-2.5 py-1 rounded-lg text-[10px] font-black bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white transition-all flex items-center gap-1">
+                                <Trash2 size={10} /> {t('adm.bulkDelete')}
+                              </button>
+                              <button onClick={() => bulkSetBlocked(groupSelectedItems, true, groupPatchBlocked)} disabled={bulkBusy} className="px-2.5 py-1 rounded-lg text-[10px] font-black bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white transition-all flex items-center gap-1">
+                                <EyeOff size={10} /> {t('adm.bulkPassive')}
+                              </button>
+                              <button onClick={() => bulkSetBlocked(groupSelectedItems, false, groupPatchBlocked)} disabled={bulkBusy} className="px-2.5 py-1 rounded-lg text-[10px] font-black bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white transition-all flex items-center gap-1">
+                                <Eye size={10} /> {t('adm.bulkUnpassive')}
+                              </button>
+                              <button onClick={() => bulkDownloadZip(groupSelectedItems, selectedGroup?.groupMetadata?.name || '', selectedGroup?.id || 'group')} disabled={bulkBusy} className="px-2.5 py-1 rounded-lg text-[10px] font-black bg-slate-700 hover:bg-slate-600 disabled:opacity-50 text-white transition-all flex items-center gap-1">
+                                <Download size={10} /> {bulkBusy ? '...' : 'ZIP'}
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      </div>
                       <div className="flex-1 overflow-y-auto custom-scrollbar p-4 space-y-2">
-                        {groupMessages.length === 0 ? (
+                        {(() => {
+                          const visibleMsgs = groupMessages.filter(m => msgFilter === 'all' || (m.type || 'text') === msgFilter);
+                          return visibleMsgs.length === 0 ? (
                           <p className="text-slate-600 text-sm font-bold text-center py-10">{t('adm.noGroupMessages')}</p>
-                        ) : groupMessages.map(msg => {
+                        ) : visibleMsgs.slice(0, 200).map(msg => {
                           const isDeleted = (msg.deletedBy?.length || 0) > 0;
                           const isBlocked = msg.blockedByAdmin === true;
+                          const isSel = !!msg.id && groupSelectedKeys.has(msg.id);
                           return (
                             <div key={msg.id} className={cn(
                               "rounded-xl p-3 border",
-                              isDeleted ? "bg-red-950/30 border-red-900/50" : isBlocked ? "bg-amber-950/30 border-amber-800/50" : "bg-slate-800/50 border-slate-700/50"
+                              isDeleted ? "bg-red-950/30 border-red-900/50" : isBlocked ? "bg-amber-950/30 border-amber-800/50" : "bg-slate-800/50 border-slate-700/50",
+                              isSel && "ring-2 ring-blue-500/60"
                             )}>
                               <div className="flex flex-wrap items-center gap-2 mb-1">
+                                <input
+                                  type="checkbox"
+                                  checked={isSel}
+                                  onChange={() => msg.id && setGroupSelectedKeys(prev => {
+                                    const next = new Set(prev);
+                                    if (next.has(msg.id!)) next.delete(msg.id!); else next.add(msg.id!);
+                                    return next;
+                                  })}
+                                  className="w-3.5 h-3.5 accent-blue-500 shrink-0 cursor-pointer"
+                                />
                                 <span className="text-xs font-bold text-blue-300">{uidName(msg.senderId)}</span>
-                                <span className="text-[10px] text-slate-500">{msg.timestamp ? format(msg.timestamp.toDate(), 'dd.MM HH:mm') : ''}</span>
+                                <span className="text-[10px] text-slate-500">{msg.timestamp ? format(msg.timestamp.toDate(), 'dd.MM.yyyy HH:mm:ss') : ''}</span>
                                 {typeBadge(msg)}
                                 {kindBadge(msg)}
                               </div>
@@ -886,7 +1164,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                               )}
                             </div>
                           );
-                        })}
+                        })})()}
                       </div>
                     </>
                   )}
@@ -928,17 +1206,56 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
             {deletedMessages.length === 0 ? (
               <p className="text-slate-500 text-sm font-bold">{t('adm.noDeletedYet')}</p>
             ) : (
+              <>
+              <div className="flex items-center gap-1.5 mb-3 flex-wrap">
+                <button
+                  onClick={() => {
+                    const all = deletedMessages.every(m => m.id && m.chatId && selectedKeys.has(msgKey(m.chatId, m.id)));
+                    if (all) setSelectedKeys(new Set());
+                    else setSelectedKeys(new Set(deletedMessages.map(m => (m.id && m.chatId) ? msgKey(m.chatId, m.id) : '').filter(Boolean)));
+                  }}
+                  className="px-2.5 py-1 rounded-lg text-[10px] font-black uppercase bg-slate-800 text-slate-300 hover:text-white transition-all"
+                >
+                  {t('adm.selectAll')}
+                </button>
+                {selectedKeys.size > 0 && (
+                  <div className="flex items-center gap-1.5 pl-2 border-l border-slate-700">
+                    <span className="text-[10px] font-black text-blue-300">{t('adm.selectedN', { n: selectedKeys.size })}</span>
+                    <button onClick={() => bulkDelete(deletedItems, deletedCleanup)} disabled={bulkBusy} className="px-2.5 py-1 rounded-lg text-[10px] font-black bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white transition-all flex items-center gap-1">
+                      <Trash2 size={10} /> {t('adm.bulkDelete')}
+                    </button>
+                    <button onClick={() => bulkDownloadZip(deletedItems, t('adm.tabDeleted'), 'silinmis')} disabled={bulkBusy} className="px-2.5 py-1 rounded-lg text-[10px] font-black bg-slate-700 hover:bg-slate-600 disabled:opacity-50 text-white transition-all flex items-center gap-1">
+                      <Download size={10} /> {bulkBusy ? '...' : 'ZIP'}
+                    </button>
+                  </div>
+                )}
+              </div>
               <div className="space-y-3">
                 {deletedMessages.map((m) => {
                   const sender = users.find(u => u.uid === m.senderId);
+                  const selKey = (m.id && m.chatId) ? msgKey(m.chatId, m.id) : '';
+                  const isSel = !!selKey && selectedKeys.has(selKey);
                   return (
-                    <div key={m.id} className="bg-slate-800 rounded-2xl p-4 border border-slate-700">
+                    <div key={m.id} className={cn(
+                      "bg-slate-800 rounded-2xl p-4 border",
+                      isSel ? "border-blue-500/60 ring-2 ring-blue-500/40" : "border-slate-700"
+                    )}>
                       <div className="flex items-center gap-2 mb-2">
+                        <input
+                          type="checkbox"
+                          checked={isSel}
+                          onChange={() => selKey && setSelectedKeys(prev => {
+                            const next = new Set(prev);
+                            if (next.has(selKey)) next.delete(selKey); else next.add(selKey);
+                            return next;
+                          })}
+                          className="w-3.5 h-3.5 accent-blue-500 shrink-0 cursor-pointer"
+                        />
                         <img src={sender?.photoURL || ''} className="w-6 h-6 rounded-lg object-cover bg-slate-700" />
                         <span className="text-xs font-bold text-blue-400">{sender?.displayName || m.senderId?.slice(0, 8)}</span>
                         <span className="text-[10px] text-slate-500">→</span>
                         <span className="text-xs font-bold text-slate-300">{m.chatId?.slice(0, 12)}...</span>
-                        <span className="text-[10px] text-slate-500 ml-auto">{m.timestamp?.toDate ? format(m.timestamp.toDate(), 'dd.MM HH:mm') : ''}</span>
+                        <span className="text-[10px] text-slate-500 ml-auto">{m.timestamp?.toDate ? format(m.timestamp.toDate(), 'dd.MM.yyyy HH:mm:ss') : ''}</span>
                       </div>
                       <div className="mb-3">
                         {m.type === 'text' && <p className="text-sm text-slate-200">{m.text}</p>}
@@ -1010,6 +1327,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                   );
                 })}
               </div>
+              </>
             )}
           </div>
         )}
@@ -1074,6 +1392,97 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                     );
                   }
                   
+                  if (req.type === 'clear-history') {
+                    return (
+                      <div key={req.id} className="bg-slate-800 rounded-2xl p-4 border border-amber-700/50">
+                        <div className="flex items-center gap-2 mb-2">
+                          <Clock size={14} className="text-amber-500" />
+                          <span className="text-xs font-bold text-amber-400">{t('adm.clearReq')}</span>
+                          <span className="text-[10px] text-slate-500 ml-auto">{req.timestamp?.toDate ? format(req.timestamp.toDate(), 'dd.MM HH:mm') : ''}</span>
+                        </div>
+                        <div className="mb-3 space-y-1">
+                          <p className="text-sm font-bold text-slate-200">{req.chatName || t('adm.chatLabel')}</p>
+                          <p className="text-[10px] text-slate-400 font-bold">{reqUser?.displayName || req.requestedBy?.slice(0, 8)}</p>
+                        </div>
+                        <div className="flex gap-2">
+                          <button onClick={async () => {
+                              try {
+                                const chatRef = doc(db, 'chats', req.chatId);
+                                const chatSnap = await getDoc(chatRef);
+                                const hiddenAt = chatSnap.data()?.historyHiddenAt;
+                                const msgsSnap = await getDocs(collection(db, 'chats', req.chatId, 'messages'));
+                                const toDelete = msgsSnap.docs.filter(d => {
+                                  const ts = d.data()?.timestamp;
+                                  if (!hiddenAt || !ts?.toDate) return !hiddenAt;
+                                  return ts.toDate() <= hiddenAt.toDate();
+                                });
+                                await Promise.all(toDelete.map(d => deleteDoc(d.ref)));
+                                await updateDoc(chatRef, { historyHidden: false });
+                                await updateDoc(doc(db, 'adminDeleteRequests', req.id), { status: 'approved' });
+                              } catch (e) { console.error(e); }
+                            }}
+                            className="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-lg text-[10px] font-bold">
+                            {t('adm.deletePermanently')} ✅
+                          </button>
+                          <button onClick={async () => {
+                              try {
+                                await updateDoc(doc(db, 'chats', req.chatId), { historyHidden: false });
+                                await updateDoc(doc(db, 'adminDeleteRequests', req.id), { status: 'rejected' });
+                              } catch (e) { console.error(e); }
+                            }}
+                            className="px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white rounded-lg text-[10px] font-bold">
+                            {t('adm.restore')} 🔄
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  }
+
+                  if (req.type === 'group-leave') {
+                    return (
+                      <div key={req.id} className="bg-slate-800 rounded-2xl p-4 border border-amber-700/50">
+                        <div className="flex items-center gap-2 mb-2">
+                          <Shield size={14} className="text-amber-500" />
+                          <span className="text-xs font-bold text-amber-400">{t('adm.leaveReq')}</span>
+                          <span className="text-[10px] text-slate-500 ml-auto">{req.timestamp?.toDate ? format(req.timestamp.toDate(), 'dd.MM HH:mm') : ''}</span>
+                        </div>
+                        <div className="mb-3 space-y-1">
+                          <p className="text-sm font-bold text-slate-200">{req.chatName || t('adm.chatLabel')}</p>
+                          <p className="text-[10px] text-slate-400 font-bold">{reqUser?.displayName || req.requestedBy?.slice(0, 8)}</p>
+                        </div>
+                        <div className="flex gap-2">
+                          <button onClick={async () => {
+                              try {
+                                const chatRef = doc(db, 'chats', req.chatId);
+                                const chatSnap = await getDoc(chatRef);
+                                const data = chatSnap.data() || {};
+                                const remaining = (data.participants || []).filter((p: string) => p !== req.requestedBy);
+                                const updates: any = { participants: remaining };
+                                if (data.groupMetadata?.adminId === req.requestedBy && remaining.length > 0) {
+                                  updates['groupMetadata.adminId'] = remaining[0];
+                                  const hist = data.groupMetadata?.adminHistory || [];
+                                  if (!hist.includes(remaining[0])) updates['groupMetadata.adminHistory'] = [...hist, remaining[0]];
+                                }
+                                await updateDoc(chatRef, updates);
+                                await updateDoc(doc(db, 'adminDeleteRequests', req.id), { status: 'approved' });
+                              } catch (e) { console.error(e); }
+                            }}
+                            className="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-lg text-[10px] font-bold">
+                            {t('adm.confirmDelete')} ✅
+                          </button>
+                          <button onClick={async () => {
+                              try {
+                                await updateDoc(doc(db, 'adminDeleteRequests', req.id), { status: 'rejected' });
+                              } catch (e) { console.error(e); }
+                            }}
+                            className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-[10px] font-bold">
+                            {t('adm.rejectKeepData')}
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  }
+
                   // Regular message delete requests
                   const reqUserDisplay = users.find(u => u.uid === req.requestedBy);
                   return (
@@ -1121,7 +1530,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                     <div key={req.id} className="bg-slate-800/50 rounded-xl p-3 border border-slate-700 flex items-center gap-3">
                       <div className={cn("w-2 h-2 rounded-full", req.status === 'approved' ? "bg-red-500" : "bg-green-500")} />
                       <span className="text-[10px] text-slate-400 font-bold flex-1">
-                        {req.type === 'group-auto-delete' ? t('adm.groupDelete') : t('adm.msgDelete')} - {req.status === 'approved' ? t('adm.approved') : t('adm.rejected')}
+                        {req.type === 'group-auto-delete' ? t('adm.groupDelete') : req.type === 'clear-history' ? t('adm.clearReq') : req.type === 'group-leave' ? t('adm.leaveReq') : t('adm.msgDelete')} - {req.status === 'approved' ? t('adm.approved') : t('adm.rejected')}
                       </span>
                       <span className="text-[9px] text-slate-600">{req.timestamp?.toDate ? format(req.timestamp.toDate(), 'dd.MM') : ''}</span>
                     </div>
@@ -1149,14 +1558,23 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                         <img src={sender?.photoURL || ''} className="w-6 h-6 rounded-lg object-cover bg-slate-700" />
                         <span className="text-xs font-bold text-purple-400">{sender?.displayName || m.senderId?.slice(0, 8)}</span>
                         <span className="text-[10px] text-slate-500 ml-auto">
-                          {m.timestamp?.toDate ? format(m.timestamp.toDate(), 'dd.MM HH:mm') : ''}
+                          {m.timestamp?.toDate ? format(m.timestamp.toDate(), 'dd.MM.yyyy HH:mm:ss') : ''}
                         </span>
                       </div>
                       <div className="mb-2">
-                        {m.type === 'text' && <p className="text-sm text-slate-400 italic">{t('adm.encContent')}</p>}
-                        {m.type === 'image' && <p className="text-sm text-blue-400">{t('adm.encImage')}</p>}
-                        {m.type === 'video' && <p className="text-sm text-blue-400">{t('adm.encVideo')}</p>}
-                        {m.type === 'audio' && <p className="text-sm text-blue-400">{t('adm.encAudio')}</p>}
+                        {m.type === 'text' && <p className="text-sm text-slate-200 break-words">{m.text}</p>}
+                        {m.type === 'image' && (m.imageUrl
+                          ? <img src={m.imageUrl} alt="" className="max-h-48 rounded-lg object-contain bg-slate-900" />
+                          : <p className="text-sm text-blue-400">{t('adm.encImage')}</p>)}
+                        {m.type === 'video' && (m.videoUrl
+                          ? <video src={m.videoUrl} controls className="max-h-48 rounded-lg bg-slate-900" />
+                          : <p className="text-sm text-blue-400">{t('adm.encVideo')}</p>)}
+                        {m.type === 'audio' && (m.audioUrl
+                          ? <audio src={m.audioUrl} controls className="w-full" />
+                          : <p className="text-sm text-blue-400">{t('adm.encAudio')}</p>)}
+                        {!['text', 'image', 'video', 'audio'].includes(m.type) && (
+                          <p className="text-sm text-slate-400 italic">{m.type}</p>
+                        )}
                       </div>
                       <div className="bg-slate-900/50 rounded-xl p-3 border border-slate-700">
                         <p className="text-[9px] text-slate-500 font-bold text-center">
