@@ -577,6 +577,13 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
   const isViewer = chat?.type === 'group' && !!user?.uid && chat?.groupMetadata?.roles?.[user.uid] === 'viewer' && !isGroupAdmin && !isSystemAdmin;
   const sendBlocked = isBeingHeld || isViewer;
 
+  const holdQuotaLeft = (!chat || chat.type === 'group' || !user?.uid) ? null : (() => {
+    const today = new Date().toISOString().slice(0, 10);
+    const rec = chat.holdCounts?.[user.uid];
+    const used = rec && rec.date === today ? rec.count : 0;
+    return Math.max(0, 10 - used);
+  })();
+
   const [, setHoldTick] = useState(0);
   useEffect(() => {
     if (!chat?.heldBy || !chat?.holdExpiresAt?.toDate) return;
@@ -1571,6 +1578,16 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
           >
             {amIHolding ? <Play size={18} /> : <Pause size={18} />}
           </button>
+
+          {/* Kalan Hold Hakkı (kişiye özel, sadece birebir sohbette) */}
+          {holdQuotaLeft !== null && (
+            <span
+              className={cn("text-[10px] font-black tabular-nums select-none -ml-1", holdQuotaLeft === 0 ? "text-red-500" : "text-amber-600 dark:text-amber-400")}
+              title={t('chat.holdQuotaLeft')}
+            >
+              {holdQuotaLeft}/10
+            </span>
+          )}
 
           {/* User Info */}
           <button 
