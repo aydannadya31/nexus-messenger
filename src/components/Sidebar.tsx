@@ -260,6 +260,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
     });
     if (foundId) {
       onSelectChat(foundId);
+      setUnreadCounts(prev => ({ ...prev, [foundId]: 0 }));
     } else {
       const newRef = await addDoc(collection(db, 'chats'), {
         participants: [user.uid, friendUid],
@@ -327,6 +328,13 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
              return u?.uin?.includes(searchQuery);
            }));
   });
+
+  const friendUnreadMap: Record<string, number> = {};
+  for (const c of chats) {
+    if (c.type !== 'private' || hiddenChats.includes(c.id)) continue;
+    const other = c.participants.find(p => p !== user?.uid);
+    if (other) friendUnreadMap[other] = (friendUnreadMap[other] || 0) + (unreadCounts[c.id] || 0);
+  }
 
   return (
     <div className="flex flex-col h-full bg-white dark:bg-slate-900 sm:border-r border-slate-200 dark:border-slate-700 w-full sm:max-w-[350px] transition-colors">
@@ -506,6 +514,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
                 {friendsList.map(uid => {
                   const fp = friendProfiles[uid];
                   if (!fp) return null;
+                  const unread = friendUnreadMap[uid] || 0;
                   return (
                     <div
                       key={uid}
@@ -517,10 +526,15 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
                         {fp.onlineStatus && (
                           <StatusBullet status={fp.onlineStatus} className="absolute bottom-0 right-0 w-3.5 h-3.5" />
                         )}
+                        {unread > 0 && (
+                          <div className="absolute -top-1 -right-1 min-w-[18px] h-[18px] bg-red-500 border-2 border-white dark:border-slate-900 rounded-full flex items-center justify-center shadow-lg z-10">
+                            <span className="text-[9px] font-black text-white leading-none px-1">{unread > 9 ? '9+' : unread}</span>
+                          </div>
+                        )}
                       </div>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
-                          <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100 truncate">{fp.displayName}</h3>
+                          <h3 className={cn("text-sm font-bold truncate", unread > 0 ? "text-blue-600 dark:text-blue-400" : "text-slate-900 dark:text-slate-100")}>{fp.displayName}</h3>
                           {fp.onlineStatus && (
                             <span className={cn(
                               "text-[8px] px-1 py-0.5 font-bold uppercase tracking-tighter shrink-0",
