@@ -242,7 +242,10 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({ onClose, onChatCreat
     }
     if (group.participants?.includes(user.uid)) { onChatCreated(group.id); onClose(); return; }
     if (group.groupMetadata?.password) { setSelectedGroup(group); return; }
-    await updateDoc(doc(db, 'chats', group.id), { participants: arrayUnion(user.uid) });
+    await updateDoc(doc(db, 'chats', group.id), {
+      participants: arrayUnion(user.uid),
+      [`groupMetadata.roles.${user.uid}`]: 'viewer'
+    });
     addToast(t('nc.joinedGroup'), 'success');
     onChatCreated(group.id);
     onClose();
@@ -257,24 +260,41 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({ onClose, onChatCreat
         return;
       }
       if (selectedGroup.participants?.includes(user.uid)) { onChatCreated(selectedGroup.id); onClose(); return; }
-      const reqRef = doc(db, 'chats', selectedGroup.id, 'joinRequests', user.uid);
-      const existing = await getDoc(reqRef);
-      if (existing.exists()) {
-        addToast(t('nc.joinRequestPending'), 'info');
-        onClose();
-        return;
-      }
-      await setDoc(reqRef, {
-        displayName: profile?.displayName || user.displayName || '',
-        photoURL: profile?.photoURL || user.photoURL || '',
-        uin: profile?.uin || '',
-        requestedAt: serverTimestamp()
+      await updateDoc(doc(db, 'chats', selectedGroup.id), {
+        participants: arrayUnion(user.uid),
+        [`groupMetadata.roles.${user.uid}`]: 'viewer'
       });
-      addToast(t('nc.joinRequestSent'), 'success');
+      addToast(t('nc.joinedGroup'), 'success');
+      onChatCreated(selectedGroup.id);
       onClose();
     } else {
       addToast(t('login.wrongPw'), 'error');
     }
+  };
+
+  const requestJoinPermission = async () => {
+    if (!user || !selectedGroup) return;
+    const banEntry = selectedGroup.groupMetadata?.bannedUsers?.find(b => b.uid === user.uid);
+    if (banEntry && (!banEntry.bannedUntil || new Date(banEntry.bannedUntil.seconds * 1000 || banEntry.bannedUntil) > new Date())) {
+      addToast(t('nc.bannedFromGroup'), 'error');
+      return;
+    }
+    if (selectedGroup.participants?.includes(user.uid)) { onChatCreated(selectedGroup.id); onClose(); return; }
+    const reqRef = doc(db, 'chats', selectedGroup.id, 'joinRequests', user.uid);
+    const existing = await getDoc(reqRef);
+    if (existing.exists()) {
+      addToast(t('nc.joinRequestPending'), 'info');
+      onClose();
+      return;
+    }
+    await setDoc(reqRef, {
+      displayName: profile?.displayName || user.displayName || '',
+      photoURL: profile?.photoURL || user.photoURL || '',
+      uin: profile?.uin || '',
+      requestedAt: serverTimestamp()
+    });
+    addToast(t('nc.joinRequestSent'), 'success');
+    onClose();
   };
 
   const filteredUsers = users.filter(u =>
@@ -476,6 +496,8 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({ onClose, onChatCreat
                 <button onClick={() => setSelectedGroup(null)} className="flex-1 py-3 font-bold text-slate-500 bg-slate-100 hover:bg-slate-200 rounded-2xl text-xs">{t('login.cancel')}</button>
                 <button onClick={joinWithPassword} disabled={!joinPassword.trim()} className="flex-1 py-3 font-bold text-white bg-green-600 hover:bg-green-700 disabled:bg-slate-300 rounded-2xl text-xs">{t('nc.join')}</button>
               </div>
+              <button onClick={requestJoinPermission}
+                className="w-full mt-2 py-3 font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-2xl text-xs">{t('nc.askPermission')}</button>
             </div>
           )}
         </div>

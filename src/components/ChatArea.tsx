@@ -348,14 +348,14 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
     }
   };
 
-  const handleJoinRequest = async (uid: string, approve: boolean) => {
+  const handleJoinRequest = async (uid: string, approve: boolean, role: 'viewer' | 'editor' = 'viewer') => {
     if (!chatId || !canManageGroup) return;
     try {
       await deleteDoc(doc(db, 'chats', chatId, 'joinRequests', uid));
       if (approve) {
         await updateDoc(doc(db, 'chats', chatId), {
           participants: arrayUnion(uid),
-          [`groupMetadata.roles.${uid}`]: 'viewer'
+          [`groupMetadata.roles.${uid}`]: role
         });
       }
     } catch (err) {
@@ -2845,6 +2845,9 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
                         <button onClick={() => handleJoinRequest(r.uid, true)}
                           className="px-2 py-1 bg-green-50 text-green-600 rounded-lg text-[9px] font-bold hover:bg-green-100 transition-all flex items-center gap-1">
                           <UserCheck size={10} />{t('chat.approve')}</button>
+                        <button onClick={() => handleJoinRequest(r.uid, true, 'editor')}
+                          className="px-2 py-1 bg-blue-50 text-blue-600 rounded-lg text-[9px] font-bold hover:bg-blue-100 transition-all flex items-center gap-1">
+                          <UserCheck size={10} />{t('chat.approveAsEditor')}</button>
                         <button onClick={() => handleJoinRequest(r.uid, false)}
                           className="px-2 py-1 bg-red-50 text-red-600 rounded-lg text-[9px] font-bold hover:bg-red-100 transition-all flex items-center gap-1">
                           <UserX size={10} />{t('chat.reject')}</button>
