@@ -2325,7 +2325,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
               value={inputText}
               onChange={(e) => setInputText(e.target.value)}
               placeholder={isBeingHeld ? t('chat.holdPlaceholder') : t('chat.msgPlaceholder')}
-              className="flex-1 min-w-0 bg-transparent border-none focus:ring-0 text-sm py-2 px-2 sm:px-4 text-slate-900 placeholder:text-slate-400"
+              className="flex-1 min-w-0 bg-transparent border-none focus:ring-0 text-sm py-2 px-2 sm:px-4 text-slate-900 dark:text-slate-100 placeholder:text-slate-400"
             />
             <button 
               type="submit"
