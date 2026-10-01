@@ -213,7 +213,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
   const { user } = useAuth();
   const { t, lang } = useI18n();
   const { target: trTarget, setTarget: setTrTarget } = useTranslateTarget();
-  const { startCall, activeCall, acceptCall } = useCall();
+  const { startCall, activeCall, joinCall } = useCall();
   const [messages, setMessages] = useState<Message[]>([]);
   const [chat, setChat] = useState<Chat | null>(null);
   const [otherUser, setOtherUser] = useState<UserProfile | null>(null);
@@ -1518,7 +1518,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
         <div className="flex items-center gap-2 sm:gap-4 text-slate-400 relative mt-2 pl-0 sm:pl-14 overflow-x-auto pb-0.5">
           {activeCallForChat && !activeCall && (
             <button 
-              onClick={() => acceptCall()}
+              onClick={() => joinCall(activeCallForChat)}
               className="flex items-center gap-2 px-4 py-2 bg-green-500 hover:bg-green-600 text-white rounded-xl text-xs font-black uppercase tracking-widest transition-all shadow-lg shadow-green-500/20 active:scale-95 animate-pulse"
             >
               <Video size={16} />

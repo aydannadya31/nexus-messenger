@@ -10,6 +10,7 @@ interface CallContextType {
   startCall: (chatId: string, participants: string[], type: 'private' | 'group', mediaType: 'audio' | 'video') => Promise<void>;
   inviteToCall: (userIds: string[]) => Promise<void>;
   acceptCall: () => Promise<void>;
+  joinCall: (call: Call) => Promise<void>;
   rejectCall: () => Promise<void>;
   leaveCall: () => Promise<void>;
   endCall: () => Promise<void>;
@@ -236,6 +237,20 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  const joinCall = async (call: Call) => {
+    if (!user) return;
+    try {
+      const activeParts = Array.from(new Set([...(call.activeParticipants || []), user.uid]));
+      await updateDoc(doc(db, 'calls', call.id), {
+        status: 'ongoing',
+        activeParticipants: activeParts
+      });
+      if (incomingCallRef.current?.id === call.id) setIncomingCall(null);
+    } catch (error) {
+      console.error("Join call error:", error);
+    }
+  };
+
   const rejectCall = async () => {
     if (!incomingCall) return;
     try {
@@ -311,7 +326,7 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   return (
-    <CallContext.Provider value={{ activeCall, incomingCall, startCall, inviteToCall, acceptCall, rejectCall, leaveCall, endCall }}>
+    <CallContext.Provider value={{ activeCall, incomingCall, startCall, inviteToCall, acceptCall, joinCall, rejectCall, leaveCall, endCall }}>
       {children}
     </CallContext.Provider>
   );
