@@ -363,6 +363,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
     if (name === null) return;
     const trimmed = name.trim();
     if (!trimmed || trimmed === current) return;
+    const nameLower = trimmed.toLowerCase();
+    if (groups.some(x => x.id !== g.id && (x.groupMetadata?.name || '').trim().toLowerCase() === nameLower)) {
+      addToast(t('nc.groupNameTaken'), 'warning');
+      return;
+    }
     try {
       await updateDoc(doc(db, 'chats', g.id), { 'groupMetadata.name': trimmed });
       setGroups(prev => prev.map(x => x.id === g.id && x.groupMetadata ? { ...x, groupMetadata: { ...x.groupMetadata, name: trimmed } } : x));
