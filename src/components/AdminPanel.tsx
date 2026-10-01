@@ -1,9 +1,10 @@
 import React, { useEffect, useState } from 'react';
-import { collection, query, getDocs, doc, getDoc, where, orderBy, deleteDoc, updateDoc, Timestamp, serverTimestamp, onSnapshot, collectionGroup, limit, setDoc } from 'firebase/firestore';
+import { collection, query, getDocs, doc, getDoc, where, orderBy, deleteDoc, updateDoc, addDoc, Timestamp, serverTimestamp, onSnapshot, collectionGroup, limit, setDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { useToast } from '../lib/toast';
 import { UserProfile, Message, Chat } from '../types';
-import { X, Search, Shield, UserX, UserCheck, Trash2, Clock, MessageSquare, Ban, Mail, Plus, Trash, Eye, EyeOff, Play, Pause, Download, Pencil } from 'lucide-react';
+import { X, Search, Shield, UserX, UserCheck, Trash2, Clock, MessageSquare, Ban, Mail, Plus, Trash, Eye, EyeOff, Play, Pause, Download, Pencil, Radio, Send } from 'lucide-react';
+import { COUNTRIES } from './BroadcastModal';
 import { jsPDF } from 'jspdf';
 import { cn } from '../lib/utils';
 import { useAuth } from './AuthProvider';
@@ -41,7 +42,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
   const [loadingGroups, setLoadingGroups] = useState(false);
 
   // Tab: users, admin-msgs, deleted, encrypted, emails
-  const [tab, setTab] = useState<'users' | 'groups' | 'admin-msgs' | 'deleted' | 'encrypted' | 'delete-requests' | 'emails'>('users');
+  const [tab, setTab] = useState<'users' | 'groups' | 'admin-msgs' | 'deleted' | 'encrypted' | 'delete-requests' | 'emails' | 'broadcast'>('users');
 
   const [adminMessages, setAdminMessages] = useState<{ id: string; message: string; userId: string; userDisplayName: string; userNickname?: string; userUIN?: string; timestamp: any }[]>([]);
   const [deletedMessages, setDeletedMessages] = useState<any[]>([]);
@@ -53,6 +54,25 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
   const [groupSelectedKeys, setGroupSelectedKeys] = useState<Set<string>>(new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
+  const [bcCountry, setBcCountry] = useState('ALL');
+  const [bcText, setBcText] = useState('');
+  const [bcSending, setBcSending] = useState(false);
+
+  const sendBroadcast = async () => {
+    if (!user || !bcText.trim()) return;
+    setBcSending(true);
+    try {
+      await addDoc(collection(db, 'broadcastMessages'), {
+        text: bcText.trim(), senderId: user.uid, senderName: 'Sistem', senderPhoto: '',
+        country: bcCountry, isSystem: true, timestamp: serverTimestamp(), createdAt: new Date().toISOString()
+      });
+      setBcText('');
+      addToast(t('adm.broadcastSent'), 'success');
+    } catch (err) {
+      console.error('Broadcast error:', err);
+      addToast(t('adm.bulkFail'), 'error');
+    } finally { setBcSending(false); }
+  };
 
   useEffect(() => {
     setSelectedKeys(new Set());
@@ -785,6 +805,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
             className={cn("px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wider transition-all flex items-center gap-1.5", tab === 'emails' ? "bg-green-600 text-white" : "bg-slate-800 text-slate-400 hover:text-white")}
           >
             <Mail size={14} /> {t('adm.tabEmails')}
+          </button>
+          <button
+            onClick={() => setTab('broadcast')}
+            className={cn("px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wider transition-all flex items-center gap-1.5", tab === 'broadcast' ? "bg-sky-600 text-white" : "bg-slate-800 text-slate-400 hover:text-white")}
+          >
+            <Radio size={14} /> {t('adm.tabBroadcast')}
           </button>
           <button onClick={onClose} className="p-2 hover:bg-slate-800 rounded-full text-slate-400"><X size={20} /></button>
         </div>
@@ -1731,6 +1757,29 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                 ))}
               </div>
             )}
+          </div>
+        )}
+
+        {tab === 'broadcast' && (
+          <div className="flex-1 overflow-y-auto custom-scrollbar p-6">
+            <h2 className="text-lg font-black text-white mb-2 flex items-center gap-2">
+              <Radio size={20} className="text-sky-400" /> {t('adm.broadcastTitle')}
+            </h2>
+            <p className="text-[10px] text-slate-500 font-bold mb-6">{t('adm.broadcastDesc')}</p>
+            <div className="max-w-2xl space-y-4">
+              <select value={bcCountry} onChange={(e) => setBcCountry(e.target.value)}
+                className="w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-2.5 text-sm font-bold text-white outline-none focus:ring-2 focus:ring-sky-500/30 transition-all">
+                <option value="ALL">{t('adm.broadcastAllWorld')}</option>
+                {COUNTRIES.map(c => (<option key={c.code} value={c.code}>{c.name}</option>))}
+              </select>
+              <textarea value={bcText} onChange={(e) => setBcText(e.target.value)} rows={3}
+                placeholder={t('adm.broadcastPlaceholder')}
+                className="w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-3 text-sm text-white placeholder:text-slate-500 outline-none focus:ring-2 focus:ring-sky-500/30 transition-all resize-none" />
+              <button onClick={sendBroadcast} disabled={bcSending || !bcText.trim()}
+                className="px-5 py-2.5 bg-sky-600 hover:bg-sky-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1.5">
+                <Send size={14} /> {t('side.adminMsgSend')}
+              </button>
+            </div>
           </div>
         )}
       </div>

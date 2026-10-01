@@ -41,6 +41,7 @@ interface BroadcastMessage {
   senderName: string;
   senderPhoto: string;
   country: string;
+  isSystem?: boolean;
   timestamp: any;
   createdAt: string;
 }
@@ -71,7 +72,7 @@ const BroadcastChannel: React.FC<BroadcastChannelProps> = ({ onBack }) => {
   }, []);
 
   const filteredMessages = countryFilter
-    ? messages.filter(m => m.country === countryFilter)
+    ? messages.filter(m => m.country === 'ALL' || m.country === countryFilter)
     : messages;
 
   return (
@@ -115,7 +116,7 @@ const BroadcastChannel: React.FC<BroadcastChannelProps> = ({ onBack }) => {
                 />
                 <div className="flex-1">
                   <p className="text-sm font-bold text-slate-900">{msg.senderName}</p>
-                  <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">{msg.country} • {msg.createdAt ? format(new Date(msg.createdAt), 'dd.MM HH:mm') : ''}</p>
+                  <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">{msg.country === 'ALL' ? '🌍 TÜM DÜNYA' : msg.country}{msg.isSystem ? ' • 🛡️ SİSTEM' : ''} • {msg.createdAt ? format(new Date(msg.createdAt), 'dd.MM HH:mm') : ''}</p>
                 </div>
               </div>
               <p className="text-sm font-medium text-slate-700 leading-relaxed">{msg.text}</p>
