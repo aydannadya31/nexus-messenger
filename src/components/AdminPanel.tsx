@@ -57,16 +57,16 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
   const [bcCountry, setBcCountry] = useState('ALL');
   const [bcText, setBcText] = useState('');
   const [bcSending, setBcSending] = useState(false);
-  const [bcHistory, setBcHistory] = useState<{ id: string; text: string; country: string; createdAt: string }[]>([]);
+  const [bcHistory, setBcHistory] = useState<{ id: string; text: string; country: string; senderName: string; createdAt: string }[]>([]);
   const [bcSelected, setBcSelected] = useState<Set<string>>(new Set());
 
   const loadBcHistory = async () => {
     if (!user) return;
     try {
-      const snap = await getDocs(query(collection(db, 'broadcastMessages'), where('senderId', '==', user.uid)));
+      const snap = await getDocs(query(collection(db, 'broadcastMessages'), limit(100)));
       const rows = snap.docs.map(d => {
         const v = d.data();
-        return { id: d.id, text: String(v.text || ''), country: String(v.country || 'ALL'), createdAt: String(v.createdAt || '') };
+        return { id: d.id, text: String(v.text || ''), country: String(v.country || 'ALL'), senderName: String(v.senderName || ''), createdAt: String(v.createdAt || '') };
       }).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
       setBcHistory(rows);
     } catch (err) {
@@ -1862,6 +1862,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                       <div className="flex-1 min-w-0">
                         <p className="text-xs text-white font-bold break-words">{m.text}</p>
                         <p className="text-[9px] text-slate-500 font-bold mt-1">
+                          {m.senderName ? `👤 ${m.senderName} • ` : ''}
                           {m.country === 'ALL' ? `🌍 ${t('adm.broadcastAllWorld')}` : m.country}
                           {m.createdAt ? ` • ${new Date(m.createdAt).toLocaleString('tr-TR')}` : ''}
                         </p>
