@@ -616,20 +616,20 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
 
   useEffect(() => {
     if (step !== 'panel' || tab !== 'groups') return;
-    let cancelled = false;
     setLoadingGroups(true);
-    (async () => {
-      try {
-        const snap = await getDocs(query(collection(db, 'chats'), where('type', '==', 'group')));
-        if (!cancelled) setGroups(snap.docs.map(d => ({ id: d.id, ...d.data() }) as Chat));
-      } catch (err) {
+    const unsub = onSnapshot(
+      query(collection(db, 'chats'), where('type', '==', 'group')),
+      (snap) => {
+        setGroups(snap.docs.map(d => ({ ...d.data(), id: d.id }) as Chat));
+        setLoadingGroups(false);
+      },
+      (err) => {
         console.error('loadGroups error:', err);
-        if (!cancelled) setGroups([]);
-      } finally {
-        if (!cancelled) setLoadingGroups(false);
+        setGroups([]);
+        setLoadingGroups(false);
       }
-    })();
-    return () => { cancelled = true; };
+    );
+    return () => unsub();
   }, [step, tab]);
 
   const permanentlyDeleteMessage = async (chatId: string, msgId: string) => {
