@@ -114,7 +114,7 @@ const core: Dict = {
   'pre.graphite': { tr: 'Grafit', en: 'Graphite', de: 'Graphit', fr: 'Graphite', ar: 'جرافيت', ko: '그래파이트', zh: '石墨', ja: 'グラファイト', hi: 'ग्रेफाइट' },
 };
 
-const D: Dict = { ...core, ...chatDict, ...admDict, ...ncDict, ...upDict };
+export const D: Dict = { ...core, ...chatDict, ...admDict, ...ncDict, ...upDict };
 
 export const flagUrl = (code: string) => `https://flagcdn.com/24x18/${code}.png`;
 
