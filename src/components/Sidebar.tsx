@@ -13,6 +13,9 @@ import FriendRequestsModal from './FriendRequestsModal';
 import { AdminPanel } from './AdminPanel';
 import { ThemePanel, LanguagePanel } from './SettingsPanels';
 import { useI18n } from '../lib/i18n';
+import { QRCode } from 'react-qr-code';
+
+const APK_URL = 'https://aydannadya31.github.io/nexus-messenger/download/nexus-messenger.apk';
 
 const StatusBullet: React.FC<{ status?: string; className?: string }> = ({ status, className }) => {
   const colors = {
@@ -345,6 +348,16 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
             <Logo className="w-7 h-7 sm:w-8 sm:h-8 shrink-0" />
             <h1 className="text-lg sm:text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-100 truncate min-w-0 nexus-name-shine">Nexus Messenger</h1>
           </div>
+          <a
+            href={APK_URL}
+            target="_blank"
+            rel="noreferrer"
+            title={t('side.apkDownload')}
+            aria-label={t('side.apkDownload')}
+            className="shrink-0 p-1 bg-white dark:bg-white rounded-lg border border-slate-200 dark:border-slate-700 hover:scale-105 active:scale-95 transition-all"
+          >
+            <QRCode value={APK_URL} size={40} bgColor="#ffffff" fgColor="#0f172a" level="M" />
+          </a>
         </div>
         <div className="flex items-center justify-between gap-1 flex-wrap">
           <div className="flex flex-col items-center gap-0.5">
