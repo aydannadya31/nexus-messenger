@@ -34,7 +34,9 @@ jobs:
 
       - name: Build APK
         working-directory: android
-        run: ./gradlew assembleRelease --no-daemon
+        run: |
+          chmod +x ./gradlew
+          ./gradlew assembleRelease --no-daemon
         env:
           RELEASE_KEYSTORE_PATH: ${{ github.workspace }}/android/app/nexus-release.keystore
           RELEASE_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
