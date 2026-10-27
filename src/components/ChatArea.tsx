@@ -8,201 +8,14 @@ import { Chat, Message, UserProfile, Call } from '../types';
 import { cn } from '../lib/utils';
 import ProfileModal from './ProfileModal';
 import { TranslateBox, TranslateToggle, useTranslateTarget } from './TranslateBox';
-import { Image, MoreVertical, Send, Smile, Phone, Video, MessageSquarePlus, Clock, Play, Mic, Square, Pause, Trash2, ListChecks, X, Info, Eye, EyeOff, Lock, LogOut, Shield, UserX, UserCheck, Ban, Settings, Reply, Pencil, Download, ChevronLeft, Camera } from 'lucide-react';
+import { Image, MoreVertical, Send, Smile, Phone, Video, MessageSquarePlus, Play, Mic, Square, Pause, Trash2, ListChecks, X, Info, Eye, EyeOff, Lock, LogOut, Shield, UserX, UserCheck, Ban, Settings, Reply, Pencil, Download, ChevronLeft, Camera } from 'lucide-react';
 import { format } from 'date-fns';
 import { motion, AnimatePresence } from 'motion/react';
 import { encryptMessage, decryptMessage } from '../lib/crypto';
 import { useI18n } from '../lib/i18n';
-
-const toBase64 = (str: string) => btoa(unescape(encodeURIComponent(str)));
-const fromBase64 = (b64: string) => decodeURIComponent(escape(atob(b64)));
-
-const DecryptContent: React.FC<{ msg: Message; onClose: () => void; canBypass?: boolean }> = ({ msg, onClose, canBypass }) => {
-  const { t } = useI18n();
-  const [pwd, setPwd] = useState('');
-  const [decrypted, setDecrypted] = useState<{ text?: string; imageUrl?: string; videoUrl?: string; audioUrl?: string } | null>(
-    canBypass ? { text: msg.text, imageUrl: msg.imageUrl, videoUrl: msg.videoUrl, audioUrl: msg.audioUrl } : null
-  );
-  const [error, setError] = useState('');
-
-  const handleSubmit = () => {
-    if (!msg.imagePassword) return;
-    if (toBase64(pwd) === msg.imagePassword) {
-      setDecrypted({ text: msg.text, imageUrl: msg.imageUrl, videoUrl: msg.videoUrl, audioUrl: msg.audioUrl });
-      setError('');
-    } else {
-      setError(t('login.wrongPw'));
-    }
-  };
-
-  if (decrypted) {
-    return (
-      <div className="space-y-4">
-        {decrypted.text && (
-          <p className="text-sm font-bold leading-relaxed text-slate-800">{decrypted.text}</p>
-        )}
-        {decrypted.imageUrl && (
-          <img src={decrypted.imageUrl} alt="" className="max-w-full h-auto rounded-xl" />
-        )}
-        {decrypted.videoUrl && (
-          <video src={decrypted.videoUrl} className="max-w-full h-auto rounded-xl" controls playsInline />
-        )}
-        {decrypted.audioUrl && (
-          <audio src={decrypted.audioUrl} controls className="w-full" />
-        )}
-        <button onClick={onClose}
-          className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition-all">{t('chat.close')}</button>
-      </div>
-    );
-  }
-
-  return (
-    <div className="space-y-4">
-      <p className="text-xs text-slate-500 font-bold text-center">{t('chat.decryptPrompt')}</p>
-      <input type="text" value={pwd} onChange={e => setPwd(e.target.value)} autoFocus
-        placeholder={t('chat.password')}
-        onKeyDown={e => e.key === 'Enter' && handleSubmit()}
-        className="w-full bg-slate-100 border-2 border-slate-200 rounded-2xl px-4 py-3 text-sm font-bold text-center outline-none focus:border-blue-500 transition-all" />
-      {error && <p className="text-xs font-bold text-red-500 text-center">{error}</p>}
-      <div className="flex gap-2">
-        <button onClick={onClose}
-          className="flex-1 py-2.5 rounded-xl text-xs font-bold text-slate-500 hover:bg-slate-50 border border-slate-200 transition-all">{t('login.cancel')}</button>
-        <button onClick={handleSubmit}
-          className="flex-1 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition-all shadow-lg shadow-blue-600/10">{t('chat.decrypt')}</button>
-      </div>
-    </div>
-  );
-};
-
-const emojiCategories: Record<string, string[]> = {
-  sik: ['😀','😂','🤣','😍','🥰','😘','😎','🥳','😤','😭','😱','🤔','🫡','😴','🙄','😏','🤤','🤩','🥺','😈','💀','🤡','👻','👽','🤖'],
-  ele: ['👍','👎','👏','🙏','🤝','💪','🫶','✌️','👋','🫰','🤞','👊','✊','🤟','🦾'],
-  kal: ['❤️','🧡','💛','💚','💙','💜','🖤','🤍','💔','❤️‍🔥','💕','💖','💗','💓','💝'],
-  dog: ['🐶','🐱','🐭','🐹','🐰','🦊','🐻','🐼','🐨','🐯','🦁','🐮','🐷','🐸','🐵','🐔','🐧','🐦','🦅','🦆'],
-  yiye: ['🍕','🍔','🍟','🌭','🍿','🍩','🍪','🎂','🍰','🧁','🍫','🍬','☕','🍵','🧃','🥤','🍺','🍷'],
-  nes: ['⚽','🏀','🏈','🎮','🎯','🎲','🏆','🎪','🎨','🎬','🎤','🎧','🎸','🎹','🎺','🎵','🔔','📱','💻','📷'],
-  diger: ['🎉','🎊','🎈','🎁','🎀','⭐','🌟','✨','💫','🔥','🌈','☀️','🌙','❄️','🌸','🌺','🎶','💫','💎','🏆'],
-};
-
-const loadHtmlImage = (url: string, timeoutMs = 5000) => new Promise<HTMLImageElement>((resolve, reject) => {
-  const img = document.createElement('img');
-  const timer = window.setTimeout(() => reject(new Error('image timeout')), timeoutMs);
-  img.crossOrigin = 'anonymous';
-  img.onload = () => { window.clearTimeout(timer); resolve(img); };
-  img.onerror = () => { window.clearTimeout(timer); reject(new Error('image load failed')); };
-  img.src = url;
-});
-
-const htmlImageToJpegDataUrl = (img: HTMLImageElement, maxPx = 800) => {
-  const scale = Math.min(1, maxPx / Math.max(img.naturalWidth, img.naturalHeight, 1));
-  const c = document.createElement('canvas');
-  c.width = Math.max(1, Math.round(img.naturalWidth * scale));
-  c.height = Math.max(1, Math.round(img.naturalHeight * scale));
-  const ctx = c.getContext('2d');
-  if (!ctx) throw new Error('canvas ctx');
-  ctx.drawImage(img, 0, 0, c.width, c.height);
-  return c.toDataURL('image/jpeg', 0.85);
-};
-
-const fileToDataUrl = (file: Blob) => new Promise<string>((resolve, reject) => {
-  const r = new FileReader();
-  r.onload = () => resolve(r.result as string);
-  r.onerror = () => reject(new Error('file read failed'));
-  r.readAsDataURL(file);
-});
-
-const compressImageToDataUrl = async (file: File, maxLen = 800 * 1024): Promise<string> => {
-  const raw = await fileToDataUrl(file);
-  if (raw.length <= maxLen) return raw;
-  try {
-    const img = await loadHtmlImage(raw);
-    let maxPx = Math.max(img.naturalWidth, img.naturalHeight);
-    let quality = 0.85;
-    let best = raw;
-    for (let i = 0; i < 8; i++) {
-      const scale = Math.min(1, maxPx / Math.max(img.naturalWidth, img.naturalHeight, 1));
-      const c = document.createElement('canvas');
-      c.width = Math.max(1, Math.round(img.naturalWidth * scale));
-      c.height = Math.max(1, Math.round(img.naturalHeight * scale));
-      const ctx = c.getContext('2d');
-      if (!ctx) break;
-      ctx.drawImage(img, 0, 0, c.width, c.height);
-      const out = c.toDataURL('image/jpeg', quality);
-      if (out.length < best.length) best = out;
-      if (out.length <= maxLen) return out;
-      maxPx = Math.floor(maxPx * 0.7);
-      quality = Math.max(0.5, quality - 0.1);
-      if (maxPx < 160) break;
-    }
-    return best;
-  } catch {
-    return raw;
-  }
-};
-
-const compressVideoToDataUrl = async (file: Blob, maxLen = 1500 * 1024): Promise<string> => {
-  const raw = await fileToDataUrl(file);
-  if (raw.length <= maxLen) return raw;
-  try {
-    const url = URL.createObjectURL(file);
-    const video = document.createElement('video');
-    video.muted = true;
-    video.playsInline = true;
-    video.src = url;
-    await new Promise<void>((resolve, reject) => {
-      video.onloadedmetadata = () => resolve();
-      video.onerror = () => reject(new Error('video load failed'));
-    });
-    const duration = Math.min(video.duration || 0, 15);
-    const scale = Math.min(1, 480 / (video.videoWidth || 480));
-    const w = Math.max(1, Math.round((video.videoWidth || 480) * scale));
-    const h = Math.max(1, Math.round((video.videoHeight || 360) * scale));
-    const c = document.createElement('canvas');
-    c.width = w;
-    c.height = h;
-    const ctx = c.getContext('2d');
-    if (!ctx) { URL.revokeObjectURL(url); return raw; }
-    const stream = c.captureStream(15);
-    try {
-      const vs = (video as any).captureStream?.() as MediaStream | undefined;
-      if (vs) for (const t of vs.getAudioTracks()) stream.addTrack(t);
-    } catch { /* no audio track */ }
-    const mime = typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported('video/webm;codecs=vp9')
-      ? 'video/webm;codecs=vp9' : 'video/webm';
-    const rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 400000 });
-    const chunks: BlobPart[] = [];
-    rec.ondataavailable = e => { if (e.data.size) chunks.push(e.data); };
-    const stopped = new Promise<void>(res => { rec.onstop = () => res(); });
-    rec.start(200);
-    video.currentTime = 0;
-    await video.play();
-    await new Promise<void>(resolve => {
-      const draw = () => {
-        ctx.drawImage(video, 0, 0, w, h);
-        if (video.currentTime >= duration || video.ended) {
-          video.pause();
-          resolve();
-          return;
-        }
-        requestAnimationFrame(draw);
-      };
-      draw();
-    });
-    rec.stop();
-    await stopped;
-    URL.revokeObjectURL(url);
-    const blob = new Blob(chunks, { type: 'video/webm' });
-    const out = await new Promise<string>((resolve, reject) => {
-      const r = new FileReader();
-      r.onload = () => resolve(r.result as string);
-      r.onerror = () => reject(new Error('read failed'));
-      r.readAsDataURL(blob);
-    });
-    return out.length <= maxLen || out.length < raw.length ? out : raw;
-  } catch {
-    return raw;
-  }
-};
+import { toBase64, emojiCategories, compressImageToDataUrl, compressVideoToDataUrl } from '../lib/chatMedia';
+import DecryptContent from './DecryptContent';
+import { AudioPlayer, MessageStatus } from './MessageWidgets';
 
 interface ChatAreaProps {
   chatId: string;
@@ -1149,50 +962,6 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
     }
   };
 
-  const AudioPlayer: React.FC<{ url: string; isMe: boolean }> = ({ url, isMe }) => {
-    const [isPlaying, setIsPlaying] = useState(false);
-    const audioRef = useRef<HTMLAudioElement | null>(null);
-
-    const togglePlay = () => {
-      if (!audioRef.current) return;
-      if (isPlaying) {
-        audioRef.current.pause();
-      } else {
-        audioRef.current.play();
-      }
-      setIsPlaying(!isPlaying);
-    };
-
-    return (
-      <div className={cn(
-        "flex items-center gap-3 min-w-[200px] py-1",
-        isMe ? "text-white" : "text-slate-800"
-      )}>
-        <button 
-          onClick={togglePlay}
-          className={cn(
-            "w-9 h-9 rounded-full flex items-center justify-center transition-all",
-            isMe ? "bg-white/20 hover:bg-white/30" : "bg-blue-50 hover:bg-blue-100 text-blue-600 shadow-sm"
-          )}
-        >
-          {isPlaying ? <Pause size={18} fill="currentColor" /> : <Play size={18} fill="currentColor" className="ml-0.5" />}
-        </button>
-        <div className="flex-1 flex flex-col gap-1">
-          <div className="h-1 bg-current opacity-20 rounded-full relative overflow-hidden">
-             <div className="absolute inset-0 bg-current rounded-full" style={{ width: '40%' }} />
-          </div>
-          <span className="text-[10px] font-bold opacity-60">{t('chat.audioMsg')}</span>
-        </div>
-        <audio 
-          ref={audioRef} 
-          src={url} 
-          onEnded={() => setIsPlaying(false)}
-          className="hidden" 
-        />
-      </div>
-    );
-  };
-
   const handleImageSend = () => {
     imageInputRef.current?.click();
   };
@@ -1426,26 +1195,6 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
   };
 
   const headerInfo = getChatHeaderInfo();
-
-  const MessageStatus: React.FC<{ status?: string }> = ({ status }) => {
-    if (!status) return <Clock size={12} className="opacity-50" />;
-    
-    const baseClasses = "w-2.5 h-2.5 rounded-full transition-all duration-300";
-    
-    switch (status) {
-      case 'sent':
-        // Hollow white circle
-        return <div className={cn(baseClasses, "border border-white/60")} />;
-      case 'delivered':
-        // Solid white circle
-        return <div className={cn(baseClasses, "bg-white/80")} />;
-      case 'read':
-        // Green-filled circle with white border
-        return <div className={cn(baseClasses, "bg-emerald-400 border border-white ring-1 ring-emerald-500/20")} />;
-      default:
-        return <Clock size={12} className="opacity-50" />;
-    }
-  };
 
   if (!chatId) {
     return (
