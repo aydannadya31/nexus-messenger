@@ -9,7 +9,8 @@
     "preview": "vite preview",
     "clean": "rd /s /q dist",
     "lint": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "emulators": "npx -y firebase-tools emulators:start --only firestore --project demo-test"
   },
   "dependencies": {
     "@capacitor/android": "^8.3.3",
