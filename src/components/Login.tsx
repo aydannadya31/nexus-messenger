@@ -1,6 +1,6 @@
 ﻿import React, { useState } from 'react';
 import { doc, updateDoc, getDoc, setDoc } from 'firebase/firestore';
-import { db, signInWithGoogle, completeRedirectSignIn } from '../lib/firebase';
+import { db, signInWithGoogle, completeRedirectSignIn, isNativeApp } from '../lib/firebase';
 import { useAuth } from './AuthProvider';
 import { useToast } from '../lib/toast';
 import { LogIn, Shield, Zap, Globe } from 'lucide-react';
@@ -63,7 +63,7 @@ export const Login: React.FC = () => {
         const domain = window.location.hostname;
         setError(`Firebase yetkilendirme hatası. "${domain}" domaini Firebase'de tanımlı değil.\n\nŞu adrese gidip aşağıdaki domainleri ekleyin:\nhttps://console.firebase.google.com/project/genel-a189b/authentication/settings\n\nFirebase Console > Authentication > Settings > Authorized domains:\n• localhost\n• aydannadya31.github.io\n• ${domain}`);
       } else if (err?.code === 'auth/network-request-failed') {
-        setError('Google bağlantısı kurulamadı (ağ hatası). İnternet bağlantınızı kontrol edin ve tekrar deneyin.');
+        setError(`Google bağlantısı kurulamadı (ağ hatası). İnternet bağlantınızı kontrol edin ve tekrar deneyin. [${isNativeApp() ? 'native' : 'web'}]`);
       } else if (err?.code === 'auth/popup-blocked') {
         setError('Popup engellendi. Lütfen popup engelleyicinizi kapatın ve tekrar deneyin.');
       } else if (err?.code === 'auth/popup-closed-by-user' || err?.code === 'auth/cancelled-popup-request') {
@@ -80,9 +80,9 @@ export const Login: React.FC = () => {
     completeRedirectSignIn().catch((err: any) => {
       console.error('Redirect sign-in error:', err);
       if (err?.code === 'auth/network-request-failed') {
-        setError('Google girişi tamamlanamadı (ağ hatası). İnternet bağlantınızı kontrol edin ve tekrar deneyin.');
+        setError(`Google girişi tamamlanamadı (ağ hatası). İnternet bağlantınızı kontrol edin ve tekrar deneyin. [${isNativeApp() ? 'native' : 'web'}]`);
       } else if (err?.code) {
-        setError(`Google girişi tamamlanamadı: ${err.code}`);
+        setError(`Google girişi tamamlanamadı: ${err.code} [${isNativeApp() ? 'native' : 'web'}]`);
       }
     });
   }, []);

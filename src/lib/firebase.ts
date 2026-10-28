@@ -14,7 +14,7 @@ const googleProvider = new GoogleAuthProvider();
 const persistenceReady = setPersistence(auth, browserLocalPersistence).catch(err => console.warn('Persistence error:', err));
 
 // Native tespiti: Capacitor koprusu her zaman enjekte edilmeyebilir, UA isareti belli edici.
-const isNativeApp = () => Capacitor.isNativePlatform() || navigator.userAgent.includes('NexusApp');
+export const isNativeApp = () => Capacitor.isNativePlatform() || navigator.userAgent.includes('NexusApp');
 
 export const signInWithGoogle = () =>
   isNativeApp()
