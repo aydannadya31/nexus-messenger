@@ -22,11 +22,13 @@ public class MainActivity extends BridgeActivity {
             cookies.setAcceptThirdPartyCookies(webView, true);
             settings.setDomStorageEnabled(true);
 
-            // Google, gomulu WebView'larda OAuth'u "Version/4.0" ve "wv" isaretlerinden taniyor.
+            // Google, gomulu WebView'larda OAuth'u " wv" ve "Version/4.0" isaretlerinden taniyor.
             // UA'yi normal Chrome'a benzetiyoruz; "NexusApp" isareti native tespiti icin.
             String ua = settings.getUserAgentString()
-                .replace("wv", "")
-                .replace("Version/4.0", "Chrome/120.0.0.0");
+                .replace(" wv", "")
+                .replace("Version/4.0", "")
+                .replaceAll("\\s+", " ")
+                .trim();
             settings.setUserAgentString(ua + " NexusApp");
         }
     }
