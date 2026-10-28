@@ -47,6 +47,8 @@ jobs:
         run: |
           mkdir -p dist/download
           cp android/app/build/outputs/apk/release/app-release.apk dist/download/nexus-messenger.apk
+          V=$(grep -oP 'versionName\s+"\K[^"]+' android/app/build.gradle)
+          cp android/app/build/outputs/apk/release/app-release.apk "dist/download/nexus-messenger-$V.apk"
 
       - uses: peaceiris/actions-gh-pages@v4
         with:
