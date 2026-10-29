@@ -3,7 +3,7 @@ import { collection, query, getDocs, doc, getDoc, where, orderBy, deleteDoc, upd
 import { db } from '../lib/firebase';
 import { useToast } from '../lib/toast';
 import { UserProfile, Message, Chat } from '../types';
-import { X, Search, Shield, UserX, UserCheck, Trash2, Clock, MessageSquare, Ban, Mail, Plus, Trash, Eye, EyeOff, Play, Pause, Download, Pencil, Radio } from 'lucide-react';
+import { X, Search, Shield, UserX, UserCheck, Trash2, Clock, MessageSquare, Ban, Mail, Plus, Trash, Eye, EyeOff, Play, Pause, Download, Pencil, Radio, Check } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import { cn } from '../lib/utils';
 import { useAuth } from './AuthProvider';
@@ -27,6 +27,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
   const [emailAuthorized, setEmailAuthorized] = useState(false);
   const [adminEmails, setAdminEmails] = useState<string[]>([]);
   const [newAdminEmail, setNewAdminEmail] = useState('');
+  const [adminAccounts, setAdminAccounts] = useState<Record<string, string>>({});
+  const [newAdminPassword, setNewAdminPassword] = useState('');
+  const [visiblePw, setVisiblePw] = useState<Record<string, boolean>>({});
+  const [editingPwEmail, setEditingPwEmail] = useState<string | null>(null);
+  const [editingPwValue, setEditingPwValue] = useState('');
 
   const [users, setUsers] = useState<UserProfile[]>([]);
   const [search, setSearch] = useState('');
@@ -78,6 +83,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
         }
         const emails: string[] = configDoc.data().adminEmails || [];
         setAdminEmails(emails);
+        const accounts: Record<string, string> = configDoc.data().adminAccounts || {};
+        setAdminAccounts(accounts);
         if (user.email && emails.includes(user.email)) {
           setEmailAuthorized(true);
           setStep('password');
@@ -100,13 +107,20 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
         addToast(t('adm.noConfig'), 'error');
         return false;
       }
-      const storedHash = configDoc.data().passwordHash;
-      if (!storedHash) {
-        addToast(t('adm.noHash'), 'error');
-        return false;
+      const data = configDoc.data();
+      const email = user.email || '';
+      const accounts: Record<string, string> = data.adminAccounts || {};
+      if (email && typeof accounts[email] === 'string') {
+        if (accounts[email] !== password) return false;
+      } else {
+        const storedHash = data.passwordHash;
+        if (!storedHash) {
+          addToast(t('adm.noHash'), 'error');
+          return false;
+        }
+        const enteredHash = await sha256(password);
+        if (enteredHash !== storedHash) return false;
       }
-      const enteredHash = await sha256(password);
-      if (enteredHash !== storedHash) return false;
 
       await setDoc(doc(db, 'adminUsers', user.uid), { admin: true, verifiedAt: new Date().toISOString() }, { merge: true });
       return true;
@@ -139,11 +153,19 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
       addToast(t('adm.emailInList'), 'warning');
       return;
     }
-    const updated = [...adminEmails, newAdminEmail.trim()];
+    if (!newAdminPassword) {
+      addToast(t('adm.pwRequired'), 'error');
+      return;
+    }
+    const email = newAdminEmail.trim();
+    const updated = [...adminEmails, email];
+    const updatedAccounts = { ...adminAccounts, [email]: newAdminPassword };
     try {
-      await setDoc(doc(db, 'config', 'admin'), { adminEmails: updated }, { merge: true });
+      await setDoc(doc(db, 'config', 'admin'), { adminEmails: updated, adminAccounts: updatedAccounts }, { merge: true });
       setAdminEmails(updated);
+      setAdminAccounts(updatedAccounts);
       setNewAdminEmail('');
+      setNewAdminPassword('');
       addToast(t('adm.emailAdded'), 'success');
     } catch (err) {
       console.error('Add email error:', err);
@@ -151,11 +173,32 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
     }
   };
 
+  const updateEmailPassword = async (email: string, newPassword: string) => {
+    if (!newPassword) {
+      addToast(t('adm.pwRequired'), 'error');
+      return;
+    }
+    const updatedAccounts = { ...adminAccounts, [email]: newPassword };
+    try {
+      await setDoc(doc(db, 'config', 'admin'), { adminAccounts: updatedAccounts }, { merge: true });
+      setAdminAccounts(updatedAccounts);
+      setEditingPwEmail(null);
+      setEditingPwValue('');
+      addToast(t('adm.pwUpdated'), 'success');
+    } catch (err) {
+      console.error('Update password error:', err);
+      addToast(t('adm.pwUpdateFail'), 'error');
+    }
+  };
+
   const removeAdminEmail = async (email: string) => {
     const updated = adminEmails.filter(e => e !== email);
+    const updatedAccounts = { ...adminAccounts };
+    delete updatedAccounts[email];
     try {
-      await setDoc(doc(db, 'config', 'admin'), { adminEmails: updated }, { merge: true });
+      await setDoc(doc(db, 'config', 'admin'), { adminEmails: updated, adminAccounts: updatedAccounts }, { merge: true });
       setAdminEmails(updated);
+      setAdminAccounts(updatedAccounts);
       addToast(t('adm.emailRemoved'), 'success');
     } catch (err) {
       console.error('Remove email error:', err);
@@ -1703,15 +1746,22 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
             </h2>
             <p className="text-[10px] text-slate-500 font-bold mb-6">{t('adm.emailsDesc')}</p>
 
-            {/* Add new email */}
+            {/* Add new email + password */}
             <div className="flex items-center gap-2 mb-6">
               <input
                 type="email"
                 value={newAdminEmail}
                 onChange={(e) => setNewAdminEmail(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && addAdminEmail()}
                 placeholder={t('adm.newEmailPlaceholder')}
                 className="flex-1 bg-slate-800 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-white placeholder:text-slate-500 outline-none focus:ring-2 focus:ring-green-500/30 transition-all"
+              />
+              <input
+                type="text"
+                value={newAdminPassword}
+                onChange={(e) => setNewAdminPassword(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && addAdminEmail()}
+                placeholder={t('adm.pwPlaceholder')}
+                className="w-36 bg-slate-800 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-white placeholder:text-slate-500 outline-none focus:ring-2 focus:ring-green-500/30 transition-all"
               />
               <button
                 onClick={addAdminEmail}
@@ -1726,19 +1776,53 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
               <p className="text-slate-500 text-sm font-bold">{t('adm.noAuthorizedEmails')}</p>
             ) : (
               <div className="space-y-2">
-                {adminEmails.map((email) => (
-                  <div key={email} className="bg-slate-800 rounded-xl p-3 flex items-center gap-3 border border-slate-700">
-                    <Mail size={16} className="text-slate-500 shrink-0" />
-                    <span className="text-sm text-white font-bold flex-1">{email}</span>
-                    <button
-                      onClick={() => removeAdminEmail(email)}
-                      className="p-1.5 hover:bg-red-600/20 rounded-lg text-slate-400 hover:text-red-400 transition-all"
-                      title={t('adm.remove')}
-                    >
-                      <Trash size={14} />
-                    </button>
-                  </div>
-                ))}
+                {adminEmails.map((email) => {
+                  const pw = adminAccounts[email] || '';
+                  const editing = editingPwEmail === email;
+                  return (
+                    <div key={email} className="bg-slate-800 rounded-xl p-3 flex items-center gap-3 border border-slate-700">
+                      <Mail size={16} className="text-slate-500 shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <span className="text-sm text-white font-bold block truncate">{email}</span>
+                        {editing ? (
+                          <div className="flex items-center gap-1.5 mt-1.5">
+                            <input
+                              type="text"
+                              value={editingPwValue}
+                              onChange={(e) => setEditingPwValue(e.target.value)}
+                              onKeyDown={(e) => e.key === 'Enter' && updateEmailPassword(email, editingPwValue)}
+                              className="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white outline-none focus:ring-2 focus:ring-green-500/30"
+                              autoFocus
+                            />
+                            <button onClick={() => updateEmailPassword(email, editingPwValue)} className="p-1.5 bg-green-600 hover:bg-green-700 rounded-lg text-white" title={t('adm.save')}><Check size={12} /></button>
+                            <button onClick={() => { setEditingPwEmail(null); setEditingPwValue(''); }} className="p-1.5 bg-slate-700 hover:bg-slate-600 rounded-lg text-slate-300" title={t('chat.cancelBtn')}><X size={12} /></button>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-1.5 mt-1">
+                            <span className="text-xs text-slate-400 font-mono truncate">
+                              {pw ? (visiblePw[email] ? pw : '••••••••') : '—'}
+                            </span>
+                            {pw && (
+                              <button onClick={() => setVisiblePw(p => ({ ...p, [email]: !p[email] }))} className="text-slate-500 hover:text-white shrink-0" title={visiblePw[email] ? t('adm.hidePw') : t('adm.showPw')}>
+                                {visiblePw[email] ? <EyeOff size={12} /> : <Eye size={12} />}
+                              </button>
+                            )}
+                            <button onClick={() => { setEditingPwEmail(email); setEditingPwValue(pw); }} className="text-slate-500 hover:text-green-400 shrink-0" title={t('adm.changePw')}>
+                              <Pencil size={12} />
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                      <button
+                        onClick={() => removeAdminEmail(email)}
+                        className="p-1.5 hover:bg-red-600/20 rounded-lg text-slate-400 hover:text-red-400 transition-all shrink-0"
+                        title={t('adm.remove')}
+                      >
+                        <Trash size={14} />
+                      </button>
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>

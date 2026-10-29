@@ -8,7 +8,7 @@ import { Chat, Message, UserProfile, Call } from '../types';
 import { cn } from '../lib/utils';
 import ProfileModal from './ProfileModal';
 import { TranslateBox, TranslateToggle, useTranslateTarget } from './TranslateBox';
-import { Image, MoreVertical, Send, Smile, Phone, Video, MessageSquarePlus, Play, Mic, Square, Pause, Trash2, ListChecks, X, Info, Eye, EyeOff, Lock, LogOut, Shield, UserX, UserCheck, Ban, Settings, Reply, Pencil, Download, ChevronLeft, Camera } from 'lucide-react';
+import { Image, MoreVertical, Send, Smile, Phone, Video, MessageSquarePlus, Play, Mic, Square, Pause, Trash2, ListChecks, X, Info, Eye, EyeOff, Lock, LogOut, Shield, UserX, UserCheck, Ban, Settings, Reply, Pencil, Download, ChevronLeft, Camera, SwitchCamera } from 'lucide-react';
 import { format } from 'date-fns';
 import { motion, AnimatePresence } from 'motion/react';
 import { encryptMessage, decryptMessage } from '../lib/crypto';
@@ -804,6 +804,8 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
   const autoDeleteInProgress = useRef(false);
   const [videoPreviewStream, setVideoPreviewStream] = useState<MediaStream | null>(null);
   const MAX_VIDEO_SECONDS = 15;
+  const [showVideoCamPicker, setShowVideoCamPicker] = useState(false);
+  const [videoFacing, setVideoFacing] = useState<'user' | 'environment'>('user');
 
   useEffect(() => {
     if (videoPreviewRef.current && videoPreviewStream) {
@@ -857,10 +859,11 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
     }
   };
 
-  const startVideoRecording = async () => {
+  const startVideoRecording = async (facing: 'user' | 'environment' = 'user') => {
     if (sendBlocked) return;
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: { width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 15 } } });
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: { facingMode: facing, width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 15 } } });
+      setVideoFacing(facing);
       setVideoPreviewStream(stream);
       if (videoPreviewRef.current) {
         videoPreviewRef.current.srcObject = stream;
@@ -929,6 +932,43 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
     if (videoTimerRef.current) {
       clearInterval(videoTimerRef.current);
       videoTimerRef.current = null;
+    }
+  };
+
+  const handleVideoRecordClick = async () => {
+    if (sendBlocked) return;
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const cams = devices.filter(d => d.kind === 'videoinput');
+      if (cams.length >= 2) {
+        setShowVideoCamPicker(true);
+      } else {
+        await startVideoRecording('user');
+      }
+    } catch {
+      await startVideoRecording('user');
+    }
+  };
+
+  const switchVideoCamera = async () => {
+    const stream = videoPreviewStream;
+    if (!stream || !isVideoRecording) return;
+    const newFacing = videoFacing === 'user' ? 'environment' : 'user';
+    try {
+      const newStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: newFacing }, audio: false });
+      const newTrack = newStream.getVideoTracks()[0];
+      const oldTrack = stream.getVideoTracks()[0];
+      if (!newTrack || !oldTrack) {
+        newStream.getTracks().forEach(tr => tr.stop());
+        return;
+      }
+      stream.removeTrack(oldTrack);
+      stream.addTrack(newTrack);
+      oldTrack.stop();
+      setVideoFacing(newFacing);
+      // ponytail: track swap keeps MediaRecorder on same stream; upgrade to insertable streams if artifacts
+    } catch (error) {
+      console.error("Kamera değiştirme hatası:", error);
     }
   };
 
@@ -2022,6 +2062,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
                   <div className="w-1.5 h-1.5 bg-white rounded-full animate-ping shrink-0" />
                   <span className="text-[10px] font-black tabular-nums truncate">{Math.floor(videoRecordingTime / 60)}:{String(videoRecordingTime % 60).padStart(2, '0')} / 0:15</span>
                 </div>
+                <button onClick={switchVideoCamera} className="px-2 py-1 bg-white/20 text-white rounded-lg text-[10px] font-black uppercase tracking-wider shrink-0" title={t('chat.switchCam')}><SwitchCamera size={12} /></button>
                 <button onClick={stopVideoRecording} className="px-2 py-1 bg-white text-red-600 rounded-lg text-[10px] font-black uppercase tracking-wider shrink-0">{t('chat.stop')}</button>
               </div>
             </div>
@@ -2133,7 +2174,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
           ) : (
             <button 
               type="button" 
-              onClick={startVideoRecording}
+              onClick={handleVideoRecordClick}
               className="p-1.5 sm:p-2 text-slate-400 hover:text-red-500 transition-colors shrink-0"
               title={t('chat.recordVideo')}
             >
@@ -2273,6 +2314,46 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
               </div>
               <button
                 onClick={() => setShowCameraPicker(false)}
+                className="w-full py-2 rounded-xl text-[11px] font-bold text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 transition-all"
+              >{t('chat.cancelBtn')}</button>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Video Camera Picker Modal */}
+      <AnimatePresence>
+        {showVideoCamPicker && (
+          <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-in fade-in duration-200">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 10 }}
+              className="bg-white dark:bg-slate-900 rounded-3xl p-6 shadow-2xl border border-slate-100 dark:border-slate-800 max-w-sm w-full flex flex-col gap-4 text-center"
+            >
+              <div className="w-12 h-12 bg-red-50 dark:bg-red-950 text-red-600 dark:text-red-400 rounded-2xl flex items-center justify-center mx-auto">
+                <Video size={22} />
+              </div>
+              <div>
+                <h3 className="text-base font-black text-slate-900 dark:text-slate-100 leading-tight">{t('chat.pickCamera')}</h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400 font-bold mt-2">{t('chat.cameraHint')}</p>
+              </div>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setVideoFacing('user')}
+                  className={cn("flex-1 py-2.5 rounded-xl text-xs font-bold active:scale-95 transition-all", videoFacing === 'user' ? 'bg-blue-600 text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700')}
+                >{t('chat.frontCam')}</button>
+                <button
+                  onClick={() => setVideoFacing('environment')}
+                  className={cn("flex-1 py-2.5 rounded-xl text-xs font-bold active:scale-95 transition-all", videoFacing === 'environment' ? 'bg-blue-600 text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700')}
+                >{t('chat.backCam')}</button>
+              </div>
+              <button
+                onClick={() => { setShowVideoCamPicker(false); startVideoRecording(videoFacing); }}
+                className="w-full py-2.5 rounded-xl text-xs font-bold bg-red-600 hover:bg-red-700 active:scale-95 text-white transition-all"
+              >{t('chat.startRecording')}</button>
+              <button
+                onClick={() => setShowVideoCamPicker(false)}
                 className="w-full py-2 rounded-xl text-[11px] font-bold text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 transition-all"
               >{t('chat.cancelBtn')}</button>
             </motion.div>

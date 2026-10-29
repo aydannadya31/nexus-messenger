@@ -69,12 +69,20 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const r = ringRef.current;
         if (!r.ctx || !r.gain || !r.osc) return;
         const now = r.ctx.currentTime;
+        const isVideo = incomingCallRef.current?.mediaType === 'video';
         r.gain.gain.cancelScheduledValues(now);
         r.gain.gain.setValueAtTime(0.0001, now);
         r.gain.gain.exponentialRampToValueAtTime(0.15, now + 0.03);
-        r.osc.frequency.setValueAtTime(880, now);
-        r.osc.frequency.setValueAtTime(660, now + 0.18);
-        r.gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.4);
+        if (isVideo) {
+          r.osc.frequency.setValueAtTime(660, now);
+          r.osc.frequency.setValueAtTime(880, now + 0.15);
+          r.osc.frequency.setValueAtTime(1100, now + 0.3);
+          r.gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.5);
+        } else {
+          r.osc.frequency.setValueAtTime(880, now);
+          r.osc.frequency.setValueAtTime(660, now + 0.18);
+          r.gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.4);
+        }
       };
       beep();
       ringRef.current.interval = window.setInterval(beep, 1400);
