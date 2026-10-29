@@ -151,10 +151,16 @@ export const CallOverlay = () => {
     let cancelled = false;
 
     const tryGet = async (c: MediaStreamConstraints) => {
-      try { return await navigator.mediaDevices.getUserMedia(c); } catch { return null; }
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try { return await navigator.mediaDevices.getUserMedia(c); } catch {
+          if (attempt === 0) await new Promise(r => setTimeout(r, 600));
+        }
+      }
+      return null;
     };
 
     const startMedia = async () => {
+      await navigator.mediaDevices?.enumerateDevices().catch(() => {});
       const audio: MediaTrackConstraints = { echoCancellation: true, noiseSuppression: true, autoGainControl: true };
       const video: MediaTrackConstraints = { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } };
       let stream: MediaStream | null = null;
@@ -177,8 +183,8 @@ export const CallOverlay = () => {
       if (!stream) {
         stream = new MediaStream();
         setMediaError(activeCall.mediaType === 'video'
-          ? 'Kamera veya mikrofon bulunamadı — görüşme sesli/görüntüsüz devam ediyor.'
-          : 'Mikrofon bulunamadı veya izin verilmedi — tarafınız sesiz kalacak.');
+          ? 'Kamera veya mikrofon bulunamadı — görüşme sesli/görüntüsüz devam ediyor. Ayarlar > Uygulamalar > Nexus > İzinlerden kamera ve mikrofonu açın.'
+          : 'Mikrofon bulunamadı veya izin verilmedi — tarafınız sesiz kalacak. Ayarlar > Uygulamalar > Nexus > İzinlerden mikrofonu açın.');
       } else if (fail === 'video' && activeCall.mediaType === 'video') {
         setMediaError('Kamera açılamadı — görüntüsüz devam ediliyor.');
       } else if (fail === 'audio') {
