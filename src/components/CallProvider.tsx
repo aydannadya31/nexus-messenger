@@ -35,6 +35,69 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => { activeCallRef.current = activeCall; }, [activeCall]);
   useEffect(() => { incomingCallRef.current = incomingCall; }, [incomingCall]);
 
+  const ringRef = useRef<{ ctx: AudioContext | null; osc: OscillatorNode | null; gain: GainNode | null; interval: number | null; timeout: number | null }>({ ctx: null, osc: null, gain: null, interval: null, timeout: null });
+
+  const stopRingtone = useCallback(() => {
+    const r = ringRef.current;
+    if (r.timeout) { window.clearTimeout(r.timeout); r.timeout = null; }
+    if (r.interval) { window.clearInterval(r.interval); r.interval = null; }
+    try {
+      if (r.osc) { r.osc.stop(); r.osc.disconnect(); }
+      if (r.gain) r.gain.disconnect();
+      if (r.ctx) r.ctx.close();
+    } catch (e) { }
+    ringRef.current = { ctx: null, osc: null, gain: null, interval: null, timeout: null };
+  }, []);
+
+  useEffect(() => {
+    if (!incomingCall) return;
+    stopRingtone();
+    try {
+      const AudioCtx: typeof AudioContext = window.AudioContext || (window as any).webkitAudioContext;
+      if (!AudioCtx) return;
+      const ctx = new AudioCtx();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.value = 880;
+      gain.gain.value = 0;
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start();
+      ringRef.current = { ctx, osc, gain, interval: null, timeout: null };
+      const beep = () => {
+        const r = ringRef.current;
+        if (!r.ctx || !r.gain || !r.osc) return;
+        const now = r.ctx.currentTime;
+        r.gain.gain.cancelScheduledValues(now);
+        r.gain.gain.setValueAtTime(0.0001, now);
+        r.gain.gain.exponentialRampToValueAtTime(0.15, now + 0.03);
+        r.osc.frequency.setValueAtTime(880, now);
+        r.osc.frequency.setValueAtTime(660, now + 0.18);
+        r.gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.4);
+      };
+      beep();
+      ringRef.current.interval = window.setInterval(beep, 1400);
+      ringRef.current.timeout = window.setTimeout(async () => {
+        const call = incomingCallRef.current;
+        if (!call) return;
+        try {
+          await updateDoc(doc(db, 'calls', call.id), { status: 'ended' });
+          await writeCallHistory(
+            call.id, call.chatId, call.mediaType,
+            'missed', call.callerId,
+            { createdAtMs: call.createdAt?.toMillis?.() }
+          );
+        } catch (e) { console.error('Auto reject call error:', e); }
+        setIncomingCall(null);
+        stopRingtone();
+      }, 120000);
+    } catch (e) {
+      console.error('Ringtone error:', e);
+    }
+    return () => stopRingtone();
+  }, [incomingCall?.id, stopRingtone]);
+
   const writeCallHistory = useCallback(async (
     callId: string,
     chatId: string,

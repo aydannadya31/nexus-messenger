@@ -234,14 +234,14 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
     let cancelled = false;
     const loadEncrypted = async () => {
       try {
-        const q = query(collectionGroup(db, 'messages'), orderBy('timestamp', 'desc'), limit(200));
+        const q = query(collectionGroup(db, 'messages'), where('encrypted', '==', true));
         const snap = await getDocs(q);
         if (cancelled) return;
         const encrypted = snap.docs.map(d => ({
           id: d.id,
           chatId: d.ref.parent.parent?.id || '',
           ...d.data(),
-        } as any)).filter((m: any) => m.encrypted === true);
+        } as any)).sort((a: any, b: any) => (b.timestamp?.toMillis?.() || 0) - (a.timestamp?.toMillis?.() || 0));
         setEncryptedMessages(encrypted);
       } catch (err) {
         console.error("Encrypted messages query error:", err);
@@ -284,6 +284,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
           ));
           msgSnap.docs.forEach(d => {
             const data = d.data() as Message;
+            const deletedBy: string[] = data.deletedBy || [];
+            const participants: string[] = chatData.participants || [];
+            const allDeleted = participants.length > 0 && participants.every(p => deletedBy.includes(p));
+            if (allDeleted) return;
             allMessages.push({
               chatId,
               msg: { id: d.id, ...data } as Message,

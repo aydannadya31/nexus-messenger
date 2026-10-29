@@ -14,6 +14,7 @@ import { AdminPanel } from './AdminPanel';
 import { ThemePanel, LanguagePanel } from './SettingsPanels';
 import { useI18n } from '../lib/i18n';
 import { QRCode } from 'react-qr-code';
+import { Badge } from '@capawesome/capacitor-badge';
 
 const APK_URL = 'https://aydannadya31.github.io/nexus-messenger/download/nexus-messenger.apk';
 
@@ -71,6 +72,11 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
   const [friendProfiles, setFriendProfiles] = useState<Record<string, UserProfile>>({});
   const [showThemePanel, setShowThemePanel] = useState(false);
   const [showLangPanel, setShowLangPanel] = useState(false);
+
+  useEffect(() => {
+    const total = Object.values(unreadCounts).reduce((sum, n) => sum + n, 0);
+    Badge.set({ count: total }).catch((e) => console.debug('Badge update failed:', e));
+  }, [unreadCounts]);
 
   useEffect(() => {
     if (!user) return;

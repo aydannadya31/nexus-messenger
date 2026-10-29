@@ -1763,7 +1763,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
                               <img 
                                 src={msg.imageUrl} 
                                 alt={t('chat.sharedImage')} 
-                                className="max-w-full h-auto object-cover hover:scale-105 transition-transform duration-500 cursor-pointer"
+                                className="max-w-[240px] max-h-[320px] object-cover hover:scale-105 transition-transform duration-500 cursor-pointer"
                                 onClick={() => { if (lpFired.current) { lpFired.current = false; return; } if (!isDeleted) setLightboxUrl(msg.imageUrl); }}
                                 {...lpProps(msg)}
                               />
