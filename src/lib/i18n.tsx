@@ -113,6 +113,21 @@ const core: Dict = {
   'pre.mint': { tr: 'Nane', en: 'Mint', de: 'Minze', fr: 'Menthe', ar: 'نعناع', ko: '민트', zh: '薄荷', ja: 'ミント', hi: 'पुदीना' },
   'pre.rose': { tr: 'Pembe', en: 'Rose', de: 'Rose', fr: 'Rose', ar: 'وردي', ko: '장미', zh: '玫瑰', ja: 'ローズ', hi: 'गुलाबी' },
   'pre.graphite': { tr: 'Grafit', en: 'Graphite', de: 'Graphit', fr: 'Graphite', ar: 'جرافيت', ko: '그래파이트', zh: '石墨', ja: 'グラファイト', hi: 'ग्रेफाइट' },
+
+  'set.ringtones': { tr: 'Çağrı Sesleri', en: 'Ringtone', de: 'Klingeltöne', fr: 'Sonneries', ar: 'نغمات الرنين', ko: '벨소리', zh: '铃声', ja: '着信音', hi: 'रिंगटोन' },
+  'rt.audioCalls': { tr: 'Sesli Çağrı Zili', en: 'Voice Call Ringtone', de: 'Anrufton', fr: "Sonnerie d'appel vocal", ar: 'نغمة المكالمة الصوتية', ko: '음성 통화 벨소리', zh: '语音通话铃声', ja: '通話着信音', hi: 'वॉइस कॉल रिंगटोन' },
+  'rt.videoCalls': { tr: 'Görüntülü Çağrı Zili', en: 'Video Call Ringtone', de: 'Videoanrufton', fr: "Sonnerie d'appel vidéo", ar: 'نغمة مكالمة الفيديو', ko: '영상 통화 벨소리', zh: '视频通话铃声', ja: 'ビデオ通話着信音', hi: 'वीडियो कॉल रिंगटोन' },
+  'rt.preview': { tr: 'Dinle', en: 'Preview', de: 'Anhören', fr: 'Écouter', ar: 'استماع', ko: '듣기', zh: '试听', ja: '試聴', hi: 'सुनें' },
+  'rt.classic': { tr: 'Klasik Zil', en: 'Classic Ring', de: 'Klassisch', fr: 'Classique', ar: 'كلاسيكي', ko: '클래식', zh: '经典', ja: 'クラシック', hi: 'क्लासिक' },
+  'rt.digital': { tr: 'Dijital', en: 'Digital', de: 'Digital', fr: 'Numérique', ar: 'رقمي', ko: '디지털', zh: '数字', ja: 'デジタル', hi: 'डिजिटल' },
+  'rt.marimba': { tr: 'Marimba', en: 'Marimba', de: 'Marimba', fr: 'Marimba', ar: 'ماريمبا', ko: '마림바', zh: '马林巴', ja: 'マリンバ', hi: 'मारिम्बा' },
+  'rt.chime': { tr: 'Çan', en: 'Chime', de: 'Glocke', fr: 'Carillon', ar: 'أجراس', ko: '차임', zh: '钟声', ja: 'チャイム', hi: 'घंटी' },
+  'rt.pulse': { tr: 'Nabız', en: 'Pulse', de: 'Puls', fr: 'Pulsation', ar: 'نبض', ko: '펄스', zh: '脉冲', ja: 'パルス', hi: 'पल्स' },
+  'rt.siren': { tr: 'Siren', en: 'Siren', de: 'Sirene', fr: 'Sirène', ar: 'صفارة', ko: '사이렌', zh: '警笛', ja: 'サイレン', hi: 'सायरन' },
+  'rt.trill': { tr: 'Tril', en: 'Trill', de: 'Triller', fr: 'Trille', ar: 'تردّد نغمة', ko: '트릴', zh: '颤音', ja: 'トリル', hi: 'त्रिल' },
+  'rt.sonar': { tr: 'Sonar', en: 'Sonar', de: 'Sonar', fr: 'Sonar', ar: 'سونار', ko: '소나', zh: '声呐', ja: 'ソナー', hi: 'सोनार' },
+  'rt.upbeat': { tr: 'Neşeli', en: 'Upbeat', de: 'Fröhlich', fr: 'Enjoué', ar: 'مبهج', ko: '경쾌한', zh: '欢快', ja: '軽快', hi: 'उत्साही' },
+  'rt.alarm': { tr: 'Alarm', en: 'Alarm', de: 'Alarm', fr: 'Alarme', ar: 'إنذار', ko: '경보', zh: '警报', ja: 'アラーム', hi: 'अलार्म' },
 };
 
 export const D: Dict = { ...core, ...chatDict, ...admDict, ...ncDict, ...upDict };

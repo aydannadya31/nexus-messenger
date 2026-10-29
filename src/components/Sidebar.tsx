@@ -6,12 +6,12 @@ import { useToast } from '../lib/toast';
 import { Chat, UserProfile } from '../types';
 import Logo from './Logo';
 import { cn } from '../lib/utils';
-import { LogOut, MessageSquarePlus, Search, User as UserIcon, ChevronUp, Settings, Radio, X, MoreVertical, UserPlus, Users, Shield, Moon, Sun, Palette, Languages } from 'lucide-react';
+import { LogOut, MessageSquarePlus, Search, User as UserIcon, ChevronUp, Settings, Radio, X, MoreVertical, UserPlus, Users, Shield, Moon, Sun, Palette, Languages, Music } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import ProfileModal from './ProfileModal';
 import FriendRequestsModal from './FriendRequestsModal';
 import { AdminPanel } from './AdminPanel';
-import { ThemePanel, LanguagePanel } from './SettingsPanels';
+import { ThemePanel, LanguagePanel, RingtonePanel } from './SettingsPanels';
 import { useI18n } from '../lib/i18n';
 import { QRCode } from 'react-qr-code';
 import { Badge } from '@capawesome/capacitor-badge';
@@ -72,6 +72,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
   const [friendProfiles, setFriendProfiles] = useState<Record<string, UserProfile>>({});
   const [showThemePanel, setShowThemePanel] = useState(false);
   const [showLangPanel, setShowLangPanel] = useState(false);
+  const [showRingPanel, setShowRingPanel] = useState(false);
 
   useEffect(() => {
     const total = Object.values(unreadCounts).reduce((sum, n) => sum + n, 0);
@@ -454,6 +455,16 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
             <span className="text-[8px] text-slate-400 font-bold text-center">{t('set.language')}</span>
           </div>
           <div className="flex flex-col items-center gap-0.5">
+            <button
+              onClick={() => setShowRingPanel(true)}
+              title={t('set.ringtones')}
+              className="p-2.5 bg-slate-100/50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-xl text-slate-400 hover:text-blue-500 transition-all active:scale-95"
+            >
+              <Music size={20} />
+            </button>
+            <span className="text-[8px] text-slate-400 font-bold text-center">{t('set.ringtones')}</span>
+          </div>
+          <div className="flex flex-col items-center gap-0.5">
             <button 
               onClick={onToggleDark}
               className="p-2.5 bg-slate-100/50 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-xl text-slate-400 hover:text-amber-500 transition-all active:scale-95"
@@ -795,6 +806,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
 
       {showThemePanel && <ThemePanel onClose={() => setShowThemePanel(false)} />}
       {showLangPanel && <LanguagePanel onClose={() => setShowLangPanel(false)} />}
+      {showRingPanel && <RingtonePanel onClose={() => setShowRingPanel(false)} />}
 
       {/* Admin Message Dialog */}
       {showAdminMsg && (

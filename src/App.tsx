@@ -6,6 +6,7 @@
 import { useState, useEffect } from 'react';
 import { doc, getDoc, updateDoc } from 'firebase/firestore';
 import { db } from './lib/firebase';
+import { initPush } from './lib/messaging';
 import { AuthProvider, useAuth } from './components/AuthProvider';
 import { Sidebar } from './components/Sidebar';
 import { ChatArea } from './components/ChatArea';
@@ -68,6 +69,10 @@ function NexusApp() {
     const interval = setInterval(checkBan, 30000);
     return () => clearInterval(interval);
   }, [user]);
+
+  useEffect(() => {
+    if (user?.uid) initPush(user.uid);
+  }, [user?.uid]);
 
   // Handle back button on mobile
   useEffect(() => {

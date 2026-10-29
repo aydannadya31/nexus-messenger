@@ -1,6 +1,11 @@
-import { X, Palette, Languages, RotateCcw, Check } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { X, Palette, Languages, RotateCcw, Check, Bell, Play } from 'lucide-react';
+import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { db } from '../lib/firebase';
+import { useAuth } from './AuthProvider';
 import { THEME_PRESETS, useTheme, type ThemeColors } from '../lib/theme';
 import { LANGS, useI18n, flagUrl, type LangCode } from '../lib/i18n';
+import { RINGTONES, playRingtonePreview, DEFAULT_AUDIO_RINGTONE, DEFAULT_VIDEO_RINGTONE } from '../lib/ringtones';
 
 type PanelProps = { onClose: () => void };
 
@@ -124,6 +129,58 @@ export function LanguagePanel({ onClose }: PanelProps) {
         })}
       </div>
       <p className="text-[11px] text-slate-400 font-medium text-center mt-5">{t('set.moreLangs')}</p>
+    </PanelShell>
+  );
+}
+
+export function RingtonePanel({ onClose }: PanelProps) {
+  const { user } = useAuth();
+  const { t } = useI18n();
+  const [audioSel, setAudioSel] = useState<string>(DEFAULT_AUDIO_RINGTONE);
+  const [videoSel, setVideoSel] = useState<string>(DEFAULT_VIDEO_RINGTONE);
+
+  useEffect(() => {
+    if (!user?.uid) return;
+    let alive = true;
+    getDoc(doc(db, 'users', user.uid)).then((snap) => {
+      if (!alive) return;
+      const d = snap.data();
+      if (typeof d?.ringtoneAudio === 'string') setAudioSel(d.ringtoneAudio);
+      if (typeof d?.ringtoneVideo === 'string') setVideoSel(d.ringtoneVideo);
+    }).catch((e) => console.debug('Ringtone prefs load error:', e));
+    return () => { alive = false; };
+  }, [user?.uid]);
+
+  const save = async (kind: 'audio' | 'video', id: string) => {
+    if (!user?.uid) return;
+    if (kind === 'audio') setAudioSel(id); else setVideoSel(id);
+    try {
+      await setDoc(doc(db, 'users', user.uid), { [kind === 'audio' ? 'ringtoneAudio' : 'ringtoneVideo']: id }, { merge: true });
+    } catch (e) { console.error('Ringtone save error:', e); }
+  };
+
+  const list = (kind: 'audio' | 'video', sel: string) => (
+    <div className="space-y-1.5 mb-4">
+      {RINGTONES.map((r) => (
+        <div key={r.id} className={`flex items-center gap-2 px-3 py-2 rounded-xl border-2 transition-all ${sel === r.id ? 'border-blue-500 bg-blue-50 dark:bg-blue-950/50' : 'border-transparent hover:bg-slate-50 dark:hover:bg-slate-800'}`}>
+          <button onClick={() => save(kind, r.id)} className="flex-1 flex items-center gap-2 text-left min-w-0">
+            <span className="text-xs font-bold text-slate-700 dark:text-slate-200 truncate">{t(`rt.${r.id}`)}</span>
+            {sel === r.id && <Check size={14} className="text-blue-600 shrink-0" />}
+          </button>
+          <button onClick={() => playRingtonePreview(r.id)} className="p-1.5 rounded-lg text-slate-400 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-950 shrink-0" title={t('rt.preview')}>
+            <Play size={13} />
+          </button>
+        </div>
+      ))}
+    </div>
+  );
+
+  return (
+    <PanelShell title={t('set.ringtones')} icon={<Bell size={18} />} onClose={onClose}>
+      <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2.5">{t('rt.audioCalls')}</p>
+      {list('audio', audioSel)}
+      <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2.5">{t('rt.videoCalls')}</p>
+      {list('video', videoSel)}
     </PanelShell>
   );
 }

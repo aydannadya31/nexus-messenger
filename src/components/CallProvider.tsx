@@ -3,6 +3,8 @@ import { collection, query, where, onSnapshot, addDoc, setDoc, getDoc, serverTim
 import { db } from '../lib/firebase';
 import { useAuth } from './AuthProvider';
 import { Call } from '../types';
+import { getRingtone, DEFAULT_AUDIO_RINGTONE, DEFAULT_VIDEO_RINGTONE } from '../lib/ringtones';
+import { sendPushToUsers } from '../lib/messaging';
 
 interface CallContextType {
   activeCall: Call | null;
@@ -35,57 +37,51 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => { activeCallRef.current = activeCall; }, [activeCall]);
   useEffect(() => { incomingCallRef.current = incomingCall; }, [incomingCall]);
 
-  const ringRef = useRef<{ ctx: AudioContext | null; osc: OscillatorNode | null; gain: GainNode | null; interval: number | null; timeout: number | null }>({ ctx: null, osc: null, gain: null, interval: null, timeout: null });
+  const [rtAudio, setRtAudio] = useState<string>(DEFAULT_AUDIO_RINGTONE);
+  const [rtVideo, setRtVideo] = useState<string>(DEFAULT_VIDEO_RINGTONE);
+
+  useEffect(() => {
+    if (!user?.uid) return;
+    let alive = true;
+    getDoc(doc(db, 'users', user.uid)).then((snap) => {
+      if (!alive) return;
+      const d = snap.data();
+      if (typeof d?.ringtoneAudio === 'string') setRtAudio(d.ringtoneAudio);
+      if (typeof d?.ringtoneVideo === 'string') setRtVideo(d.ringtoneVideo);
+    }).catch((e) => console.debug('Ringtone prefs load error:', e));
+    return () => { alive = false; };
+  }, [user?.uid]);
+
+  const ringRef = useRef<{ ctx: AudioContext | null; interval: number | null; timeout: number | null }>({ ctx: null, interval: null, timeout: null });
 
   const stopRingtone = useCallback(() => {
     const r = ringRef.current;
     if (r.timeout) { window.clearTimeout(r.timeout); r.timeout = null; }
     if (r.interval) { window.clearInterval(r.interval); r.interval = null; }
     try {
-      if (r.osc) { r.osc.stop(); r.osc.disconnect(); }
-      if (r.gain) r.gain.disconnect();
       if (r.ctx) r.ctx.close();
-    } catch (e) { }
-    ringRef.current = { ctx: null, osc: null, gain: null, interval: null, timeout: null };
+    } catch (e) { console.debug('Ringtone close error:', e); }
+    ringRef.current = { ctx: null, interval: null, timeout: null };
   }, []);
 
   useEffect(() => {
     if (!incomingCall) return;
     stopRingtone();
     try {
-      const AudioCtx: typeof AudioContext = window.AudioContext || (window as any).webkitAudioContext;
+      const AudioCtx: typeof AudioContext | undefined = window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
       if (!AudioCtx) return;
       const ctx = new AudioCtx();
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.type = 'sine';
-      osc.frequency.value = 880;
-      gain.gain.value = 0;
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.start();
-      ringRef.current = { ctx, osc, gain, interval: null, timeout: null };
-      const beep = () => {
+      ctx.resume().catch(() => {});
+      ringRef.current = { ctx, interval: null, timeout: null };
+      const isVideo = incomingCall.mediaType === 'video';
+      const rt = getRingtone(isVideo ? rtVideo : rtAudio);
+      const playOnce = () => {
         const r = ringRef.current;
-        if (!r.ctx || !r.gain || !r.osc) return;
-        const now = r.ctx.currentTime;
-        const isVideo = incomingCallRef.current?.mediaType === 'video';
-        r.gain.gain.cancelScheduledValues(now);
-        r.gain.gain.setValueAtTime(0.0001, now);
-        r.gain.gain.exponentialRampToValueAtTime(0.15, now + 0.03);
-        if (isVideo) {
-          r.osc.frequency.setValueAtTime(660, now);
-          r.osc.frequency.setValueAtTime(880, now + 0.15);
-          r.osc.frequency.setValueAtTime(1100, now + 0.3);
-          r.gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.5);
-        } else {
-          r.osc.frequency.setValueAtTime(880, now);
-          r.osc.frequency.setValueAtTime(660, now + 0.18);
-          r.gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.4);
-        }
+        if (!r.ctx) return;
+        try { rt.play(r.ctx); } catch (e) { console.error('Ringtone play error:', e); }
       };
-      beep();
-      ringRef.current.interval = window.setInterval(beep, 1400);
+      playOnce();
+      ringRef.current.interval = window.setInterval(playOnce, rt.durationMs + 500);
       ringRef.current.timeout = window.setTimeout(async () => {
         const call = incomingCallRef.current;
         if (!call) return;
@@ -104,7 +100,7 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
       console.error('Ringtone error:', e);
     }
     return () => stopRingtone();
-  }, [incomingCall?.id, stopRingtone]);
+  }, [incomingCall?.id, stopRingtone, rtAudio, rtVideo]);
 
   const writeCallHistory = useCallback(async (
     callId: string,
@@ -275,6 +271,10 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
         status: type === 'group' ? 'ongoing' : 'calling',
         createdAt: serverTimestamp(),
       });
+      const others = participants.filter((p) => p !== user.uid);
+      if (others.length) {
+        sendPushToUsers(others, user.displayName || 'Nexus', mediaType === 'video' ? 'Görüntülü çağrı başlatıyor' : 'Sesli çağrı başlatıyor', { type: 'call', chatId });
+      }
     } catch (error) {
       console.error("Start call error:", error);
     }

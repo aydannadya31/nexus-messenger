@@ -29,7 +29,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
   const [newAdminEmail, setNewAdminEmail] = useState('');
   const [adminAccounts, setAdminAccounts] = useState<Record<string, string>>({});
   const [newAdminPassword, setNewAdminPassword] = useState('');
-  const [visiblePw, setVisiblePw] = useState<Record<string, boolean>>({});
   const [editingPwEmail, setEditingPwEmail] = useState<string | null>(null);
   const [editingPwValue, setEditingPwValue] = useState('');
 
@@ -110,15 +109,23 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
       const data = configDoc.data();
       const email = user.email || '';
       const accounts: Record<string, string> = data.adminAccounts || {};
+      const enteredHash = await sha256(password);
       if (email && typeof accounts[email] === 'string') {
-        if (accounts[email] !== password) return false;
+        const stored = accounts[email];
+        const match = stored === enteredHash || stored === password;
+        if (!match) return false;
+        if (stored === password) {
+          try {
+            await setDoc(doc(db, 'config', 'admin'), { adminAccounts: { ...accounts, [email]: enteredHash } }, { merge: true });
+            setAdminAccounts({ ...accounts, [email]: enteredHash });
+          } catch (e) { console.error('Hash upgrade error:', e); }
+        }
       } else {
         const storedHash = data.passwordHash;
         if (!storedHash) {
           addToast(t('adm.noHash'), 'error');
           return false;
         }
-        const enteredHash = await sha256(password);
         if (enteredHash !== storedHash) return false;
       }
 
@@ -159,7 +166,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
     }
     const email = newAdminEmail.trim();
     const updated = [...adminEmails, email];
-    const updatedAccounts = { ...adminAccounts, [email]: newAdminPassword };
+    const updatedAccounts = { ...adminAccounts, [email]: await sha256(newAdminPassword) };
     try {
       await setDoc(doc(db, 'config', 'admin'), { adminEmails: updated, adminAccounts: updatedAccounts }, { merge: true });
       setAdminEmails(updated);
@@ -178,7 +185,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
       addToast(t('adm.pwRequired'), 'error');
       return;
     }
-    const updatedAccounts = { ...adminAccounts, [email]: newPassword };
+    const updatedAccounts = { ...adminAccounts, [email]: await sha256(newPassword) };
     try {
       await setDoc(doc(db, 'config', 'admin'), { adminAccounts: updatedAccounts }, { merge: true });
       setAdminAccounts(updatedAccounts);
@@ -1800,14 +1807,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                         ) : (
                           <div className="flex items-center gap-1.5 mt-1">
                             <span className="text-xs text-slate-400 font-mono truncate">
-                              {pw ? (visiblePw[email] ? pw : '••••••••') : '—'}
+                              {pw ? '••••••••' : '—'}
                             </span>
-                            {pw && (
-                              <button onClick={() => setVisiblePw(p => ({ ...p, [email]: !p[email] }))} className="text-slate-500 hover:text-white shrink-0" title={visiblePw[email] ? t('adm.hidePw') : t('adm.showPw')}>
-                                {visiblePw[email] ? <EyeOff size={12} /> : <Eye size={12} />}
-                              </button>
-                            )}
-                            <button onClick={() => { setEditingPwEmail(email); setEditingPwValue(pw); }} className="text-slate-500 hover:text-green-400 shrink-0" title={t('adm.changePw')}>
+                            <button onClick={() => { setEditingPwEmail(email); setEditingPwValue(''); }} className="text-slate-500 hover:text-green-400 shrink-0" title={t('adm.changePw')}>
                               <Pencil size={12} />
                             </button>
                           </div>

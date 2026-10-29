@@ -16,6 +16,7 @@ import { useI18n } from '../lib/i18n';
 import { toBase64, emojiCategories, compressImageToDataUrl, compressVideoToDataUrl } from '../lib/chatMedia';
 import DecryptContent from './DecryptContent';
 import { AudioPlayer, MessageStatus } from './MessageWidgets';
+import { sendPushToUsers } from '../lib/messaging';
 
 interface ChatAreaProps {
   chatId: string;
@@ -1203,6 +1204,14 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
         },
         updatedAt: serverTimestamp()
       });
+      if (!viewOnceMode && !messageData.encrypted) {
+        sendPushToUsers(
+          (chat?.participants || []).filter((id) => id !== user.uid),
+          user.displayName || 'Nexus',
+          text.slice(0, 100),
+          { type: 'message', chatId }
+        );
+      }
     } catch (error) {
       console.error("Error sending message:", error);
     }
