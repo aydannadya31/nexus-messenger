@@ -125,7 +125,13 @@ export const CallOverlay = () => {
       setRemoteStreams(prev => ({ ...prev, [pId]: next }));
     };
 
+    let iceRetried = false;
     pc.onconnectionstatechange = () => {
+      if (pc.connectionState === 'failed' && !iceRetried) {
+        iceRetried = true;
+        try { pc.restartIce(); } catch { cleanupPeer(pId); }
+        return;
+      }
       if (pc.connectionState === 'failed' || pc.connectionState === 'closed') {
         cleanupPeer(pId);
       }
@@ -168,7 +174,10 @@ export const CallOverlay = () => {
 
       if (activeCall.mediaType === 'video') {
         stream = await tryGet({ audio, video });
-        if (!stream) stream = await tryGet({ video });
+        if (!stream) {
+          stream = await tryGet({ video });
+          if (stream) fail = 'audio';
+        }
         if (!stream) { stream = await tryGet({ audio }); fail = stream ? 'video' : 'audio'; }
         if (!stream) fail = 'video';
       } else {
@@ -203,7 +212,7 @@ export const CallOverlay = () => {
     if (!localStream) return;
     const pending = pendingSignalsRef.current.splice(0);
     pending.forEach(signal => {
-      signalChainRef.current = signalChainRef.current.then(() => handleSignal(signal));
+      signalChainRef.current = signalChainRef.current.then(() => handleSignal(signal)).catch(() => {});
     });
   }, [localStream]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -222,6 +231,10 @@ export const CallOverlay = () => {
     if (!pc) return;
 
     if (signal.type === 'offer') {
+      if (pc.signalingState !== 'stable') {
+        deleteDoc(doc(db, 'calls', activeCall.id, 'signals', signal.id)).catch(() => {});
+        return;
+      }
       await pc.setRemoteDescription(new RTCSessionDescription(signal.data));
       await flushCandidates(signal.from, pc);
       if (stream) {
@@ -272,7 +285,7 @@ export const CallOverlay = () => {
           pendingSignalsRef.current.push(signal);
           return;
         }
-        signalChainRef.current = signalChainRef.current.then(() => handleSignal(signal));
+        signalChainRef.current = signalChainRef.current.then(() => handleSignal(signal)).catch(() => {});
       });
     });
 
@@ -457,7 +470,7 @@ export const CallOverlay = () => {
                   className={cn("w-full h-full object-cover", !isVideoOff && "mirror")}
                 />
                 {/* Camera off / audio mode overlay: show avatar */}
-                {(isVideoOff || activeCall.mediaType === 'audio' || !localStream?.getVideoTracks().length) && (
+                {(isVideoOff || activeCall.mediaType === 'audio' || !localStream?.getVideoTracks().length || mediaError) && (
                   <AvatarOverlay
                     photoURL={localUserInfo?.photoURL}
                     displayName="Sen (Ben)"
