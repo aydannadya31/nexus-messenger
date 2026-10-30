@@ -128,6 +128,8 @@ const core: Dict = {
   'rt.sonar': { tr: 'Sonar', en: 'Sonar', de: 'Sonar', fr: 'Sonar', ar: 'سونار', ko: '소나', zh: '声呐', ja: 'ソナー', hi: 'सोनार' },
   'rt.upbeat': { tr: 'Neşeli', en: 'Upbeat', de: 'Fröhlich', fr: 'Enjoué', ar: 'مبهج', ko: '경쾌한', zh: '欢快', ja: '軽快', hi: 'उत्साही' },
   'rt.alarm': { tr: 'Alarm', en: 'Alarm', de: 'Alarm', fr: 'Alarme', ar: 'إنذار', ko: '경보', zh: '警报', ja: 'アラーム', hi: 'अलार्म' },
+  'rt.notifEnable': { tr: 'Bildirimleri Aç', en: 'Enable Notifications', de: 'Benachrichtigungen aktivieren', fr: 'Activer les notifications', ar: 'تفعيل الإشعارات', ko: '알림 켜기', zh: '开启通知', ja: '通知を有効にする', hi: 'सूचनाएं सक्षम करें' },
+  'rt.notifOn': { tr: 'Bildirimler açık', en: 'Notifications on', de: 'Benachrichtigungen aktiv', fr: 'Notifications activées', ar: 'الإشعارات مفعلة', ko: '알림 켜짐', zh: '通知已开启', ja: '通知は有効です', hi: 'सूचनाएं चालू हैं' },
 };
 
 export const D: Dict = { ...core, ...chatDict, ...admDict, ...ncDict, ...upDict };

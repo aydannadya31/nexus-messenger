@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
-import { X, Palette, Languages, RotateCcw, Check, Bell, Play } from 'lucide-react';
+import { X, Palette, Languages, RotateCcw, Check, Bell, Play, BellRing } from 'lucide-react';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { useAuth } from './AuthProvider';
 import { THEME_PRESETS, useTheme, type ThemeColors } from '../lib/theme';
 import { LANGS, useI18n, flagUrl, type LangCode } from '../lib/i18n';
 import { RINGTONES, playRingtonePreview, DEFAULT_AUDIO_RINGTONE, DEFAULT_VIDEO_RINGTONE } from '../lib/ringtones';
+import { initPush } from '../lib/messaging';
 
 type PanelProps = { onClose: () => void };
 
@@ -175,8 +176,45 @@ export function RingtonePanel({ onClose }: PanelProps) {
     </div>
   );
 
+  const [notifStatus, setNotifStatus] = useState<string>(() => {
+    if (typeof window === 'undefined' || !('Notification' in window)) return 'unsupported';
+    return Notification.permission;
+  });
+
+  const enableNotif = async () => {
+    if (!user?.uid) return;
+    try {
+      await initPush(user.uid);
+      setNotifStatus('Notification' in window ? Notification.permission : 'unsupported');
+    } catch {
+      setNotifStatus('denied');
+    }
+  };
+
+  const notifBtn = () => {
+    if (notifStatus === 'granted') {
+      return (
+        <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl bg-green-50 dark:bg-green-950/40 border border-green-200 dark:border-green-800 mb-4">
+          <Check size={14} className="text-green-600 shrink-0" />
+          <span className="text-xs font-bold text-green-700 dark:text-green-400">{t('rt.notifOn')}</span>
+        </div>
+      );
+    }
+    if (notifStatus === 'unsupported') return null;
+    return (
+      <button
+        onClick={enableNotif}
+        className="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-black uppercase tracking-wider transition-all mb-4"
+      >
+        <BellRing size={14} />
+        {t('rt.notifEnable')}
+      </button>
+    );
+  };
+
   return (
     <PanelShell title={t('set.ringtones')} icon={<Bell size={18} />} onClose={onClose}>
+      {notifBtn()}
       <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2.5">{t('rt.audioCalls')}</p>
       {list('audio', audioSel)}
       <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2.5">{t('rt.videoCalls')}</p>
