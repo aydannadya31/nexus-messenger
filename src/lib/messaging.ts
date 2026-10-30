@@ -1,6 +1,8 @@
 import { getMessaging, getToken, isSupported } from 'firebase/messaging';
 import { app, db } from './firebase';
 import { doc, getDoc, setDoc, arrayUnion } from 'firebase/firestore';
+import { Capacitor } from '@capacitor/core';
+import { PushNotifications } from '@capacitor/push-notifications';
 
 type NotifCfg = { vapidKey?: string; workerUrl?: string };
 let cfgPromise: Promise<NotifCfg> | null = null;
@@ -34,6 +36,22 @@ export async function initPush(uid: string) {
       await setDoc(doc(db, 'users', uid), { fcmTokens: arrayUnion(token) }, { merge: true });
     }
   } catch (e) { console.warn('initPush:', e); }
+}
+
+export async function initNativePush(uid: string) {
+  if (!Capacitor.isNativePlatform()) return;
+  try {
+    await PushNotifications.requestPermissions();
+    await PushNotifications.register();
+    PushNotifications.addListener('registration', async (token: { value: string }) => {
+      if (token?.value) {
+        await setDoc(doc(db, 'users', uid), { fcmTokens: arrayUnion(token.value) }, { merge: true });
+      }
+    });
+    PushNotifications.addListener('pushNotificationReceived', (n: { title?: string; body?: string }) => {
+      console.log('Native push received:', n.title, n.body);
+    });
+  } catch (e) { console.warn('initNativePush:', e); }
 }
 
 export async function enablePush(uid: string): Promise<string> {

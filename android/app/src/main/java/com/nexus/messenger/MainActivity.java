@@ -82,6 +82,10 @@ public class MainActivity extends BridgeActivity {
                     != PackageManager.PERMISSION_GRANTED) {
                 perms.add(Manifest.permission.READ_MEDIA_VIDEO);
             }
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
+                    != PackageManager.PERMISSION_GRANTED) {
+                perms.add(Manifest.permission.POST_NOTIFICATIONS);
+            }
         } else {
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_EXTERNAL_STORAGE)
                     != PackageManager.PERMISSION_GRANTED) {
