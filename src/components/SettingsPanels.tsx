@@ -6,7 +6,7 @@ import { useAuth } from './AuthProvider';
 import { THEME_PRESETS, useTheme, type ThemeColors } from '../lib/theme';
 import { LANGS, useI18n, flagUrl, type LangCode } from '../lib/i18n';
 import { RINGTONES, playRingtonePreview, DEFAULT_AUDIO_RINGTONE, DEFAULT_VIDEO_RINGTONE } from '../lib/ringtones';
-import { initPush } from '../lib/messaging';
+import { enablePush } from '../lib/messaging';
 
 type PanelProps = { onClose: () => void };
 
@@ -180,19 +180,24 @@ export function RingtonePanel({ onClose }: PanelProps) {
     if (typeof window === 'undefined' || !('Notification' in window)) return 'unsupported';
     return Notification.permission;
   });
+  const [notifMsg, setNotifMsg] = useState<string | null>(null);
 
   const enableNotif = async () => {
     if (!user?.uid) return;
-    try {
-      await initPush(user.uid);
-      setNotifStatus('Notification' in window ? Notification.permission : 'unsupported');
-    } catch {
-      setNotifStatus('denied');
-    }
+    setNotifMsg('...');
+    const r = await enablePush(user.uid);
+    setNotifStatus('Notification' in window ? Notification.permission : 'unsupported');
+    if (r === 'ok') setNotifMsg(t('rt.notifOk'));
+    else if (r === 'perm-granted') setNotifMsg(t('rt.notifOk'));
+    else if (r.startsWith('perm-')) setNotifMsg(t('rt.notifDenied'));
+    else if (r === 'no-config') setNotifMsg(t('rt.notifNoCfg'));
+    else if (r === 'no-fcm' || r === 'no-api' || r === 'no-sw') setNotifMsg(t('rt.notifNoSup'));
+    else if (r === 'no-token') setNotifMsg(t('rt.notifNoTok'));
+    else setNotifMsg(t('rt.notifErr') + ' ' + r);
   };
 
   const notifBtn = () => {
-    if (notifStatus === 'granted') {
+    if (notifStatus === 'granted' && notifMsg !== '...') {
       return (
         <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl bg-green-50 dark:bg-green-950/40 border border-green-200 dark:border-green-800 mb-4">
           <Check size={14} className="text-green-600 shrink-0" />
@@ -202,13 +207,21 @@ export function RingtonePanel({ onClose }: PanelProps) {
     }
     if (notifStatus === 'unsupported') return null;
     return (
-      <button
-        onClick={enableNotif}
-        className="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-black uppercase tracking-wider transition-all mb-4"
-      >
-        <BellRing size={14} />
-        {t('rt.notifEnable')}
-      </button>
+      <div className="mb-4">
+        <button
+          onClick={enableNotif}
+          className="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-black uppercase tracking-wider transition-all"
+        >
+          <BellRing size={14} />
+          {t('rt.notifEnable')}
+        </button>
+        {notifMsg && notifMsg !== '...' && (
+          <p className="text-[11px] font-bold text-slate-500 dark:text-slate-400 mt-2 text-center break-all">{notifMsg}</p>
+        )}
+        {notifMsg === '...' && (
+          <p className="text-[11px] font-bold text-slate-400 mt-2 text-center">{t('rt.notifWait')}</p>
+        )}
+      </div>
     );
   };
 

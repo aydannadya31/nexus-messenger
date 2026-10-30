@@ -36,6 +36,29 @@ export async function initPush(uid: string) {
   } catch (e) { console.warn('initPush:', e); }
 }
 
+export async function enablePush(uid: string): Promise<string> {
+  if (typeof window === 'undefined') return 'no-window';
+  if (!('Notification' in window)) return 'no-api';
+  if (!('serviceWorker' in navigator)) return 'no-sw';
+  try {
+    let perm: NotificationPermission;
+    if (Notification.permission === 'granted') perm = 'granted';
+    else perm = await Notification.requestPermission();
+    if (perm !== 'granted') return 'perm-' + perm;
+    const cfg = await getNotifConfig();
+    if (!cfg.workerUrl || !cfg.vapidKey) return 'no-config';
+    if (!(await isSupported())) return 'no-fcm';
+    const reg = await navigator.serviceWorker.register(`${import.meta.env.BASE_URL}firebase-messaging-sw.js`);
+    const messaging = getMessaging(app);
+    const token = await getToken(messaging, { vapidKey: cfg.vapidKey, serviceWorkerRegistration: reg });
+    if (!token) return 'no-token';
+    await setDoc(doc(db, 'users', uid), { fcmTokens: arrayUnion(token) }, { merge: true });
+    return 'ok';
+  } catch (e) {
+    return 'error:' + (e instanceof Error ? e.message : String(e));
+  }
+}
+
 export async function sendPushToUsers(userIds: string[], title: string, body: string, data?: Record<string, string>) {
   try {
     if (!userIds.length) return;
