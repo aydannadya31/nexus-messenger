@@ -181,15 +181,35 @@ export function RingtonePanel({ onClose }: PanelProps) {
     return Notification.permission;
   });
   const [notifMsg, setNotifMsg] = useState<string | null>(null);
+  const [tokenSaved, setTokenSaved] = useState(false);
+
+  useEffect(() => {
+    if (!user?.uid) return;
+    if (typeof window === 'undefined' || !('Notification' in window)) return;
+    if (Notification.permission === 'granted') {
+      setNotifMsg('...');
+      enablePush(user.uid).then((r) => {
+        if (r === 'ok' || r === 'perm-granted') {
+          setTokenSaved(true);
+          setNotifMsg(t('rt.notifOk'));
+        } else {
+          setNotifMsg(null);
+        }
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.uid]);
 
   const enableNotif = async () => {
     if (!user?.uid) return;
     setNotifMsg('...');
+    setTokenSaved(false);
     const r = await enablePush(user.uid);
     setNotifStatus('Notification' in window ? Notification.permission : 'unsupported');
-    if (r === 'ok') setNotifMsg(t('rt.notifOk'));
-    else if (r === 'perm-granted') setNotifMsg(t('rt.notifOk'));
-    else if (r.startsWith('perm-')) setNotifMsg(t('rt.notifDenied'));
+    if (r === 'ok' || r === 'perm-granted') {
+      setTokenSaved(true);
+      setNotifMsg(t('rt.notifOk'));
+    } else if (r.startsWith('perm-')) setNotifMsg(t('rt.notifDenied'));
     else if (r === 'no-config') setNotifMsg(t('rt.notifNoCfg'));
     else if (r === 'no-fcm' || r === 'no-api' || r === 'no-sw') setNotifMsg(t('rt.notifNoSup'));
     else if (r === 'no-token') setNotifMsg(t('rt.notifNoTok'));
@@ -197,7 +217,7 @@ export function RingtonePanel({ onClose }: PanelProps) {
   };
 
   const notifBtn = () => {
-    if (notifStatus === 'granted' && notifMsg !== '...') {
+    if (tokenSaved) {
       return (
         <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl bg-green-50 dark:bg-green-950/40 border border-green-200 dark:border-green-800 mb-4">
           <Check size={14} className="text-green-600 shrink-0" />
