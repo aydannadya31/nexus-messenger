@@ -18,6 +18,7 @@ messaging.onBackgroundMessage((payload) => {
     body: d.body || '',
     tag: d.tag,
     data: { url: d.url || './' },
+    silent: d.silent === '1',
   });
 });
 
