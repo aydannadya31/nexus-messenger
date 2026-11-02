@@ -121,15 +121,39 @@ export const CallOverlay = () => {
     };
 
     pc.ontrack = (event) => {
-      const next = event.streams[0] || new MediaStream([event.track]);
-      setRemoteStreams(prev => ({ ...prev, [pId]: next }));
+      setRemoteStreams(prev => {
+        if (event.streams[0]) return { ...prev, [pId]: event.streams[0] };
+        const existing = prev[pId];
+        if (existing) {
+          if (!existing.getTracks().some(t => t.id === event.track.id)) {
+            existing.addTrack(event.track);
+          }
+          return { ...prev, [pId]: existing };
+        }
+        return { ...prev, [pId]: new MediaStream([event.track]) };
+      });
     };
 
     let iceRetried = false;
     pc.onconnectionstatechange = () => {
       if (pc.connectionState === 'failed' && !iceRetried) {
         iceRetried = true;
-        try { pc.restartIce(); } catch { cleanupPeer(pId); }
+        try { pc.restartIce(); } catch { cleanupPeer(pId); return; }
+        if (user && activeCall && user.uid < pId) {
+          (async () => {
+            try {
+              const offer = await pc.createOffer({ iceRestart: true });
+              await pc.setLocalDescription(offer);
+              await addDoc(collection(db, 'calls', activeCall.id, 'signals'), {
+                from: user.uid,
+                to: pId,
+                type: 'offer',
+                data: { type: offer.type, sdp: offer.sdp },
+                createdAt: serverTimestamp()
+              });
+            } catch { /* sonraki failure'da cleanup */ }
+          })();
+        }
         return;
       }
       if (pc.connectionState === 'failed' || pc.connectionState === 'closed') {
@@ -174,14 +198,20 @@ export const CallOverlay = () => {
 
       if (activeCall.mediaType === 'video') {
         stream = await tryGet({ audio, video });
+        if (!stream) stream = await tryGet({ audio: true, video });
         if (!stream) {
           stream = await tryGet({ video });
           if (stream) fail = 'audio';
         }
-        if (!stream) { stream = await tryGet({ audio }); fail = stream ? 'video' : 'audio'; }
+        if (!stream) {
+          stream = await tryGet({ audio });
+          if (!stream) stream = await tryGet({ audio: true });
+          fail = stream ? 'video' : 'audio';
+        }
         if (!stream) fail = 'video';
       } else {
         stream = await tryGet({ audio });
+        if (!stream) stream = await tryGet({ audio: true });
         if (!stream) fail = 'audio';
       }
 
@@ -254,7 +284,7 @@ export const CallOverlay = () => {
         createdAt: serverTimestamp()
       });
     } else if (signal.type === 'answer') {
-      if (!pc.currentRemoteDescription) {
+      if (pc.signalingState === 'have-local-offer') {
         await pc.setRemoteDescription(new RTCSessionDescription(signal.data));
       }
       await flushCandidates(signal.from, pc);
@@ -407,8 +437,18 @@ export const CallOverlay = () => {
     </div>
   );
 
+  const resumeMedia = () => {
+    document.querySelectorAll('audio, video').forEach(el => {
+      const m = el as HTMLMediaElement;
+      if (m.paused) m.play().catch(() => {});
+    });
+  };
+
   return (
-    <div className="fixed inset-0 z-50 flex flex-col sm:items-center sm:justify-center sm:p-6 pointer-events-auto overflow-hidden bg-slate-950">
+    <div
+      className="fixed inset-0 z-50 flex flex-col sm:items-center sm:justify-center sm:p-6 pointer-events-auto overflow-hidden bg-slate-950"
+      onPointerDown={resumeMedia}
+    >
       <AnimatePresence>
         {incomingCall && (
           <motion.div 
