@@ -48,6 +48,7 @@ const core: Dict = {
   'side.userList': { tr: 'Kull. List.', en: 'User List', de: 'Benutzer', fr: 'Utilisateurs', ar: 'قائمة المستخدمين', ko: '사용자 목록', zh: '用户列表', ja: 'ユーザー一覧', hi: 'उपयोगकर्ता' },
   'side.adminMsg': { tr: 'Yön. Msj', en: 'Admin Msg', de: 'Admin-Nachr.', fr: 'Msg admin', ar: 'رسالة المشرف', ko: '관리자 메시지', zh: '管理员消息', ja: '管理者メッセージ', hi: 'एडमिन संदेश' },
   'side.logout': { tr: 'Çıkış', en: 'Log out', de: 'Abmelden', fr: 'Déconnexion', ar: 'خروج', ko: '로그아웃', zh: '退出', ja: 'ログアウト', hi: 'लॉग आउट' },
+  'side.settings': { tr: 'Ayarlar', en: 'Settings', de: 'Einstellungen', fr: 'Paramètres', ar: 'الإعدادات', ko: '설정', zh: '设置', ja: '設定', hi: 'सेटिंग्स' },
   'side.light': { tr: 'Açık', en: 'Light', de: 'Hell', fr: 'Clair', ar: 'فاتح', ko: '밝음', zh: '浅色', ja: 'ライト', hi: 'लाइट' },
   'side.dark': { tr: 'Karanlık', en: 'Dark', de: 'Dunkel', fr: 'Sombre', ar: 'داكن', ko: '어둠', zh: '深色', ja: 'ダーク', hi: 'डार्क' },
   'side.admin': { tr: 'Admin', en: 'Admin', de: 'Admin', fr: 'Admin', ar: 'المشرف', ko: '관리자', zh: '管理员', ja: '管理者', hi: 'एडमिन' },

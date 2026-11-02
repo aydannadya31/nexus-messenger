@@ -273,7 +273,7 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
       });
       const others = participants.filter((p) => p !== user.uid);
       if (others.length) {
-        sendPushToUsers(others, user.displayName || 'Nexus', mediaType === 'video' ? 'Görüntülü çağrı başlatıyor' : 'Sesli çağrı başlatıyor', { type: 'call', chatId });
+        sendPushToUsers(others, user.displayName || 'Nexus', mediaType === 'video' ? 'Görüntülü çağrı başlatıyor' : 'Sesli çağrı başlatıyor', { type: 'call', chatId }, { bypassStatus: true });
       }
     } catch (error) {
       console.error("Start call error:", error);

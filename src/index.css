@@ -118,3 +118,7 @@ html[data-nexus-theme] .msg-theirs {
   background-color: var(--t-bubble-theirs) !important;
   border-color: var(--t-border) !important;
 }
+html[data-nexus-theme] .sidebar-tab-active {
+  background-color: var(--t-text) !important;
+  color: var(--t-surface) !important;
+}

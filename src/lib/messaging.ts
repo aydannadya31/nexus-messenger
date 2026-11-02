@@ -42,6 +42,7 @@ export async function initNativePush(uid: string) {
   if (!Capacitor.isNativePlatform()) return;
   try {
     await PushNotifications.requestPermissions();
+    await PushNotifications.createChannel({ id: 'nexus-quiet', name: 'Sessiz Bildirimler', importance: 2 }).catch(() => {});
     await PushNotifications.register();
     PushNotifications.addListener('registration', async (token: { value: string }) => {
       if (token?.value) {
@@ -77,24 +78,45 @@ export async function enablePush(uid: string): Promise<string> {
   }
 }
 
-export async function sendPushToUsers(userIds: string[], title: string, body: string, data?: Record<string, string>) {
+export async function sendPushToUsers(
+  userIds: string[],
+  title: string,
+  body: string,
+  data?: Record<string, string>,
+  opts?: { bypassStatus?: boolean }
+) {
   try {
     if (!userIds.length) return;
     const cfg = await getNotifConfig();
     if (!cfg.workerUrl) return;
-    const tokens: string[] = [];
+    const normalTokens: string[] = [];
+    const silentTokens: string[] = [];
     await Promise.all(userIds.map(async (uid) => {
       try {
         const snap = await getDoc(doc(db, 'users', uid));
-        const t = snap.data()?.fcmTokens;
-        if (Array.isArray(t)) tokens.push(...t.filter((x): x is string => typeof x === 'string'));
+        const d = snap.data();
+        const t = d?.fcmTokens;
+        const status = d?.onlineStatus || 'online';
+        const list = Array.isArray(t) ? t.filter((x): x is string => typeof x === 'string') : [];
+        if (opts?.bypassStatus) normalTokens.push(...list);
+        else if (status === 'away') return;
+        else if (status === 'busy') silentTokens.push(...list);
+        else normalTokens.push(...list);
       } catch { }
     }));
-    if (!tokens.length) return;
-    await fetch(cfg.workerUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ tokens, title, body, data }),
-    });
+    if (normalTokens.length) {
+      await fetch(cfg.workerUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tokens: normalTokens, title, body, data }),
+      });
+    }
+    if (silentTokens.length) {
+      await fetch(cfg.workerUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tokens: silentTokens, title, body, data: { ...(data || {}), silent: '1' }, silent: true }),
+      });
+    }
   } catch (e) { console.warn('sendPush:', e); }
 }

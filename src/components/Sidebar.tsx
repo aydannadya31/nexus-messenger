@@ -52,6 +52,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
   const chatDetailsRef = useRef<Record<string, UserProfile>>({});
   const selectedChatIdRef = useRef(selectedChatId);
   selectedChatIdRef.current = selectedChatId;
+  const myStatusRef = useRef<string>('online');
 
   useEffect(() => {
     if (user && 'Notification' in window && Notification.permission === 'default') {
@@ -73,6 +74,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
   const [showThemePanel, setShowThemePanel] = useState(false);
   const [showLangPanel, setShowLangPanel] = useState(false);
   const [showRingPanel, setShowRingPanel] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
 
   useEffect(() => {
     const total = Object.values(unreadCounts).reduce((sum, n) => sum + n, 0);
@@ -170,26 +172,28 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
             if (chat.id !== selectedChatIdRef.current) {
               setUnreadCounts(prev => ({ ...prev, [chat.id]: (prev[chat.id] || 0) + 1 }));
             }
-            // Skip sound for muted chats or if last sound was <2s ago
-            const lastSoundTime = parseInt(localStorage.getItem('lastNotifSound') || '0', 10);
-            const now = Date.now();
-            if (!chat.muted && now - lastSoundTime > 2000) {
-              localStorage.setItem('lastNotifSound', String(now));
-              try {
-                const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
-                const oscillator = audioCtx.createOscillator();
-                const gainNode = audioCtx.createGain();
-                oscillator.connect(gainNode);
-                gainNode.connect(audioCtx.destination);
-                oscillator.type = 'sine';
-                oscillator.frequency.setValueAtTime(880, audioCtx.currentTime);
-                oscillator.frequency.setValueAtTime(660, audioCtx.currentTime + 0.1);
-                gainNode.gain.setValueAtTime(0.3, audioCtx.currentTime);
-                gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.3);
-                oscillator.start(audioCtx.currentTime);
-                oscillator.stop(audioCtx.currentTime + 0.3);
-              } catch(e) { console.log('Audio error:', e); }
-              if (Notification.permission === 'granted' && chat.id !== selectedChatIdRef.current) {
+            // Skip sound for muted chats, non-online status, or if last sound was <2s ago
+            if (!chat.muted) {
+              const lastSoundTime = parseInt(localStorage.getItem('lastNotifSound') || '0', 10);
+              const now = Date.now();
+              if (myStatusRef.current === 'online' && now - lastSoundTime > 2000) {
+                localStorage.setItem('lastNotifSound', String(now));
+                try {
+                  const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+                  const oscillator = audioCtx.createOscillator();
+                  const gainNode = audioCtx.createGain();
+                  oscillator.connect(gainNode);
+                  gainNode.connect(audioCtx.destination);
+                  oscillator.type = 'sine';
+                  oscillator.frequency.setValueAtTime(880, audioCtx.currentTime);
+                  oscillator.frequency.setValueAtTime(660, audioCtx.currentTime + 0.1);
+                  gainNode.gain.setValueAtTime(0.3, audioCtx.currentTime);
+                  gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.3);
+                  oscillator.start(audioCtx.currentTime);
+                  oscillator.stop(audioCtx.currentTime + 0.3);
+                } catch(e) { console.log('Audio error:', e); }
+              }
+              if (typeof Notification !== 'undefined' && Notification.permission === 'granted' && chat.id !== selectedChatIdRef.current) {
                 const senderName = lastMsg.senderName || 'Birisi';
                 new Notification(senderName, { body: lastMsg.text || 'Yeni mesaj', icon: '/favicon.ico' });
               }
@@ -312,6 +316,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
   const [showStatusMenu, setShowStatusMenu] = useState(false);
   const [showProfileModal, setShowProfileModal] = useState(false);
   const myStatus = profile?.onlineStatus || 'online';
+  myStatusRef.current = myStatus;
 
   const [searchQuery, setSearchQuery] = useState('');
   const [showAdminMsg, setShowAdminMsg] = useState(false);
@@ -406,73 +411,14 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
             <span className="text-[8px] text-slate-400 font-bold text-center">{t('side.userList')}</span>
           </div>
           <div className="flex flex-col items-center gap-0.5">
-            <button 
-              onClick={() => setShowAdminMsg(true)}
-              className="p-2.5 bg-amber-50 hover:bg-amber-100 rounded-xl text-amber-600 transition-all active:scale-95"
-              title="Yöneticiye Mesaj"
-            >
-              <MessageSquarePlus size={20} />
-            </button>
-            <span className="text-[8px] text-slate-400 font-bold text-center">{t('side.adminMsg')}</span>
-          </div>
-          <div className="flex flex-col items-center gap-0.5">
-            <button 
-              onClick={() => setShowAdminPanel(true)}
-              className="p-2.5 bg-slate-100/50 hover:bg-amber-100 rounded-xl text-slate-400 hover:text-amber-600 transition-all active:scale-95"
-              title="Admin Paneli"
-            >
-              <Shield size={20} />
-            </button>
-            <span className="text-[8px] text-slate-400 font-bold text-center">{t('side.admin')}</span>
-          </div>
-          <div className="flex flex-col items-center gap-0.5">
-            <button 
-              onClick={() => logout()}
-              className="p-2.5 bg-slate-100/50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-xl text-slate-400 hover:text-red-500 transition-all active:scale-95"
-            >
-              <LogOut size={20} />
-            </button>
-            <span className="text-[8px] text-slate-400 font-bold text-center">{t('side.logout')}</span>
-          </div>
-          <div className="flex flex-col items-center gap-0.5">
             <button
-              onClick={() => setShowThemePanel(true)}
-              title={t('set.theme')}
+              onClick={() => setShowSettings(true)}
+              title={t('side.settings')}
               className="p-2.5 bg-slate-100/50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-xl text-slate-400 hover:text-blue-500 transition-all active:scale-95"
             >
-              <Palette size={20} />
+              <Settings size={20} />
             </button>
-            <span className="text-[8px] text-slate-400 font-bold text-center">{t('set.theme')}</span>
-          </div>
-          <div className="flex flex-col items-center gap-0.5">
-            <button
-              onClick={() => setShowLangPanel(true)}
-              title={t('set.language')}
-              className="p-2.5 bg-slate-100/50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-xl text-slate-400 hover:text-blue-500 transition-all active:scale-95"
-            >
-              <Languages size={20} />
-            </button>
-            <span className="text-[8px] text-slate-400 font-bold text-center">{t('set.language')}</span>
-          </div>
-          <div className="flex flex-col items-center gap-0.5">
-            <button
-              onClick={() => setShowRingPanel(true)}
-              title={t('set.ringtones')}
-              className="p-2.5 bg-slate-100/50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-xl text-slate-400 hover:text-blue-500 transition-all active:scale-95"
-            >
-              <Music size={20} />
-            </button>
-            <span className="text-[8px] text-slate-400 font-bold text-center">{t('set.ringtones')}</span>
-          </div>
-          <div className="flex flex-col items-center gap-0.5">
-            <button 
-              onClick={onToggleDark}
-              className="p-2.5 bg-slate-100/50 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-xl text-slate-400 hover:text-amber-500 transition-all active:scale-95"
-              title={darkMode ? `${t('side.light')} ${t('set.theme')}` : `${t('side.dark')} ${t('set.theme')}`}
-            >
-              {darkMode ? <Sun size={20} /> : <Moon size={20} />}
-            </button>
-            <span className="text-[8px] text-slate-400 font-bold text-center">{darkMode ? t('side.light') : t('side.dark')}</span>
+            <span className="text-[8px] text-slate-400 font-bold text-center">{t('side.settings')}</span>
           </div>
         </div>
         
@@ -497,7 +443,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
             onClick={() => setSidebarView('friends')}
             className={cn(
               "flex-1 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all relative",
-              sidebarView === 'friends' ? "bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 shadow-sm" : "bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700"
+              sidebarView === 'friends' ? "sidebar-tab-active bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 shadow-sm" : "bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700"
             )}
           >
             {t('side.friends')}
@@ -507,7 +453,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
             onClick={() => setSidebarView('groups')}
             className={cn(
               "flex-1 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all",
-              sidebarView === 'groups' ? "bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 shadow-sm" : "bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700"
+              sidebarView === 'groups' ? "sidebar-tab-active bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 shadow-sm" : "bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700"
             )}
           >
             {t('side.groups')}
@@ -807,6 +753,84 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
       {showThemePanel && <ThemePanel onClose={() => setShowThemePanel(false)} />}
       {showLangPanel && <LanguagePanel onClose={() => setShowLangPanel(false)} />}
       {showRingPanel && <RingtonePanel onClose={() => setShowRingPanel(false)} />}
+
+      {showSettings && (
+        <div className="fixed inset-0 z-[9999] bg-black/50 flex items-center justify-center p-4" onClick={() => setShowSettings(false)}>
+          <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 shadow-2xl max-w-sm w-full animate-slide-up" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-5">
+              <h3 className="text-base font-black text-slate-900 dark:text-slate-100">{t('side.settings')}</h3>
+              <button onClick={() => setShowSettings(false)} className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full text-slate-400">
+                <X size={18} />
+              </button>
+            </div>
+            <div className="space-y-2">
+              <button
+                onClick={() => { setShowSettings(false); setShowAdminMsg(true); }}
+                className="w-full flex items-center gap-3 p-3 rounded-2xl hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
+              >
+                <span className="w-9 h-9 rounded-full bg-green-500 text-white flex items-center justify-center shrink-0">
+                  <MessageSquarePlus size={18} />
+                </span>
+                <span className="text-sm font-bold text-slate-900 dark:text-slate-100">{t('side.adminMsg')}</span>
+              </button>
+              <button
+                onClick={() => { setShowSettings(false); setShowAdminPanel(true); }}
+                className="w-full flex items-center gap-3 p-3 rounded-2xl hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
+              >
+                <span className="w-9 h-9 rounded-full bg-green-500 text-white flex items-center justify-center shrink-0">
+                  <Shield size={18} />
+                </span>
+                <span className="text-sm font-bold text-slate-900 dark:text-slate-100">{t('side.admin')}</span>
+              </button>
+              <button
+                onClick={() => { setShowSettings(false); setShowThemePanel(true); }}
+                className="w-full flex items-center gap-3 p-3 rounded-2xl hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
+              >
+                <span className="w-9 h-9 rounded-full bg-green-500 text-white flex items-center justify-center shrink-0">
+                  <Palette size={18} />
+                </span>
+                <span className="text-sm font-bold text-slate-900 dark:text-slate-100">{t('set.theme')}</span>
+              </button>
+              <button
+                onClick={() => { setShowSettings(false); setShowLangPanel(true); }}
+                className="w-full flex items-center gap-3 p-3 rounded-2xl hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
+              >
+                <span className="w-9 h-9 rounded-full bg-green-500 text-white flex items-center justify-center shrink-0">
+                  <Languages size={18} />
+                </span>
+                <span className="text-sm font-bold text-slate-900 dark:text-slate-100">{t('set.language')}</span>
+              </button>
+              <button
+                onClick={() => { setShowSettings(false); setShowRingPanel(true); }}
+                className="w-full flex items-center gap-3 p-3 rounded-2xl hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
+              >
+                <span className="w-9 h-9 rounded-full bg-green-500 text-white flex items-center justify-center shrink-0">
+                  <Music size={18} />
+                </span>
+                <span className="text-sm font-bold text-slate-900 dark:text-slate-100">{t('set.ringtones')}</span>
+              </button>
+              <button
+                onClick={() => { setShowSettings(false); onToggleDark?.(); }}
+                className="w-full flex items-center gap-3 p-3 rounded-2xl hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
+              >
+                <span className="w-9 h-9 rounded-full bg-green-500 text-white flex items-center justify-center shrink-0">
+                  {darkMode ? <Sun size={18} /> : <Moon size={18} />}
+                </span>
+                <span className="text-sm font-bold text-slate-900 dark:text-slate-100">{darkMode ? t('side.light') : t('side.dark')}</span>
+              </button>
+              <button
+                onClick={() => { setShowSettings(false); logout(); }}
+                className="w-full flex items-center gap-3 p-3 rounded-2xl hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+              >
+                <span className="w-9 h-9 rounded-full bg-red-500 text-white flex items-center justify-center shrink-0">
+                  <LogOut size={18} />
+                </span>
+                <span className="text-sm font-bold text-red-500">{t('side.logout')}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Admin Message Dialog */}
       {showAdminMsg && (
