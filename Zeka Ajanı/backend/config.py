@@ -21,12 +21,13 @@ class Settings(BaseSettings):
 
     # === Model Ayarları ===
     # Birincil: Groq
-    GROQ_MODEL: str = "llama-3.1-8b-instant"  # llama-3.3-70b-versatile, mixtral-8x7b-32768
+    GROQ_MODEL: str = "llama3-8b-8192"  # llama3-70b-8192, mixtral-8x7b-32768
     GROQ_MAX_TOKENS: int = 8192
     GROQ_TEMPERATURE: float = 0.7
 
     # Yedek: OpenRouter (Groq çalışmazsa)
-    OPENROUTER_MODEL: str = "meta-llama/llama-3.1-8b-instruct"
+    # Türkçe için önerilen modeller: qwen2.5-7b-instruct, google/gemma-2-9b-it, mistralai/mistral-7b-instruct-v0.3
+    OPENROUTER_MODEL: str = "qwen/qwen3.6-27b"
     OPENROUTER_MAX_TOKENS: int = 8192
     OPENROUTER_TEMPERATURE: float = 0.7
     OPENROUTER_BASE_URL: str = "https://openrouter.ai/api/v1"
@@ -54,7 +55,6 @@ class Settings(BaseSettings):
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"
-        protected_namespaces = ()
 
 settings = Settings()
 

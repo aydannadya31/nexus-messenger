@@ -102,13 +102,14 @@ class Database:
                     created_at TEXT NOT NULL DEFAULT (datetime('now'))
                 );
 
-                -- Özellik talepleri (ajan yapamazsa Sisyphus'a bildir)
-                CREATE TABLE IF NOT EXISTS feature_requests (
+                -- Projeler (Sağ Sidebar)
+                CREATE TABLE IF NOT EXISTS repos (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    title TEXT NOT NULL,
-                    description TEXT NOT NULL,
-                    user_message TEXT,
-                    status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'in_progress', 'completed', 'rejected')),
+                    name TEXT NOT NULL,
+                    url TEXT NOT NULL,
+                    icon TEXT DEFAULT '🌐',
+                    badge TEXT DEFAULT 'Site',
+                    sort_order INTEGER DEFAULT 0,
                     created_at TEXT NOT NULL DEFAULT (datetime('now')),
                     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
                 );
@@ -118,6 +119,7 @@ class Database:
                 CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
                 CREATE INDEX IF NOT EXISTS idx_files_conversation ON files(conversation_id);
                 CREATE INDEX IF NOT EXISTS idx_system_logs_level ON system_logs(level);
+                CREATE INDEX IF NOT EXISTS idx_repos_sort ON repos(sort_order);
             """)
 
     # === Sohbet İşlemleri ===
@@ -134,6 +136,14 @@ class Database:
         with self._get_connection() as conn:
             rows = conn.execute(
                 "SELECT * FROM conversations WHERE is_archived = 0 ORDER BY updated_at DESC LIMIT ?",
+                (limit,)
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    def get_archived_conversations(self, limit: int = 50) -> list[dict]:
+        with self._get_connection() as conn:
+            rows = conn.execute(
+                "SELECT * FROM conversations WHERE is_archived = 1 ORDER BY updated_at DESC LIMIT ?",
                 (limit,)
             ).fetchall()
             return [dict(r) for r in rows]
@@ -155,6 +165,20 @@ class Database:
     def delete_conversation(self, conv_id: int):
         with self._get_connection() as conn:
             conn.execute("DELETE FROM conversations WHERE id = ?", (conv_id,))
+
+    def archive_conversation(self, conv_id: int):
+        with self._get_connection() as conn:
+            conn.execute(
+                "UPDATE conversations SET is_archived = 1, updated_at = datetime('now') WHERE id = ?",
+                (conv_id,)
+            )
+
+    def unarchive_conversation(self, conv_id: int):
+        with self._get_connection() as conn:
+            conn.execute(
+                "UPDATE conversations SET is_archived = 0, updated_at = datetime('now') WHERE id = ?",
+                (conv_id,)
+            )
 
     # === Mesaj İşlemleri ===
 
@@ -275,35 +299,38 @@ class Database:
         with self._get_connection() as conn:
             conn.execute("DELETE FROM ethics_rules WHERE rule_key = ?", (rule_key,))
 
-    # === Özellik Talepleri ===
+    # === Proje İşlemleri ===
 
-    def create_feature_request(self, title: str, description: str, user_message: str = "") -> int:
+    def get_repos(self) -> list[dict]:
         with self._get_connection() as conn:
+            rows = conn.execute(
+                "SELECT * FROM repos ORDER BY sort_order ASC, created_at DESC"
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    def create_repo(self, name: str, url: str, icon: str = "🌐", badge: str = "Site") -> int:
+        with self._get_connection() as conn:
+            # En yüksek sort_order'u bul
+            max_order = conn.execute("SELECT COALESCE(MAX(sort_order), -1) FROM repos").fetchone()[0]
             cursor = conn.execute(
-                "INSERT INTO feature_requests (title, description, user_message) VALUES (?, ?, ?)",
-                (title, description, user_message)
+                "INSERT INTO repos (name, url, icon, badge, sort_order) VALUES (?, ?, ?, ?, ?)",
+                (name, url, icon, badge, max_order + 1)
             )
             return cursor.lastrowid
 
-    def get_feature_requests(self, status: Optional[str] = None, limit: int = 50) -> list[dict]:
+    def update_repo(self, repo_id: int, name: str, url: str, icon: str, badge: str) -> bool:
         with self._get_connection() as conn:
-            if status:
-                rows = conn.execute(
-                    "SELECT * FROM feature_requests WHERE status = ? ORDER BY created_at DESC LIMIT ?",
-                    (status, limit)
-                ).fetchall()
-            else:
-                rows = conn.execute(
-                    "SELECT * FROM feature_requests ORDER BY created_at DESC LIMIT ?", (limit,)
-                ).fetchall()
-            return [dict(r) for r in rows]
-
-    def update_feature_request_status(self, req_id: int, status: str):
-        with self._get_connection() as conn:
-            conn.execute(
-                "UPDATE feature_requests SET status = ?, updated_at = datetime('now') WHERE id = ?",
-                (status, req_id)
+            cursor = conn.execute(
+                """UPDATE repos SET name = ?, url = ?, icon = ?, badge = ?,
+                   updated_at = datetime('now') WHERE id = ?""",
+                (name, url, icon, badge, repo_id)
             )
+            return cursor.rowcount > 0
+
+    def delete_repo(self, repo_id: int) -> bool:
+        with self._get_connection() as conn:
+            cursor = conn.execute("DELETE FROM repos WHERE id = ?", (repo_id,))
+            return cursor.rowcount > 0
 
     # === Log İşlemleri ===
 

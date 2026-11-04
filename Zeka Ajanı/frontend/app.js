@@ -3,6 +3,164 @@
  * Web arayüzü ile backend API arasındaki iletişimi yönetir
  */
 
+// =============================================
+// UserManager - Kullanıcı Yönetimi (localStorage)
+// =============================================
+
+class UserManager {
+    constructor() {
+        this.USERS_KEY = 'zeka_ajani_users';
+        this.SESSION_KEY = 'zeka_ajani_session';
+        this.currentUser = this.loadSession();
+    }
+
+    _hash(text) {
+        let hash = 0;
+        for (let i = 0; i < text.length; i++) {
+            hash = ((hash << 5) - hash) + text.charCodeAt(i);
+            hash = hash & hash;
+        }
+        return 'h_' + Math.abs(hash).toString(36);
+    }
+
+    getUsers() {
+        return JSON.parse(localStorage.getItem(this.USERS_KEY) || '[]');
+    }
+
+    saveUsers(users) {
+        localStorage.setItem(this.USERS_KEY, JSON.stringify(users));
+    }
+
+    findUserByNickname(nick) {
+        return this.getUsers().find(u => u.nickname.toLowerCase() === nick.toLowerCase());
+    }
+
+    findUserByEmail(email) {
+        return this.getUsers().find(u => u.email.toLowerCase() === email.toLowerCase());
+    }
+
+    register(name, surname, nickname, email, password) {
+        if (!name || !surname || !nickname || !email || !password) {
+            return { success: false, error: 'Tüm alanlar doldurulmalıdır.' };
+        }
+        if (password.length < 6) {
+            return { success: false, error: 'Şifre en az 6 karakter olmalıdır.' };
+        }
+        if (nickname.toLowerCase() === 'admin') {
+            return { success: false, error: 'Bu kullanıcı adı kullanılamaz.' };
+        }
+        if (!email.includes('@')) {
+            return { success: false, error: 'Geçerli bir e-posta adresi girin.' };
+        }
+
+        const users = this.getUsers();
+        if (this.findUserByNickname(nickname)) {
+            return { success: false, error: 'Bu kullanıcı adı zaten alınmış.' };
+        }
+        if (this.findUserByEmail(email)) {
+            return { success: false, error: 'Bu e-posta adresi zaten kayıtlı.' };
+        }
+
+        const newUser = {
+            id: 'user_' + Date.now(),
+            name: name.trim(),
+            surname: surname.trim(),
+            nickname: nickname.trim(),
+            email: email.trim().toLowerCase(),
+            password: this._hash(password),
+            messages: 0,
+            chats: 0,
+            createdAt: new Date().toISOString(),
+            lastLogin: new Date().toISOString(),
+        };
+
+        users.push(newUser);
+        this.saveUsers(users);
+        return { success: true, user: newUser };
+    }
+
+    login(identifier, password) {
+        // Admin kontrolü (hardcoded)
+        if (identifier === 'Admin' && password === 'Ag1453ag!') {
+            const adminUser = {
+                id: 'admin',
+                nickname: 'Admin',
+                name: 'Admin',
+                surname: '',
+                email: 'admin@zekaajani',
+                isAdmin: true,
+                createdAt: new Date().toISOString(),
+                lastLogin: new Date().toISOString(),
+            };
+            this.saveSession(adminUser);
+            return { success: true, user: adminUser, isAdmin: true };
+        }
+
+        const users = this.getUsers();
+        const hashed = this._hash(password);
+        const user = users.find(u =>
+            (u.nickname.toLowerCase() === identifier.toLowerCase() ||
+             u.email.toLowerCase() === identifier.toLowerCase()) &&
+            u.password === hashed
+        );
+
+        if (!user) {
+            return { success: false, error: 'Kullanıcı adı/e-posta veya şifre hatalı.' };
+        }
+
+        user.lastLogin = new Date().toISOString();
+        this.saveUsers(users);
+        this.saveSession(user);
+        return { success: true, user };
+    }
+
+    saveSession(user) {
+        this.currentUser = user;
+        localStorage.setItem(this.SESSION_KEY, JSON.stringify(user));
+    }
+
+    loadSession() {
+        try { const d = localStorage.getItem(this.SESSION_KEY); return d ? JSON.parse(d) : null; }
+        catch { return null; }
+    }
+
+    clearSession() {
+        this.currentUser = null;
+        localStorage.removeItem(this.SESSION_KEY);
+    }
+
+    isLoggedIn() { return this.currentUser !== null; }
+    isAdmin() { return this.currentUser && this.currentUser.isAdmin === true; }
+    getCurrentUser() { return this.currentUser; }
+
+    deleteUser(userId) {
+        if (userId === 'admin') return { success: false, error: 'Admin silinemez.' };
+        let users = this.getUsers();
+        users = users.filter(u => u.id !== userId);
+        this.saveUsers(users);
+        return { success: true };
+    }
+
+    getStats() {
+        const users = this.getUsers();
+        const today = new Date().toISOString().split('T')[0];
+        return {
+            totalUsers: users.length,
+            activeToday: users.filter(u => u.lastLogin && u.lastLogin.startsWith(today)).length,
+            totalChats: users.reduce((s, u) => s + (u.chats || 0), 0),
+            totalMessages: users.reduce((s, u) => s + (u.messages || 0), 0),
+        };
+    }
+
+    getAllUsers() {
+        return this.getUsers();
+    }
+}
+
+// =============================================
+// Zeka Ajanı Ana Uygulama Sınıfı
+// =============================================
+
 class ZekaAjani {
     constructor() {
         // === State ===
@@ -17,6 +175,8 @@ class ZekaAjani {
             chatMessages: document.getElementById('chatMessages'),
             chatInput: document.getElementById('chatInput'),
             sendBtn: document.getElementById('sendBtn'),
+            attachBtn: document.getElementById('attachBtn'),
+            fileInput: document.getElementById('fileInput'),
             newChatBtn: document.getElementById('newChatBtn'),
             newChatBtn2: document.getElementById('newChatBtn2'),
             conversationList: document.getElementById('conversationList'),
@@ -56,14 +216,66 @@ class ZekaAjani {
             aiImageBtn: document.getElementById('aiImageBtn'),
             aiImageOverlay: document.getElementById('aiImageOverlay'),
             aiImageClose: document.getElementById('aiImageClose'),
-            aiImageFrame: document.getElementById('aiImageFrame'),
+            aiImageOpenBtn: document.getElementById('aiImageOpenBtn'),
+            aiImageUrlInput: document.getElementById('aiImageUrlInput'),
+            aiImageSendBtn: document.getElementById('aiImageSendBtn'),
+            aiImageSendCancel: document.getElementById('aiImageSendCancel'),
+            // Auth elements
+            authScreen: document.getElementById('authScreen'),
+            registerForm: document.getElementById('registerForm'),
+            loginForm: document.getElementById('loginForm'),
+            regName: document.getElementById('regName'),
+            regSurname: document.getElementById('regSurname'),
+            regNickname: document.getElementById('regNickname'),
+            regNicknameHint: document.getElementById('regNicknameHint'),
+            regEmail: document.getElementById('regEmail'),
+            regPassword: document.getElementById('regPassword'),
+            regPasswordConfirm: document.getElementById('regPasswordConfirm'),
+            registerBtn: document.getElementById('registerBtn'),
+            loginUsername: document.getElementById('loginUsername'),
+            loginPassword: document.getElementById('loginPassword'),
+            loginBtn: document.getElementById('loginBtn'),
+            switchToLogin: document.getElementById('switchToLogin'),
+            switchToRegister: document.getElementById('switchToRegister'),
+            authTabs: document.querySelectorAll('.auth-tab'),
+            registerTab: document.querySelector('.auth-tab[data-form="register"]'),
+            loginTab: document.querySelector('.auth-tab[data-form="login"]'),
+            welcomeOverlay: document.getElementById('welcomeOverlay'),
+            welcomeUserName: document.getElementById('welcomeUserName'),
+            appContent: document.getElementById('appContent'),
+            // Admin elements
+            adminModal: document.getElementById('adminModal'),
+            adminModalClose: document.getElementById('adminModalClose'),
+            adminModalClose2: document.getElementById('adminModalClose2'),
+            adminLogoutBtn: document.getElementById('adminLogoutBtn'),
+            adminUserList: document.getElementById('adminUserList'),
+            adminUserSearch: document.getElementById('adminUserSearch'),
+            adminUserCount: document.getElementById('adminUserCount'),
+            statTotalUsers: document.getElementById('statTotalUsers'),
+            statActiveToday: document.getElementById('statActiveToday'),
+            statTotalChats: document.getElementById('statTotalChats'),
+            statTotalMessages: document.getElementById('statTotalMessages'),
+            // User menu
+            userMenu: document.getElementById('userMenu'),
+            userMenuBtn: document.getElementById('userMenuBtn'),
+            userAvatarLetter: document.getElementById('userAvatarLetter'),
+            userDropdown: document.getElementById('userDropdown'),
+            userDropdownName: document.getElementById('userDropdownName'),
+            userDropdownNick: document.getElementById('userDropdownNick'),
+            userSwitchBtn: document.getElementById('userSwitchBtn'),
+            userLogoutBtn: document.getElementById('userLogoutBtn'),
         };
 
         // === Canlı Projeler ===
         this.repos = [];
         this.editingRepoId = null;
 
-        this.init();
+        // === Kullanıcı Yönetimi ===
+        this.userManager = new UserManager();
+        this.appInitialized = false;
+
+        // Auth kontrolü ile başla
+        this.checkAuth();
     }
 
     init() {
@@ -72,6 +284,360 @@ class ZekaAjani {
         this.loadArchivedConversations();
         this.checkHealth();
         this.loadRepoSites();
+    }
+
+    // === Auth Kontrolü ===
+
+    checkAuth() {
+        if (this.userManager.isLoggedIn()) {
+            // Oturum varsa direkt uygulamaya geç (welcome göstermeden)
+            const user = this.userManager.getCurrentUser();
+            if (user.isAdmin) {
+                this.updateUserMenu(user);
+                this.elements.authScreen.classList.add('hidden');
+                this.elements.appContent.style.display = 'block';
+                this.appInitialized = true;
+                this.init();
+                this.showToast('👋 Admin olarak giriş yapıldı');
+                this.bindUserMenuEvents();
+                return;
+            }
+            // Normal kullanıcı - welcome animasyonu göster
+            this.bindUserMenuEvents();
+            this.showWelcomeAndEnter(user);
+        } else {
+            // Auth ekranı zaten görünür (varsayılan CSS)
+            this.bindUserMenuEvents();
+            this.bindAuthEvents();
+        }
+    }
+
+    bindUserMenuEvents() {
+        if (this._userMenuBound) return;
+        this._userMenuBound = true;
+
+        this.elements.userMenuBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            this.elements.userDropdown.classList.toggle('active');
+        });
+        document.addEventListener('click', (e) => {
+            if (this.elements.userMenu && !this.elements.userMenu.contains(e.target)) {
+                this.elements.userDropdown.classList.remove('active');
+            }
+        });
+        this.elements.userSwitchBtn.addEventListener('click', () => {
+            this.elements.userDropdown.classList.remove('active');
+            this.userManager.clearSession();
+            this.switchUser();
+        });
+        this.elements.userLogoutBtn.addEventListener('click', () => {
+            this.elements.userDropdown.classList.remove('active');
+            this.handleLogout();
+        });
+    }
+
+    bindAuthEvents() {
+        // Ortak form geçiş fonksiyonu
+        const switchForm = (formName) => {
+            this.elements.authTabs.forEach(t => t.classList.remove('active'));
+            this.elements.registerForm.classList.remove('active');
+            this.elements.loginForm.classList.remove('active');
+            if (formName === 'register') {
+                this.elements.registerTab.classList.add('active');
+                this.elements.registerForm.classList.add('active');
+            } else {
+                this.elements.loginTab.classList.add('active');
+                this.elements.loginForm.classList.add('active');
+            }
+        };
+
+        // Tab butonları ile geçiş
+        this.elements.authTabs.forEach(tab => {
+            tab.addEventListener('click', () => {
+                switchForm(tab.dataset.form);
+            });
+        });
+
+        // Link ile geçiş (altyazı linkleri)
+        this.elements.switchToLogin.addEventListener('click', (e) => {
+            e.preventDefault();
+            switchForm('login');
+        });
+        this.elements.switchToRegister.addEventListener('click', (e) => {
+            e.preventDefault();
+            switchForm('register');
+        });
+
+        // Kayıt işlemi
+        this.elements.registerBtn.addEventListener('click', () => this.handleRegister());
+
+        // Giriş işlemi
+        this.elements.loginBtn.addEventListener('click', () => this.handleLogin());
+
+        // Enter ile gönderme
+        this.elements.regPassword.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') this.handleRegister();
+        });
+        this.elements.regPasswordConfirm.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') this.handleRegister();
+        });
+        this.elements.loginPassword.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') this.handleLogin();
+        });
+
+        // Nickname uniqueness check (canlı)
+        let nickTimer = null;
+        this.elements.regNickname.addEventListener('input', () => {
+            clearTimeout(nickTimer);
+            const hint = this.elements.regNicknameHint;
+            const val = this.elements.regNickname.value.trim();
+            if (val.length < 2) { hint.textContent = ''; return; }
+            nickTimer = setTimeout(() => {
+                if (this.userManager.findUserByNickname(val)) {
+                    hint.textContent = '❌ Bu kullanıcı adı alınmış';
+                    hint.className = 'auth-field-hint error';
+                } else {
+                    hint.textContent = '✅ Kullanılabilir';
+                    hint.className = 'auth-field-hint success';
+                }
+            }, 400);
+        });
+
+        // Admin panel event'leri (sayfa yüklendiğinde bağla)
+        this.elements.adminModalClose.addEventListener('click', () => this.closeAdminPanel());
+        this.elements.adminModalClose2.addEventListener('click', () => this.closeAdminPanel());
+        this.elements.adminModal.addEventListener('click', (e) => {
+            if (e.target === this.elements.adminModal) this.closeAdminPanel();
+        });
+        this.elements.adminLogoutBtn.addEventListener('click', () => this.handleLogout());
+
+        // Admin tab geçişleri
+        document.querySelectorAll('.admin-tab').forEach(tab => {
+            tab.addEventListener('click', () => {
+                document.querySelectorAll('.admin-tab').forEach(t => t.classList.remove('active'));
+                document.querySelectorAll('.admin-tab-content').forEach(c => c.classList.remove('active'));
+                tab.classList.add('active');
+                const content = document.getElementById('admin' + tab.dataset.tab.charAt(0).toUpperCase() + tab.dataset.tab.slice(1) + 'Tab');
+                if (content) content.classList.add('active');
+                if (tab.dataset.tab === 'users') this.renderAdminUsers();
+                if (tab.dataset.tab === 'stats') this.renderAdminStats();
+            });
+        });
+
+        // Admin kullanıcı arama
+        this.elements.adminUserSearch.addEventListener('input', () => this.renderAdminUsers());
+
+        // ESC ile admin panelini kapat
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && this.elements.adminModal.classList.contains('active')) {
+                this.closeAdminPanel();
+            }
+        });
+    }
+
+    // === Auth Handlers ===
+
+    handleRegister() {
+        const name = this.elements.regName.value.trim();
+        const surname = this.elements.regSurname.value.trim();
+        const nickname = this.elements.regNickname.value.trim();
+        const email = this.elements.regEmail.value.trim();
+        const password = this.elements.regPassword.value;
+        const confirm = this.elements.regPasswordConfirm.value;
+
+        if (password !== confirm) {
+            this.showToast('❌ Şifreler eşleşmiyor');
+            return;
+        }
+
+        const result = this.userManager.register(name, surname, nickname, email, password);
+        if (result.success) {
+            this.showToast('✅ Kayıt başarılı! Hoş geldiniz.');
+            this.userManager.saveSession(result.user);
+            this.showWelcomeAndEnter(result.user);
+        } else {
+            this.showToast('❌ ' + result.error);
+        }
+    }
+
+    handleLogin() {
+        const identifier = this.elements.loginUsername.value.trim();
+        const password = this.elements.loginPassword.value;
+
+        if (!identifier || !password) {
+            this.showToast('❌ Kullanıcı adı ve şifre girin');
+            return;
+        }
+
+        const result = this.userManager.login(identifier, password);
+        if (result.success) {
+            if (result.isAdmin) {
+                this.elements.authScreen.classList.add('hidden');
+                this.elements.appContent.style.display = 'block';
+                this.appInitialized = true;
+                this.init();
+                this.showToast('👋 Admin girişi başarılı');
+                this.openAdminPanel();
+            } else {
+                this.showWelcomeAndEnter(result.user);
+            }
+        } else {
+            this.showToast('❌ ' + result.error);
+        }
+    }
+
+    handleLogout() {
+        if (!confirm('Çıkış yapmak istediğinize emin misiniz?')) return;
+        this.userManager.clearSession();
+        this.appInitialized = false;
+
+        // Uygulamayı sıfırla
+        this.elements.appContent.style.display = 'none';
+        this.elements.authScreen.classList.remove('hidden');
+        this.elements.authScreen.style.display = 'flex';
+        this.elements.loginForm.classList.remove('active');
+        this.elements.registerForm.classList.add('active');
+        this.elements.chatMessages.innerHTML = '';
+        if (this.elements.welcomeScreen) this.elements.welcomeScreen.style.display = 'flex';
+        this.conversations = [];
+        this.currentConversationId = null;
+
+        // Admin panelini kapat
+        this.closeAdminPanel();
+
+        this.showToast('👋 Çıkış yapıldı');
+    }
+
+    showWelcomeAndEnter(user) {
+        // Auth ekranını gizle
+        this.elements.authScreen.classList.add('hidden');
+
+        // Kullanıcı menüsünü güncelle
+        this.updateUserMenu(user);
+
+        // Hoşgeldin animasyonunu göster
+        const nameDisplay = user.isAdmin ? 'Admin' : (user.name + ' ' + user.surname);
+        this.elements.welcomeUserName.textContent = 'Hoş Geldin, ' + nameDisplay + '!';
+        this.elements.welcomeOverlay.classList.add('active');
+
+        // 2.5 saniye sonra uygulamaya geç
+        setTimeout(() => {
+            this.elements.welcomeOverlay.classList.remove('active');
+            this.elements.appContent.style.display = 'block';
+            if (!this.appInitialized) {
+                this.appInitialized = true;
+                // Admin girişi yapılmadıysa
+                if (user.isAdmin) {
+                    this.init();
+                    this.openAdminPanel();
+                } else {
+                    this.init();
+                }
+            }
+            // Hoşgeldin toast'ı
+            if (!user.isAdmin) {
+                this.showToast('👋 Hoş geldin, ' + user.nickname + '!');
+            }
+        }, 2500);
+    }
+
+    updateUserMenu(user) {
+        if (!this.elements.userAvatarLetter) return;
+        const letter = (user.name || user.nickname || '?').charAt(0).toUpperCase();
+        this.elements.userAvatarLetter.textContent = letter;
+        this.elements.userDropdownName.textContent = user.isAdmin ? 'Admin' : (user.name + ' ' + user.surname);
+        this.elements.userDropdownNick.textContent = '@' + (user.isAdmin ? 'admin' : user.nickname);
+    }
+
+    switchUser() {
+        this.appInitialized = false;
+        this.elements.appContent.style.display = 'none';
+        this.elements.authScreen.classList.remove('hidden');
+        this.elements.authScreen.style.display = 'flex';
+        this.elements.loginForm.classList.remove('active');
+        this.elements.registerForm.classList.add('active');
+        this.elements.chatMessages.innerHTML = '';
+        if (this.elements.welcomeScreen) this.elements.welcomeScreen.style.display = 'flex';
+        this.conversations = [];
+        this.currentConversationId = null;
+        this.closeAdminPanel();
+        this.showToast('🔄 Kullanıcı değiştiriliyor...');
+    }
+
+    // === Admin Paneli ===
+
+    openAdminPanel() {
+        this.elements.adminModal.classList.add('active');
+        this.renderAdminUsers();
+        this.renderAdminStats();
+    }
+
+    closeAdminPanel() {
+        this.elements.adminModal.classList.remove('active');
+    }
+
+    renderAdminUsers() {
+        const list = this.elements.adminUserList;
+        const search = this.elements.adminUserSearch.value.trim().toLowerCase();
+        const users = this.userManager.getAllUsers().filter(u => {
+            if (!search) return true;
+            return u.name.toLowerCase().includes(search) ||
+                   u.surname.toLowerCase().includes(search) ||
+                   u.nickname.toLowerCase().includes(search) ||
+                   u.email.toLowerCase().includes(search);
+        });
+
+        this.elements.adminUserCount.textContent = users.length + ' kullanıcı';
+
+        if (users.length === 0) {
+            list.innerHTML = '<p class="text-muted">Kullanıcı bulunamadı.</p>';
+            return;
+        }
+
+        list.innerHTML = users.map(u => {
+            const initial = (u.name.charAt(0) + u.surname.charAt(0)).toUpperCase() || u.nickname.charAt(0).toUpperCase();
+            const created = new Date(u.createdAt).toLocaleDateString('tr-TR');
+            const lastLogin = u.lastLogin ? new Date(u.lastLogin).toLocaleDateString('tr-TR') : '-';
+            return `
+                <div class="admin-user-card" data-id="${u.id}">
+                    <div class="admin-user-avatar">${initial}</div>
+                    <div class="admin-user-info">
+                        <div class="admin-user-name">${this.escapeHtml(u.name + ' ' + u.surname)} <small>@${this.escapeHtml(u.nickname)}</small></div>
+                        <div class="admin-user-email">${this.escapeHtml(u.email)}</div>
+                    </div>
+                    <div class="admin-user-meta">
+                        <div class="admin-user-date">Kayıt: ${created}</div>
+                        <div class="admin-user-date">Son: ${lastLogin}</div>
+                    </div>
+                    <button class="admin-user-del-btn" data-id="${u.id}" title="Kullanıcıyı sil">✕</button>
+                </div>
+            `;
+        }).join('');
+
+        // Silme butonları
+        list.querySelectorAll('.admin-user-del-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const userId = btn.dataset.id;
+                if (!confirm('Bu kullanıcıyı silmek istediğinize emin misiniz?')) return;
+                const result = this.userManager.deleteUser(userId);
+                if (result.success) {
+                    this.showToast('✅ Kullanıcı silindi');
+                    this.renderAdminUsers();
+                    this.renderAdminStats();
+                } else {
+                    this.showToast('❌ ' + result.error);
+                }
+            });
+        });
+    }
+
+    renderAdminStats() {
+        const stats = this.userManager.getStats();
+        if (this.elements.statTotalUsers) this.elements.statTotalUsers.textContent = stats.totalUsers;
+        if (this.elements.statActiveToday) this.elements.statActiveToday.textContent = stats.activeToday;
+        if (this.elements.statTotalChats) this.elements.statTotalChats.textContent = stats.totalChats;
+        if (this.elements.statTotalMessages) this.elements.statTotalMessages.textContent = stats.totalMessages;
     }
 
     bindEvents() {
@@ -92,6 +658,13 @@ class ZekaAjani {
                 e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px';
             }, 0);
         });
+
+        // Dosya ekleme
+        this.elements.attachBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            this.elements.fileInput.click();
+        });
+        this.elements.fileInput.addEventListener('change', () => this.handleFileSelect());
 
         // Menü toggle (mobil)
         this.elements.menuToggle.addEventListener('click', () => {
@@ -148,6 +721,12 @@ class ZekaAjani {
         this.elements.aiImageClose.addEventListener('click', () => this.closeAIImage());
         this.elements.aiImageOverlay.addEventListener('click', (e) => {
             if (e.target === this.elements.aiImageOverlay) this.closeAIImage();
+        });
+        this.elements.aiImageOpenBtn.addEventListener('click', () => this.openPerchanceTab());
+        this.elements.aiImageSendBtn.addEventListener('click', () => this.sendImageUrlToChat());
+        this.elements.aiImageSendCancel.addEventListener('click', () => { this.elements.aiImageUrlInput.value = ''; });
+        this.elements.aiImageUrlInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') this.sendImageUrlToChat();
         });
         // ESC ile kapat
         document.addEventListener('keydown', (e) => {
@@ -766,12 +1345,120 @@ class ZekaAjani {
     // AI Image Overlay
     openAIImage() {
         this.elements.aiImageOverlay.classList.add('active');
-        this.elements.aiImageFrame.src = 'https://null.perchance.org/image-ai';
+        this.elements.aiImageUrlInput.focus();
     }
 
     closeAIImage() {
         this.elements.aiImageOverlay.classList.remove('active');
-        this.elements.aiImageFrame.src = 'about:blank';
+        this.elements.aiImageUrlInput.value = '';
+    }
+
+    openPerchanceTab() {
+        window.open('https://null.perchance.org/image-ai', '_blank');
+        this.showToast('✨ Perchance yeni sekmede açıldı. Görseli oluşturup URL\'sini kopyalayın ve buraya yapıştırın.');
+    }
+
+    sendImageUrlToChat() {
+        const url = this.elements.aiImageUrlInput.value.trim();
+        if (!url) return;
+
+        if (!url.match(/^https?:\/\/.+/i)) {
+            this.showToast('Geçerli bir URL girin (https:// ile başlamalı)');
+            return;
+        }
+
+        this.closeAIImage();
+
+        this.hideWelcomeScreen();
+        const imageHtml = `<a href="${this.escapeHtml(url)}" target="_blank" rel="noopener">
+            <img src="${this.escapeHtml(url)}" alt="AI Görsel" class="chat-image"
+                 style="max-width:100%;max-height:400px;border-radius:8px;cursor:pointer;margin:8px 0"
+                 onclick="window.open(this.src)">
+        </a>`;
+
+        const messageDiv = document.createElement('div');
+        messageDiv.className = 'message assistant';
+        const bubble = document.createElement('div');
+        bubble.className = 'bubble';
+        bubble.innerHTML = `<strong>🖼️ AI Görsel</strong><br>${imageHtml}`;
+        messageDiv.appendChild(bubble);
+        this.elements.chatMessages.appendChild(messageDiv);
+        this.scrollToBottom();
+
+        this.elements.aiImageUrlInput.value = '';
+        this.showToast('Görsel sohbete eklendi');
+    }
+
+    // Dosya ekleme
+    handleFileSelect() {
+        const files = this.elements.fileInput.files;
+        if (!files || files.length === 0) return;
+
+        Array.from(files).forEach(file => {
+            // Dosya boyutu kontrolü (max 10MB)
+            if (file.size > 10 * 1024 * 1024) {
+                this.showToast(`⚠️ ${file.name} çok büyük (max 10MB)`);
+                return;
+            }
+
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                const dataUrl = e.target.result;
+                this.appendFileToChat(file, dataUrl);
+            };
+            reader.onerror = () => {
+                this.showToast(`⚠️ ${file.name} okunamadı`);
+            };
+            reader.readAsDataURL(file);
+        });
+
+        // Input'u sıfırla (aynı dosyayı tekrar seçebilmek için)
+        this.elements.fileInput.value = '';
+    }
+
+    appendFileToChat(file, dataUrl) {
+        this.hideWelcomeScreen();
+
+        const messageDiv = document.createElement('div');
+        messageDiv.className = 'message user';
+
+        const bubble = document.createElement('div');
+        bubble.className = 'bubble';
+
+        // Görsel dosyaları inline göster, diğerlerini link olarak
+        if (file.type.startsWith('image/')) {
+            bubble.innerHTML = `<div style="margin-bottom:4px;font-size:12px;color:var(--text-muted)">📷 ${this.escapeHtml(file.name)}</div>
+                <img src="${dataUrl}" alt="${this.escapeHtml(file.name)}"
+                     style="max-width:100%;max-height:400px;border-radius:8px;cursor:pointer"
+                     onclick="window.open('${dataUrl}')">`;
+        } else {
+            const icon = file.type.includes('pdf') ? '📄' :
+                         file.type.includes('zip') || file.type.includes('rar') ? '📦' :
+                         file.type.includes('text') || file.name.match(/\.(js|py|html|css|json|xml|md)$/i) ? '📝' : '📎';
+            const sizeStr = file.size > 1024 * 1024
+                ? (file.size / (1024 * 1024)).toFixed(1) + ' MB'
+                : (file.size / 1024).toFixed(0) + ' KB';
+            bubble.innerHTML = `<div style="display:flex;align-items:center;gap:8px;padding:8px 0">
+                <span style="font-size:24px">${icon}</span>
+                <div>
+                    <div style="font-weight:600;font-size:13px">${this.escapeHtml(file.name)}</div>
+                    <div style="font-size:11px;color:var(--text-muted)">${sizeStr}</div>
+                </div>
+                <a href="${dataUrl}" download="${this.escapeHtml(file.name)}"
+                   style="margin-left:auto;padding:4px 10px;background:var(--accent);color:#fff;border-radius:6px;text-decoration:none;font-size:12px">İndir</a>
+            </div>`;
+        }
+
+        messageDiv.appendChild(bubble);
+
+        // Mesajı sohbet listesinin sonundan bir önceki konuma ekle (typing indicator'dan önce)
+        const typingIndicator = this.elements.chatMessages.querySelector('.typing-indicator');
+        if (typingIndicator) {
+            this.elements.chatMessages.insertBefore(messageDiv, typingIndicator);
+        } else {
+            this.elements.chatMessages.appendChild(messageDiv);
+        }
+        this.scrollToBottom();
     }
 
     async saveSettings() {

@@ -7,6 +7,103 @@
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
+    <!-- ========== KAYIT / GİRİŞ EKRANI ========== -->
+    <div class="auth-screen" id="authScreen">
+        <div class="auth-container">
+            <div class="auth-left">
+                <div class="auth-logo">
+                    <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="1.5">
+                        <path d="M12 2a4 4 0 014 4v2a4 4 0 01-8 0V6a4 4 0 014-4z"/>
+                        <path d="M16 14H8a4 4 0 00-4 4v2h16v-2a4 4 0 00-4-4z"/>
+                    </svg>
+                </div>
+                <h1 class="auth-welcome-title">Zeka Ajanı'na Hoş Geldiniz</h1>
+                <p class="auth-welcome-sub">Yapay zeka asistanınıza erişmek için kayıt olun veya giriş yapın.</p>
+                <div class="auth-features">
+                    <div class="auth-feature">💬 Akıllı Sohbet</div>
+                    <div class="auth-feature">📁 Dosya İşlemleri</div>
+                    <div class="auth-feature">🌐 Web Scraping</div>
+                    <div class="auth-feature">⚡ Otomasyon</div>
+                </div>
+            </div>
+            <div class="auth-right">
+                <div class="auth-tabs">
+                    <button class="auth-tab active" data-form="register">📝 Kayıt Ol</button>
+                    <button class="auth-tab" data-form="login">🔑 Giriş Yap</button>
+                </div>
+                <!-- KAYIT FORMU -->
+                <div class="auth-form active" id="registerForm">
+                    <div class="auth-form-row">
+                        <div class="auth-field">
+                            <label>Adınız *</label>
+                            <input type="text" class="auth-input" id="regName" placeholder="Adınız" maxlength="50" autocomplete="given-name">
+                        </div>
+                        <div class="auth-field">
+                            <label>Soyadınız *</label>
+                            <input type="text" class="auth-input" id="regSurname" placeholder="Soyadınız" maxlength="50" autocomplete="family-name">
+                        </div>
+                    </div>
+                    <div class="auth-field">
+                        <label>Kullanıcı Adı (Nickname) *</label>
+                        <input type="text" class="auth-input" id="regNickname" placeholder="Benzersiz bir kullanıcı adı seçin" maxlength="30" autocomplete="username">
+                        <small class="auth-field-hint" id="regNicknameHint"></small>
+                    </div>
+                    <div class="auth-field">
+                        <label>E-posta Adresi *</label>
+                        <input type="email" class="auth-input" id="regEmail" placeholder="ornek@email.com" maxlength="100" autocomplete="email">
+                    </div>
+                    <div class="auth-field">
+                        <label>Şifre *</label>
+                        <input type="password" class="auth-input" id="regPassword" placeholder="En az 6 karakter" minlength="6" maxlength="100" autocomplete="new-password">
+                    </div>
+                    <div class="auth-field">
+                        <label>Şifre Tekrar *</label>
+                        <input type="password" class="auth-input" id="regPasswordConfirm" placeholder="Şifrenizi tekrar girin" maxlength="100" autocomplete="new-password">
+                    </div>
+                    <button class="auth-btn" id="registerBtn">Kayıt Ol</button>
+                    <p class="auth-switch-text">
+                        Zaten hesabınız var mı? <a href="#" class="auth-switch-link" id="switchToLogin">Giriş Yap</a>
+                    </p>
+                </div>
+
+                <!-- GİRİŞ FORMU -->
+                <div class="auth-form" id="loginForm">
+                    <div class="auth-field">
+                        <label>Kullanıcı Adı veya E-posta</label>
+                        <input type="text" class="auth-input" id="loginUsername" placeholder="Kullanıcı adı veya e-posta" autocomplete="username">
+                    </div>
+                    <div class="auth-field">
+                        <label>Şifre</label>
+                        <input type="password" class="auth-input" id="loginPassword" placeholder="Şifreniz" autocomplete="current-password">
+                    </div>
+                    <button class="auth-btn" id="loginBtn">Giriş Yap</button>
+                    <p class="auth-switch-text">
+                        Hesabınız yok mu? <a href="#" class="auth-switch-link" id="switchToRegister">Kayıt Ol</a>
+                    </p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ========== HOŞGELDİN ANİMASYON OVERLAY ========== -->
+    <div class="welcome-overlay" id="welcomeOverlay">
+        <div class="welcome-anim-content">
+            <div class="welcome-anim-icon">
+                <svg width="80" height="80" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                    <path d="M12 2a4 4 0 014 4v2a4 4 0 01-8 0V6a4 4 0 014-4z"/>
+                    <path d="M16 14H8a4 4 0 00-4 4v2h16v-2a4 4 0 00-4-4z"/>
+                </svg>
+            </div>
+            <h2 class="welcome-anim-title" id="welcomeUserName">Hoş Geldiniz!</h2>
+            <p class="welcome-anim-sub">Zeka Ajanı'na yönlendiriliyorsunuz...</p>
+            <div class="welcome-loader">
+                <span></span><span></span><span></span>
+            </div>
+        </div>
+    </div>
+
+    <!-- ========== ANA UYGULAMA ========== -->
+    <div id="appContent" style="display:none">
     <!-- Üst Menü -->
     <header class="topbar">
         <div class="topbar-left">
@@ -32,6 +129,20 @@
                     <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/>
                 </svg>
             </button>
+            <div class="user-menu" id="userMenu">
+                <button class="user-menu-btn" id="userMenuBtn" title="Kullanıcı">
+                    <span class="user-avatar-letter" id="userAvatarLetter">?</span>
+                </button>
+                <div class="user-dropdown" id="userDropdown">
+                    <div class="user-dropdown-info">
+                        <span class="user-dropdown-name" id="userDropdownName">Kullanıcı</span>
+                        <span class="user-dropdown-nick" id="userDropdownNick">@kullanici</span>
+                    </div>
+                    <div class="user-dropdown-divider"></div>
+                    <button class="user-dropdown-item" id="userSwitchBtn">🔄 Kullanıcı Değiştir</button>
+                    <button class="user-dropdown-item user-dropdown-danger" id="userLogoutBtn">🚪 Çıkış Yap</button>
+                </div>
+            </div>
         </div>
     </header>
 
@@ -102,6 +213,7 @@
                                     <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/>
                                 </svg>
                             </button>
+                            <input type="file" id="fileInput" hidden multiple accept="image/*,.pdf,.doc,.docx,.txt,.csv,.xlsx,.xls,.zip,.rar,.json,.js,.py,.html,.css,.xml,.md">
                             <button class="btn-send" id="sendBtn" title="Gönder">
                                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                     <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/>
@@ -290,13 +402,107 @@
 
     <!-- AI Image Overlay -->
     <div class="ai-image-overlay" id="aiImageOverlay">
-        <div class="ai-image-header">
-            <span class="ai-image-title">AI Görsel Oluşturucu</span>
-            <button class="ai-image-close" id="aiImageClose">&times;</button>
+        <div class="ai-image-window" id="aiImageWindow">
+            <div class="ai-image-header">
+                <span class="ai-image-title">AI Görsel Oluşturucu</span>
+                <button class="ai-image-close" id="aiImageClose">&times;</button>
+            </div>
+            <div class="ai-image-body">
+                <div class="ai-image-info">
+                    <div class="ai-image-info-icon">
+                        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                            <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+                            <circle cx="8.5" cy="8.5" r="1.5"/>
+                            <path d="M21 15l-5-5L5 21"/>
+                        </svg>
+                    </div>
+                    <h3 class="ai-image-info-title">Perchance AI ile Görsel Oluşturun</h3>
+                    <ol class="ai-image-info-steps">
+                        <li><strong>Perchance'ı Aç</strong> butonuna tıklayın (yeni sekmede açılır)</li>
+                        <li>Açıklamanızı yazıp görsel oluşturun</li>
+                        <li>Oluşan görsele <strong>sağ tıklayıp "Görsel adresini kopyala"</strong> yapın</li>
+                        <li>Buraya dönüp URL'yi yapıştırın ve <strong>Gönder</strong>e tıklayın</li>
+                    </ol>
+                    <button class="ai-image-open-btn" id="aiImageOpenBtn">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/>
+                            <polyline points="15 3 21 3 21 9"/>
+                            <line x1="10" y1="14" x2="21" y2="3"/>
+                        </svg>
+                        Perchance'ı Aç
+                    </button>
+                </div>
+                <div class="ai-image-input-section">
+                    <div class="ai-image-input-label">Görsel URL'sini yapıştırın</div>
+                    <div class="ai-image-send-row">
+                        <input type="url" class="ai-image-send-input" id="aiImageUrlInput"
+                               placeholder="Görsel URL'sini yapıştırın (sağ tık → Görsel adresini kopyala)...">
+                        <button class="ai-image-send-btn" id="aiImageSendBtn">Gönder</button>
+                        <button class="ai-image-send-cancel" id="aiImageSendCancel">Temizle</button>
+                    </div>
+                </div>
+            </div>
         </div>
-        <iframe class="ai-image-frame" id="aiImageFrame" src="about:blank" sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-downloads" loading="lazy"></iframe>
     </div>
 
     <script src="app.js?v=2"></script>
+    </div><!-- #appContent end -->
+
+    <!-- ========== ADMIN PANEL MODAL ========== -->
+    <div class="modal-overlay" id="adminModal">
+        <div class="modal modal-lg">
+            <div class="modal-header">
+                <h2>⚙️ Admin Paneli</h2>
+                <button class="btn-icon modal-close" id="adminModalClose">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M18 6L6 18M6 6l12 12"/>
+                    </svg>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div class="admin-tabs">
+                    <button class="admin-tab active" data-tab="users">👥 Kullanıcılar</button>
+                    <button class="admin-tab" data-tab="stats">📊 İstatistikler</button>
+                </div>
+
+                <!-- Kullanıcı Listesi -->
+                <div class="admin-tab-content active" id="adminUsersTab">
+                    <div class="admin-toolbar">
+                        <input type="text" class="form-input admin-search" id="adminUserSearch" placeholder="Kullanıcı ara...">
+                        <span class="admin-user-count" id="adminUserCount">0 kullanıcı</span>
+                    </div>
+                    <div class="admin-user-list" id="adminUserList">
+                        <p class="text-muted">Kullanıcı yükleniyor...</p>
+                    </div>
+                </div>
+
+                <!-- İstatistikler -->
+                <div class="admin-tab-content" id="adminStatsTab">
+                    <div class="admin-stats-grid">
+                        <div class="admin-stat-card">
+                            <div class="admin-stat-value" id="statTotalUsers">0</div>
+                            <div class="admin-stat-label">Toplam Kullanıcı</div>
+                        </div>
+                        <div class="admin-stat-card">
+                            <div class="admin-stat-value" id="statActiveToday">0</div>
+                            <div class="admin-stat-label">Bugün Aktif</div>
+                        </div>
+                        <div class="admin-stat-card">
+                            <div class="admin-stat-value" id="statTotalChats">0</div>
+                            <div class="admin-stat-label">Toplam Sohbet</div>
+                        </div>
+                        <div class="admin-stat-card">
+                            <div class="admin-stat-value" id="statTotalMessages">0</div>
+                            <div class="admin-stat-label">Toplam Mesaj</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" id="adminModalClose2">Kapat</button>
+                <button class="btn btn-danger" id="adminLogoutBtn">🚪 Çıkış Yap</button>
+            </div>
+        </div>
+    </div>
 </body>
 </html>

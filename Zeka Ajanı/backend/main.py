@@ -64,10 +64,26 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# === Kök Route (önce, static mount'tan etkilenmemesi için) ===
+# API Route'larını kaydet
+from routes import chat_router, files_router, web_router, automation_router, repos_router
+
+app.include_router(chat_router)
+app.include_router(files_router)
+app.include_router(web_router)
+app.include_router(automation_router)
+app.include_router(repos_router)
+
+# Statik dosyaları serve et (frontend)
+frontend_path = Path(__file__).parent.parent / "frontend"
+if frontend_path.exists():
+    app.mount("/", StaticFiles(directory=str(frontend_path), html=True), name="frontend")
+
+
+# === Kök Route ===
 
 @app.get("/api/health")
 def health_check():
+    """Sistem sağlık kontrolü"""
     return {
         "status": "healthy",
         "app": settings.PROJECT_NAME,
@@ -81,25 +97,11 @@ def health_check():
 
 @app.get("/api/logs")
 def get_logs(level: str = "all", limit: int = 100):
+    """Sistem loglarını getir"""
     if level == "all":
         level = None
     logs = db.get_logs(level=level, limit=limit)
     return {"success": True, "logs": logs}
-
-
-# API Route'larını kaydet
-from routes import chat_router, files_router, web_router, automation_router, features_router
-
-app.include_router(chat_router)
-app.include_router(files_router)
-app.include_router(web_router)
-app.include_router(automation_router)
-app.include_router(features_router)
-
-# Statik dosyaları serve et (frontend)
-frontend_path = Path(__file__).parent.parent / "frontend"
-if frontend_path.exists():
-    app.mount("/", StaticFiles(directory=str(frontend_path), html=True), name="frontend")
 
 
 # === Ana Çalıştırma ===

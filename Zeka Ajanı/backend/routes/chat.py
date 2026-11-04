@@ -41,6 +41,13 @@ def create_conversation(req: CreateConversationRequest):
     return {"success": True, "conversation": conversation}
 
 
+@router.get("/conversations/archived")
+def list_archived_conversations(limit: int = 50):
+    """Arşivlenen sohbetleri listele"""
+    conversations = db.get_archived_conversations(limit=limit)
+    return {"success": True, "conversations": conversations}
+
+
 @router.get("/conversations")
 def list_conversations(limit: int = 50):
     """Sohbetleri listele"""
@@ -70,6 +77,25 @@ def delete_conversation(conv_id: int):
         raise HTTPException(status_code=404, detail="Sohbet bulunamadı")
     db.delete_conversation(conv_id)
     return {"success": True, "message": "Sohbet silindi"}
+
+
+@router.post("/conversations/{conv_id}/archive")
+def archive_conversation(conv_id: int):
+    """Sohbeti arşivle"""
+    if not db.get_conversation(conv_id):
+        raise HTTPException(status_code=404, detail="Sohbet bulunamadı")
+    db.archive_conversation(conv_id)
+    return {"success": True, "message": "Sohbet arşivlendi"}
+
+
+@router.post("/conversations/{conv_id}/unarchive")
+def unarchive_conversation(conv_id: int):
+    """Sohbeti arşivden çıkar"""
+    conversation = db.get_conversation(conv_id)
+    if not conversation:
+        raise HTTPException(status_code=404, detail="Sohbet bulunamadı")
+    db.unarchive_conversation(conv_id)
+    return {"success": True, "message": "Sohbet arşivden çıkarıldı"}
 
 
 @router.post("/send")

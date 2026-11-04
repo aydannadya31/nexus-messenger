@@ -1,11 +1,10 @@
-require('dotenv').config({ path: require('path').join(__dirname, '..', '.env') });
 const express = require('express');
 const multer = require('multer');
 const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
 const { v4: uuidv4 } = require('uuid');
-const { HFProvider } = require('./providers/hf-provider');
+const { ComfyUIBridge } = require('./comfyui-bridge');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -15,7 +14,6 @@ app.use(cors());
 app.use(express.json());
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 app.use('/results', express.static(path.join(__dirname, 'results')));
-app.use(express.static(path.join(__dirname, '..', 'frontend')));
 
 // Ensure directories exist
 ['uploads', 'results'].forEach(dir => {
@@ -23,146 +21,121 @@ app.use(express.static(path.join(__dirname, '..', 'frontend')));
   if (!fs.existsSync(p)) fs.mkdirSync(p, { recursive: true });
 });
 
-// Upload config - single image
+// File upload config
 const storage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, path.join(__dirname, 'uploads')),
   filename: (req, file, cb) => {
     const ext = path.extname(file.originalname);
-    cb(null, uuidv4() + ext);
+    cb(null, `${uuidv4()}${ext}`);
   }
 });
-
 const upload = multer({
   storage,
-  limits: { fileSize: 20 * 1024 * 1024 },
+  limits: { fileSize: 20 * 1024 * 1024 }, // 20MB
   fileFilter: (req, file, cb) => {
-    const allowed = /jpeg|jpg|png|webp/;
+    const allowed = /jpeg|jpg|png|webp|mp4|mov/;
     const ext = allowed.test(path.extname(file.originalname).toLowerCase());
-    const mime = allowed.test(file.mime);
+    const mime = allowed.test(file.mimetype);
     if (ext || mime) return cb(null, true);
-    cb(new Error('Only jpg/png/webp images allowed'));
+    cb(new Error('Only jpg/png/webp/mp4/mov allowed'));
   }
 });
 
-// HF Provider instance
-let hfProvider = null;
-
-function initHFProvider(token) {
-  if (token) {
-    hfProvider = new HFProvider(token);
-    console.log('[Server] HF Provider ready');
-    return true;
-  }
-  hfProvider = null;
-  console.log('[Server] HF Token not set');
-  return false;
-}
-
-initHFProvider(process.env.HF_TOKEN);
+// ComfyUI bridge
+const comfyui = new ComfyUIBridge(
+  process.env.COMFYUI_HOST || '127.0.0.1',
+  process.env.COMFYUI_PORT || 8188
+);
 
 // In-memory job store
 const jobs = new Map();
 
-// ========================
-// API ROUTES
-// ========================
-
-// POST /api/generate — single image upload, returns video
-app.post('/api/generate', upload.single('image'), async (req, res) => {
+/**
+ * POST /api/generate
+ * Body: modelImage (file) + clothImage (file)
+ * Returns: jobId
+ */
+app.post('/api/generate', upload.fields([
+  { name: 'modelImage', maxCount: 1 },
+  { name: 'clothImage', maxCount: 1 }
+]), async (req, res) => {
   try {
-    if (!req.file) {
-      return res.status(400).json({ error: 'Lutfen bir gorsel yukleyin.' });
+    if (!req.files || !req.files.modelImage || !req.files.clothImage) {
+      return res.status(400).json({ error: 'Both modelImage and clothImage are required' });
     }
 
-    const imagePath = req.file.path;
-    const prompt = req.body.prompt || '';
+    const modelPath = req.files.modelImage[0].path;
+    const clothPath = req.files.clothImage[0].path;
     const jobId = uuidv4();
 
-    const job = {
+    jobs.set(jobId, {
       id: jobId,
       status: 'queued',
       progress: 0,
-      prompt,
       createdAt: new Date().toISOString(),
       resultUrl: null,
       error: null
-    };
-    jobs.set(jobId, job);
+    });
 
-    // Respond immediately with jobId
-    res.json({ jobId, status: 'queued' });
-
-    if (!hfProvider) {
-      const j = jobs.get(jobId);
-      if (j) {
-        j.status = 'failed';
-        j.error = 'HF Token ayarlanmamis. Ayarlar menusunden HF Token girin.';
-      }
-      return;
-    }
-
-    await hfProvider.generate(jobId, imagePath, {
+    // Process asynchronously
+    comfyui.generate(jobId, modelPath, clothPath, {
       onProgress: (progress) => {
-        const j = jobs.get(jobId);
-        if (j) j.progress = progress;
+        const job = jobs.get(jobId);
+        if (job) {
+          job.progress = progress;
+          job.status = progress >= 100 ? 'processing' : 'processing';
+        }
       },
-      onComplete: (resultPath) => {
-        const j = jobs.get(jobId);
-        if (j) {
-          j.status = 'completed';
-          j.progress = 100;
-          j.resultUrl = '/results/' + path.basename(resultPath);
-          console.log('[Server] Job ' + jobId + ' completed');
+      onComplete: (outputPath) => {
+        const job = jobs.get(jobId);
+        if (job) {
+          job.status = 'completed';
+          job.progress = 100;
+          job.resultUrl = `/results/${path.basename(outputPath)}`;
         }
       },
       onError: (error) => {
-        const j = jobs.get(jobId);
-        if (j) {
-          j.status = 'failed';
-          j.error = error.message || 'Video olusturma basarisiz oldu';
+        const job = jobs.get(jobId);
+        if (job) {
+          job.status = 'failed';
+          job.error = error.message || String(error);
         }
       }
     });
 
+    res.json({ jobId, status: 'queued' });
   } catch (error) {
     console.error('Generate error:', error);
-    if (!res.headersSent) {
-      res.status(500).json({ error: error.message });
-    }
+    res.status(500).json({ error: error.message });
   }
 });
 
-// POST /api/set-key
-app.post('/api/set-key', (req, res) => {
-  const { apiKey } = req.body;
-  if (!apiKey) {
-    return res.status(400).json({ error: 'HF Token gerekli' });
-  }
-  const enabled = initHFProvider(apiKey);
-  res.json({ success: true, enabled });
-});
-
-// GET /api/status/:jobId
+/**
+ * GET /api/status/:jobId
+ * Returns job status and result URL when done
+ */
 app.get('/api/status/:jobId', (req, res) => {
   const job = jobs.get(req.params.jobId);
   if (!job) return res.status(404).json({ error: 'Job not found' });
-  res.json({
-    id: job.id,
-    status: job.status,
-    progress: job.progress,
-    prompt: job.prompt,
-    resultUrl: job.resultUrl,
-    error: job.error,
-    createdAt: job.createdAt
-  });
+  res.json(job);
 });
 
-// GET /api/status
-app.get('/api/status', (req, res) => {
+/**
+ * GET /api/samples
+ * Returns sample images for the UI
+ */
+app.get('/api/samples', (req, res) => {
   res.json({
-    hfEnabled: !!hfProvider,
-    model: 'stabilityai/stable-video-diffusion-img2vid',
-    uptime: process.uptime()
+    models: [
+      { url: 'https://a2e-prod-jumpy.makefun.ai/stable/sample/virtualTryOn/m1.jpg', name: 'model-1' },
+      { url: 'https://a2e-prod-jumpy.makefun.ai/stable/sample/virtualTryOn/m2.jpg', name: 'model-2' },
+      { url: 'https://a2e-prod-jumpy.makefun.ai/stable/sample/virtualTryOn/m3.jpg', name: 'model-3' }
+    ],
+    clothes: [
+      { url: 'https://a2e-prod-jumpy.makefun.ai/stable/sample/virtualTryOn/t-shirt.png', name: 't-shirt' },
+      { url: 'https://a2e-prod-jumpy.makefun.ai/stable/sample/virtualTryOn/dress.png', name: 'dress' },
+      { url: 'https://a2e-prod-jumpy.makefun.ai/stable/sample/virtualTryOn/pants.png', name: 'pants' }
+    ]
   });
 });
 
@@ -173,10 +146,6 @@ app.use((err, req, res, next) => {
 });
 
 app.listen(PORT, () => {
-  console.log('');
-  console.log('Image to Video API');
-  console.log('Port: ' + PORT);
-  console.log('Model: stabilityai/stable-video-diffusion-img2vid');
-  console.log('HF: ' + (hfProvider ? 'Token set' : 'Token not set'));
-  console.log('');
+  console.log(`Cloth Swap API running on http://localhost:${PORT}`);
+  console.log(`ComfyUI target: ${comfyui.host}:${comfyui.port}`);
 });

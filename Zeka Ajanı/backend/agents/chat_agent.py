@@ -4,13 +4,21 @@ Kullanıcı ile iletişim kurar, istekleri analiz eder,
 hangi ajanın kullanılacağına karar verir ve model çağrılarını yönetir.
 """
 import logging
-import re
 from typing import Optional
 
 from config import settings
 from database import db
 from ethics import ethics_engine
-from models import GroqModel, OpenRouterModel
+# Lazy-load models: server starts even if models/ paketi eksikse
+try:
+    from models import GroqModel, OpenRouterModel
+    _models_available = True
+except ImportError:
+    GroqModel = None
+    OpenRouterModel = None
+    _models_available = False
+    logger = logging.getLogger(__name__)
+    logger.warning("models/ paketi bulunamadı. Model özellikleri devre dışı.")
 
 logger = logging.getLogger(__name__)
 
@@ -25,9 +33,15 @@ class ChatAgent:
     """
 
     def __init__(self):
-        self.groq = GroqModel()
-        self.openrouter = OpenRouterModel()
-        self.current_provider = settings.PRIMARY_PROVIDER
+        if not _models_available:
+            self.groq = None
+            self.openrouter = None
+            self.current_provider = "none"
+            logger.warning("ChatAgent: models/ paketi bulunamadı - model özellikleri kullanılamaz")
+        else:
+            self.groq = GroqModel()
+            self.openrouter = OpenRouterModel()
+            self.current_provider = settings.PRIMARY_PROVIDER
 
     def get_current_model(self):
         """Aktif model sağlayıcıyı döndür"""
@@ -107,15 +121,7 @@ class ChatAgent:
                 model_used = "error"
                 tokens_used = 0
 
-        # LLM yanıtında [OZELLIK_TALEBI] etiketi varsa otomatik kaydet
-        feature_match = re.search(r'\[OZELLIK_TALEBI\]\s*(.+?)\s*\|\s*(.+)', response_text)
-        if feature_match:
-            title = feature_match.group(1).strip()
-            description = feature_match.group(2).strip()
-            db.create_feature_request(title, description, user_message)
-            logger.info(f"Özellik talebi oluşturuldu: {title}")
-            response_text = re.sub(r'\n?\[OZELLIK_TALEBI\].*', '', response_text).strip()
-
+        # 7. Yanıtı kaydet
         db.save_message(conversation_id, "assistant", response_text, model_used, tokens_used)
 
         return {
@@ -153,27 +159,26 @@ class ChatAgent:
         """Sistem prompt'unu oluştur (etik kurallar + yetenekler)"""
         prompt = f"""Sen Zeka Ajanı'sın. Kullanıcının kişisel yapay zeka asistanısın.
 
-=== YETENEKLERİN ===
-1. 💬 **Sohbet**: Günlük konuşmalar, soru-cevap, beyin fırtınası
-2. 📁 **Dosya İşlemleri**: Dosya oluşturma, düzenleme, silme, arama
-3. 🌐 **Web Scraping**: Web sitelerinden veri çekme, bilgi toplama
-4. ⚡ **Otomasyon**: Tekrarlı görevleri otomatikleştirme, zamanlanmış işlemler
-5. 🔧 **Özel Görevler**: Kullanıcının tanımladığı özel görevleri yerine getirme
+### DİL KURALI (ÇOK ÖNEMLİ) ###
+- SADECE TÜRKÇE yanıt ver. Başka hiçbir dil kullanma.
+- Sakın başka dillerde (İngilizce, Çince, Arapça vb.) kelime veya karakter kullanma.
+- Cümlelerinin tamamı Türkçe olmalı.
 
-=== SINIRLAMALARIN ===
-- **Mevcut olmayan bir özellik istenirse**: Yapamıyorum deme. Bunun yerine yanıtının SON satırına şu formatda ekle: `[OZELLIK_TALEBI] başlık | açıklama`
-- Örn: "Telefonla arama yap" istenirse -> `[OZELLIK_TALEBI] Telefon Araması | Kullanıcı telefondan arama yapmak istiyor, sesli arama özelliği eklenmeli`
-- Sistem bu talebi otomatik kaydedip geliştiriciye iletecek. Sen sadece kullanıcıya normal şekilde yanıt ver.
+=== YETENEKLERİN ===
+1. **Sohbet**: Günlük konuşmalar, soru-cevap, beyin fırtınası
+2. **Dosya İşlemleri**: Dosya oluşturma, düzenleme, silme, arama
+3. **Web Scraping**: Web sitelerinden veri çekme, bilgi toplama
+4. **Otomasyon**: Tekrarlı görevleri otomatikleştirme, zamanlanmış işlemler
 
 === KİŞİLİĞİN ===
-- Profesyonel ve yardımsever
+- Profesyonel, yardımsever ve doğal Türkçe konuş
 - Kullanıcının talimatlarını dikkatle takip et
-- Türkçe yanıt ver (kullanıcı aksini belirtmedikçe)
 - Karmaşık konuları basitçe açıkla
-- Yanıtlarında formatlı metin kullan
+- Kısa ve öz yanıt ver, gereksiz tekrar yapma
+- Asla kendini tanıtma cümlelerini tekrarlama
 
 === MEVCUT NİYET ===
-Şu anki kullanıcı isteği şu kategoriyle ilgili: {intent}
+Kullanıcı isteği kategorisi: {intent}
 """
 
         # Etik kuralları ekle
@@ -182,22 +187,6 @@ class ChatAgent:
             prompt += f"\n\n{ethics_prompt}"
 
         return prompt
-
-    def report_missing_feature(self, title: str, description: str, user_message: str = "") -> str:
-        """
-        Kullanıcının istediği ama mevcut olmayan bir özelliği bildir.
-        Bu kayıt Sisyphus'a (geliştirici asistana) iletilecek.
-        """
-        req_id = db.create_feature_request(title, description, user_message)
-        logger.info(f"YENİ ÖZELLİK TALEBİ [#{req_id}]: {title}")
-
-        return (
-            f"⚠️ **Özellik Şu An Mevcut Değil**\n\n"
-            f"İstediğiniz *\"{title}\"* özelliği henüz Zeka Ajanı'nda bulunmuyor. "
-            f"Bu talep kaydedildi (Talep #{req_id}) ve geliştirici ekibimize iletildi. "
-            f"**En kısa sürede eklenecektir.**\n\n"
-            f"Başka bir isteğiniz var mı?"
-        )
 
     def switch_provider(self, provider: str):
         """Model sağlayıcıyı değiştir"""

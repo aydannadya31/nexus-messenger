@@ -1,7 +1,7 @@
 {
-  "name": "image-to-video",
-  "version": "2.0.0",
-  "description": "Image-to-Video API - Hugging Face Inference API (Stable Video Diffusion)",
+  "name": "cloth-swap-backend",
+  "version": "1.0.0",
+  "description": "Cloth Swap API - ComfyUI bridge for FLUX VTO",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
@@ -12,8 +12,6 @@
     "multer": "^1.4.5-lts.1",
     "cors": "^2.8.5",
     "uuid": "^9.0.0",
-    "axios": "^1.6.0",
-    "form-data": "^4.0.0",
-    "dotenv": "^16.3.1"
+    "axios": "^1.6.0"
   }
 }

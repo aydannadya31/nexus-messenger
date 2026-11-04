@@ -62,16 +62,6 @@ def check_url(url: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/images")
-def search_images(req: SearchWebRequest):
-    """Görsel araması yap"""
-    try:
-        results = web_agent.search_images(req.query, limit=12)
-        return {"success": True, "results": results, "query": req.query}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
 @router.post("/extract")
 def extract_text(req: FetchPageRequest):
     """Web sayfasından temiz metin çıkar"""
