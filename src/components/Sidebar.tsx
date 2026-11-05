@@ -676,7 +676,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
       <footer className="p-3 sm:p-4 border-t border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 shrink-0 relative">
         {showStatusMenu && (
           <div className="absolute bottom-full left-6 mb-2 bg-white dark:bg-slate-800 rounded-2xl shadow-xl border border-slate-100 dark:border-slate-700 overflow-hidden z-20 w-40 animate-in fade-in slide-in-from-bottom-2">
-            {(['online', 'away', 'busy'] as const).map(s => (
+            {(['online', 'away', 'busy', 'offline'] as const).map(s => (
               <button
                 key={s}
                 onClick={() => {
@@ -687,9 +687,9 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
               >
                 <div className={cn(
                   "w-2 h-2 rounded-full",
-                  s === 'online' ? "bg-green-500" : s === 'away' ? "bg-amber-500" : "bg-red-500"
+                  s === 'online' ? "bg-green-500" : s === 'away' ? "bg-amber-500" : s === 'offline' ? "bg-slate-500" : "bg-red-500"
                 )} />
-                {s === 'online' ? t('side.online') : s === 'away' ? t('side.away') : t('side.busy')}
+                {s === 'online' ? t('side.online') : s === 'away' ? t('side.away') : s === 'offline' ? t('side.offline') : t('side.busy')}
               </button>
             ))}
           </div>

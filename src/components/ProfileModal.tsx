@@ -5,6 +5,7 @@ import { useToast } from '../lib/toast';
 import { UserProfile } from '../types';
 import { X, Check, User, Info, Wifi, Camera, Upload, Trash2, RefreshCw } from 'lucide-react';
 import { cn } from '../lib/utils';
+import { useI18n } from '../lib/i18n';
 
 interface ProfileModalProps {
   user: UserProfile;
@@ -14,6 +15,7 @@ interface ProfileModalProps {
 
 const ProfileModal: React.FC<ProfileModalProps> = ({ user, onClose, readOnly }) => {
   const { addToast } = useToast();
+  const { t } = useI18n();
   const [displayName, setDisplayName] = useState(user.displayName);
   const [nickname, setNickname] = useState(user.nickname || '');
   const [about, setAbout] = useState(user.about || '');
@@ -127,9 +129,10 @@ const ProfileModal: React.FC<ProfileModalProps> = ({ user, onClose, readOnly }) 
   };
 
   const statusOptions = [
-    { value: 'online', label: 'Çevrimiçi', color: 'bg-green-500' },
-    { value: 'away', label: 'Uzakta', color: 'bg-amber-500' },
-    { value: 'busy', label: 'Meşgul', color: 'bg-red-500' }
+    { value: 'online', label: t('side.online'), color: 'bg-green-500' },
+    { value: 'away', label: t('side.away'), color: 'bg-amber-500' },
+    { value: 'busy', label: t('side.busy'), color: 'bg-red-500' },
+    { value: 'offline', label: t('side.offline'), color: 'bg-slate-500' }
   ];
 
   return (
