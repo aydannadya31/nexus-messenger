@@ -67,6 +67,28 @@
   }
 }
 
+button, [role="button"], input[type="button"], input[type="submit"], input[type="reset"], input[type="text"], input[type="email"], input[type="password"], textarea {
+  min-height: 44px;
+  min-width: 44px;
+}
+
+button:focus-visible,
+[role="button"]:focus-visible,
+a:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+
+.safe-area-top {
+  padding-top: env(safe-area-inset-top, 0px);
+}
+.safe-area-bottom {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
 html[data-nexus-theme] body {
   background-color: var(--t-bg) !important;
   color: var(--t-text) !important;

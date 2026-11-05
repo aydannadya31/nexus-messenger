@@ -26,10 +26,19 @@ import { cn } from './lib/utils';
 import { MessageSquare, Ban } from 'lucide-react';
 
 function useDarkMode() {
-  const [dark, setDark] = useState(() => localStorage.getItem('theme') === 'dark');
+  const [dark, setDark] = useState(() => {
+    const saved = localStorage.getItem('theme');
+    if (saved !== null) return saved === 'dark';
+    return window.matchMedia('(prefers-color-scheme: dark)').matches;
+  });
   useEffect(() => {
     document.documentElement.classList.toggle('dark', dark);
     localStorage.setItem('theme', dark ? 'dark' : 'light');
+    if (localStorage.getItem('theme') !== null) return;
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    const handler = () => setDark(mq.matches);
+    mq.addEventListener('change', handler);
+    return () => mq.removeEventListener('change', handler);
   }, [dark]);
   return { dark, toggle: () => setDark(d => !d) };
 }
@@ -93,11 +102,18 @@ function NexusApp() {
     return () => window.removeEventListener('popstate', handlePopState);
   }, [selectedChatId, showMobileSidebar]);
 
-  // Confirm before leaving the app (mobile back from sidebar)
   useEffect(() => {
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
-      e.preventDefault();
-      e.returnValue = '';
+      const active = document.activeElement as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement | null;
+      const editing = active && (
+        (active.tagName === 'INPUT' && active.type !== 'file' && active.value.trim().length > 0) ||
+        (active.tagName === 'TEXTAREA' && active.value.trim().length > 0) ||
+        active.tagName === 'SELECT'
+      );
+      if (editing) {
+        e.preventDefault();
+        e.returnValue = '';
+      }
     };
     window.addEventListener('beforeunload', handleBeforeUnload);
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);

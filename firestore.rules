@@ -35,12 +35,13 @@ service cloud.firestore {
       return data.keys().hasAll(['participants', 'type', 'updatedAt'])
         && data.participants is list
         && data.participants.size() >= 2
+        && request.auth.uid in data.participants
         && data.type in ['private', 'group'];
     }
 
     function isValidMessage(data) {
       return data.keys().hasAll(['senderId', 'type', 'timestamp'])
-        && data.senderId is string
+        && data.senderId == request.auth.uid
         && data.type in ['text', 'image', 'video', 'audio', 'call'];
     }
 
@@ -48,13 +49,15 @@ service cloud.firestore {
       return data.keys().hasAll(['participants', 'chatId', 'callerId', 'type', 'status', 'createdAt'])
         && data.participants is list
         && data.participants.size() >= 1
+        && request.auth.uid in data.participants
+        && data.callerId == request.auth.uid
         && data.type in ['private', 'group']
         && data.status in ['calling', 'ongoing', 'ended'];
     }
 
     function isValidSignal(data) {
       return data.keys().hasAll(['from', 'to', 'type', 'data', 'createdAt'])
-        && data.from is string
+        && data.from == request.auth.uid
         && data.to is string
         && data.type in ['offer', 'answer', 'candidate'];
     }
@@ -123,10 +126,13 @@ service cloud.firestore {
       allow create, delete: if isAdmin();
     }
 
-    // Admin config — only admins can manage. Bootstrap first admin via Firebase Console.
+    // Admin config — only admins can read/manage. Other config remains readable for signed-in users.
     match /config/{doc} {
-      allow read: if isSignedIn();
+      allow read: if isSignedIn() && doc != 'admin';
       allow create, update, delete: if isAdmin();
+    }
+    match /config/admin {
+      allow read, write: if isAdmin();
     }
 
     // Admin messages — any user can create (send to admin), only admins can read/manage

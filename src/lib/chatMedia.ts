@@ -67,7 +67,7 @@ export const compressImageToDataUrl = async (file: File, maxLen = 800 * 1024): P
   }
 };
 
-export const compressVideoToDataUrl = async (file: Blob, maxLen = 1500 * 1024): Promise<string> => {
+export const compressVideoToDataUrl = async (file: Blob, maxLen = 680 * 1024): Promise<string> => {
   const raw = await fileToDataUrl(file);
   if (raw.length <= maxLen) return raw;
   try {
