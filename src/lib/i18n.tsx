@@ -67,6 +67,7 @@ const core: Dict = {
   'side.online': { tr: 'Çevrimiçi', en: 'Online', de: 'Online', fr: 'En ligne', ar: 'متصل', ko: '온라인', zh: '在线', ja: 'オンライン', hi: 'ऑनलाइन' },
   'side.away': { tr: 'Uzakta', en: 'Away', de: 'Abwesend', fr: 'Absent', ar: 'غائب', ko: '자리 비움', zh: '离开', ja: '離席中', hi: 'दूर' },
   'side.busy': { tr: 'Meşgul', en: 'Busy', de: 'Beschäftigt', fr: 'Occupé', ar: 'مشغول', ko: '바쁨', zh: '忙碌', ja: '取り込み中', hi: 'व्यस्त' },
+  'side.offline': { tr: 'Çevrimdışı', en: 'Offline', de: 'Offline', fr: 'Hors ligne', ar: 'غير متصل', ko: '오프라인', zh: '离线', ja: 'オフライン', hi: 'ऑफलाइन' },
   'side.active': { tr: 'Aktif', en: 'Active', de: 'Aktiv', fr: 'Actif', ar: 'نشط', ko: '활성', zh: '在线', ja: 'アクティブ', hi: 'सक्रिय' },
   'side.noStatus': { tr: 'Durum yok', en: 'No status', de: 'Kein Status', fr: 'Aucun statut', ar: 'لا يوجد حالة', ko: '상태 없음', zh: '无状态', ja: 'ステータスなし', hi: 'कोई स्थिति नहीं' },
   'side.muted': { tr: 'Sessize alındı', en: 'Muted', de: 'Stummgeschaltet', fr: 'Muet', ar: 'تم كتم الصوت', ko: '음소거됨', zh: '已静音', ja: 'ミュート', hi: 'म्यूट' },

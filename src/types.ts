@@ -7,7 +7,7 @@ export interface UserProfile {
   status?: string;
   about?: string;
   uin?: string;
-  onlineStatus?: 'online' | 'away' | 'busy';
+  onlineStatus?: 'online' | 'away' | 'busy' | 'offline';
   profileCompleted?: boolean;
   nickname?: string;
   country?: string;

@@ -23,6 +23,7 @@ const StatusBullet: React.FC<{ status?: string; className?: string }> = ({ statu
     online: 'bg-green-500',
     away: 'bg-amber-500',
     busy: 'bg-red-500',
+    offline: 'bg-slate-500',
     default: 'bg-slate-300'
   };
   
@@ -52,7 +53,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
   const chatDetailsRef = useRef<Record<string, UserProfile>>({});
   const selectedChatIdRef = useRef(selectedChatId);
   selectedChatIdRef.current = selectedChatId;
-  const myStatusRef = useRef<string>('online');
+  const myStatusRef = useRef<'online' | 'away' | 'busy' | 'offline'>('online');
 
   useEffect(() => {
     if (user && 'Notification' in window && Notification.permission === 'default') {
@@ -248,11 +249,13 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
     };
   };
 
-  const updateMyStatus = async (status: 'online' | 'away' | 'busy') => {
+  const updateMyStatus = async (status: 'online' | 'away' | 'busy' | 'offline') => {
     if (!user) return;
     try {
+      localStorage.setItem('nexus.lastStatus', status);
       await updateDoc(doc(db, 'users', user.uid), {
-        onlineStatus: status
+        onlineStatus: status,
+        lastSeen: serverTimestamp()
       });
     } catch (error) {
       console.error("Status update error:", error);
@@ -315,8 +318,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
 
   const [showStatusMenu, setShowStatusMenu] = useState(false);
   const [showProfileModal, setShowProfileModal] = useState(false);
-  const myStatus = profile?.onlineStatus || 'online';
-  myStatusRef.current = myStatus;
+    const myStatus = (!navigator.onLine ? 'offline' : profile?.onlineStatus) || 'online';
+    myStatusRef.current = myStatus;
 
   const [searchQuery, setSearchQuery] = useState('');
   const [showAdminMsg, setShowAdminMsg] = useState(false);

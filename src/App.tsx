@@ -3,8 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { useState, useEffect } from 'react';
-import { doc, getDoc, updateDoc } from 'firebase/firestore';
+import { useState, useEffect, useRef } from 'react';
+import { doc, getDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from './lib/firebase';
 import { initPush, initNativePush } from './lib/messaging';
 import { AuthProvider, useAuth } from './components/AuthProvider';
@@ -43,8 +43,57 @@ function useDarkMode() {
   return { dark, toggle: () => setDark(d => !d) };
 }
 
+function usePresence() {
+  const { user, profile } = useAuth();
+  const isOfflineRef = useRef(false);
+  const lastStatusRef = useRef<'online' | 'away' | 'busy' | 'offline'>('online');
+
+  useEffect(() => {
+    if (!user) return;
+    const stored = localStorage.getItem('nexus.lastStatus') as 'online' | 'away' | 'busy' | null;
+    const allowed = ['online', 'away', 'busy'];
+    const initial = allowed.includes(stored ?? '') ? stored : (allowed.includes(profile?.onlineStatus ?? '') ? profile.onlineStatus : 'online');
+    lastStatusRef.current = initial;
+
+    const writeStatus = async (status: 'online' | 'away' | 'busy' | 'offline') => {
+      if (!user) return;
+      try {
+        await updateDoc(doc(db, 'users', user.uid), { onlineStatus: status, lastSeen: serverTimestamp() });
+        if (status !== 'offline') localStorage.setItem('nexus.lastStatus', status);
+      } catch {}
+    };
+
+    if (profile?.onlineStatus !== initial && navigator.onLine) {
+      writeStatus(initial);
+    } else if (!navigator.onLine && !isOfflineRef.current) {
+      isOfflineRef.current = true;
+      writeStatus('offline');
+    }
+
+    const onOnline = async () => {
+      if (isOfflineRef.current) {
+        isOfflineRef.current = false;
+        await writeStatus(lastStatusRef.current);
+      }
+    };
+    const onOffline = async () => {
+      if (!isOfflineRef.current) {
+        isOfflineRef.current = true;
+        await writeStatus('offline');
+      }
+    };
+    window.addEventListener('online', onOnline);
+    window.addEventListener('offline', onOffline);
+    return () => {
+      window.removeEventListener('online', onOnline);
+      window.removeEventListener('offline', onOffline);
+    };
+  }, [user, profile]);
+}
+
 function NexusApp() {
   const { user, profile, loading } = useAuth();
+  usePresence();
   const { activeCall, incomingCall } = useCall();
   const { t } = useI18n();
   const [selectedChatId, setSelectedChatId] = useState<string | undefined>();
@@ -232,9 +281,11 @@ function NexusApp() {
         country={profile?.country || ''}
         userUid={user.uid}
         onSave={async (data) => {
+          const savedStatus = localStorage.getItem('nexus.lastStatus');
+          const saveStatus = (savedStatus && ['online', 'away', 'busy'].includes(savedStatus) ? savedStatus : 'online') as 'online' | 'away' | 'busy';
           await updateDoc(doc(db, 'users', user.uid), {
             ...data,
-            onlineStatus: 'online',
+            onlineStatus: saveStatus,
             profileCompleted: true
           });
         }}

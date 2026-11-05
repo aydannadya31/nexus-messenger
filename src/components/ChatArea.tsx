@@ -1232,12 +1232,13 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
     }
     
     const s = otherUser?.onlineStatus || 'online';
-    const labels = { online: t('chat.stOnline'), away: t('chat.stAway'), busy: t('chat.stBusy') };
+    const labels = { online: t('chat.stOnline'), away: t('chat.stAway'), busy: t('chat.stBusy'), offline: t('chat.stOffline') };
+    const statusKey = ['online', 'away', 'busy', 'offline'].includes(s) ? s : 'offline';
     
     return {
       name: otherUser?.displayName || t('chat.loading'),
-      statusText: labels[s as keyof typeof labels],
-      status: s,
+      statusText: labels[statusKey as keyof typeof labels] || t('side.noStatus'),
+      status: statusKey,
       uin: otherUser?.uin,
       photoURL: otherUser?.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${chatId}`
     };
@@ -1291,21 +1292,22 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
               {headerInfo.status && (
                 <span className={cn(
                   "text-[9px] font-black uppercase px-2 py-0.5 rounded-full shadow-sm shrink-0",
-                  headerInfo.status === 'online' ? "bg-green-500 text-white" : 
-                  headerInfo.status === 'away' ? "bg-amber-500 text-white" : "bg-red-500 text-white"
+        headerInfo.status === 'online' ? "bg-green-500 text-white" :
+        headerInfo.status === 'away' ? "bg-amber-500 text-white" :
+        headerInfo.status === 'offline' ? "bg-slate-500 text-white" : "bg-red-500 text-white"
                 )}>
-                  {headerInfo.status === 'online' ? t('side.online') : headerInfo.status === 'away' ? t('side.away') : t('side.busy')}
+                  {        headerInfo.status === 'online' ? t('side.online') : headerInfo.status === 'away' ? t('side.away') : headerInfo.status === 'offline' ? t('side.offline') : t('side.busy')}
                 </span>
               )}
               {headerInfo.uin && <span className="text-[10px] font-black text-blue-500 bg-blue-50 px-1.5 py-0.5 rounded tracking-tighter shrink-0">#{headerInfo.uin}</span>}
             </div>
             <span className={cn(
               "text-[11px] font-bold uppercase tracking-wider flex items-center gap-1 mt-1",
-              headerInfo.status === 'online' ? "text-green-500" : headerInfo.status === 'away' ? "text-amber-500" : "text-red-500"
+              headerInfo.status === 'online' ? "text-green-500" : headerInfo.status === 'away' ? "text-amber-500" : headerInfo.status === 'offline' ? "text-slate-500" : "text-red-500"
             )}>
               <span className={cn(
                 "w-1.5 h-1.5 rounded-full animate-pulse",
-                headerInfo.status === 'online' ? "bg-green-500" : headerInfo.status === 'away' ? "bg-amber-500" : "bg-red-500"
+                headerInfo.status === 'online' ? "bg-green-500" : headerInfo.status === 'away' ? "bg-amber-500" : headerInfo.status === 'offline' ? "bg-slate-500" : "bg-red-500"
               )} />
               {headerInfo.statusText}
             </span>

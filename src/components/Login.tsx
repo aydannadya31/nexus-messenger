@@ -247,11 +247,13 @@ export const Login: React.FC = () => {
           onSave={async (data) => {
             const { doc, updateDoc } = await import('firebase/firestore');
             const { db } = await import('../lib/firebase');
-            await updateDoc(doc(db, 'users', user.uid), {
-              ...data,
-              onlineStatus: 'online',
-              profileCompleted: true
-            });
+          const savedStatus = localStorage.getItem('nexus.lastStatus');
+          const saveStatus = (savedStatus && ['online', 'away', 'busy'].includes(savedStatus) ? savedStatus : 'online') as 'online' | 'away' | 'busy';
+          await updateDoc(doc(db, 'users', user.uid), {
+            ...data,
+            onlineStatus: saveStatus,
+            profileCompleted: true
+          });
           }}
           onComplete={() => setShowProfileSetup(false)}
         />

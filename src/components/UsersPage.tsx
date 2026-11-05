@@ -15,18 +15,21 @@ const statusLabels: Record<string, string> = {
   online: 'side.online',
   away: 'side.away',
   busy: 'side.busy',
+  offline: 'side.offline',
 };
 
 const statusDot: Record<string, string> = {
   online: 'bg-green-500',
   away: 'bg-amber-500',
   busy: 'bg-red-500',
+  offline: 'bg-slate-500',
 };
 
 const statusBadge: Record<string, string> = {
   online: 'bg-green-100 text-green-600',
   away: 'bg-amber-100 text-amber-600',
   busy: 'bg-red-100 text-red-600',
+  offline: 'bg-slate-100 text-slate-600',
 };
 
 export const UsersPage: React.FC<UsersPageProps> = ({ onSelectChat }) => {
