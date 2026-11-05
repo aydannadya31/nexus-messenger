@@ -3,7 +3,7 @@ import { collection, query, onSnapshot, where, getDocs, addDoc, serverTimestamp,
 import { db } from '../lib/firebase';
 import { useAuth } from './AuthProvider';
 import { Chat, UserProfile } from '../types';
-import { cn } from '../lib/utils';
+import { cn, getDisplayStatus } from '../lib/utils';
 import { useI18n, translate } from '../lib/i18n';
 import { MessageSquarePlus, Users, Search, Loader2 } from 'lucide-react';
 
@@ -230,7 +230,7 @@ export const UsersPage: React.FC<UsersPageProps> = ({ onSelectChat }) => {
                           {fp.onlineStatus && (
                             <div className={cn(
                               "absolute bottom-0 right-0 w-3.5 h-3.5 rounded-full border-2 border-white",
-                              statusDot[fp.onlineStatus]
+                              statusDot[getDisplayStatus(fp)]
                             )} />
                           )}
                         </div>
@@ -242,9 +242,9 @@ export const UsersPage: React.FC<UsersPageProps> = ({ onSelectChat }) => {
                             {fp.onlineStatus && (
                               <span className={cn(
                                 "text-[8px] px-1.5 py-0.5 font-bold uppercase tracking-tighter shrink-0 rounded",
-                                statusBadge[fp.onlineStatus]
+                                statusBadge[getDisplayStatus(fp)]
                               )}>
-                                {translate(statusLabels[fp.onlineStatus])}
+                                {translate(statusLabels[getDisplayStatus(fp)])}
                               </span>
                             )}
                           </div>

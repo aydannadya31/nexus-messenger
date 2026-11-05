@@ -44,51 +44,48 @@ function useDarkMode() {
 }
 
 function usePresence() {
-  const { user, profile } = useAuth();
-  const isOfflineRef = useRef(false);
-  const lastStatusRef = useRef<'online' | 'away' | 'busy' | 'offline'>('online');
+  const { user } = useAuth();
+  const preOfflineStatusRef = useRef<'online' | 'away' | 'busy'>('online');
 
   useEffect(() => {
     if (!user) return;
+    const allowed: ('online' | 'away' | 'busy')[] = ['online', 'away', 'busy'];
     const stored = localStorage.getItem('nexus.lastStatus') as 'online' | 'away' | 'busy' | null;
-    const allowed = ['online', 'away', 'busy'];
-    const initial = allowed.includes(stored ?? '') ? stored : (allowed.includes(profile?.onlineStatus ?? '') ? profile.onlineStatus : 'online');
-    lastStatusRef.current = initial;
+    const initial: 'online' | 'away' | 'busy' = (stored && allowed.includes(stored)) ? stored : 'online';
+    preOfflineStatusRef.current = initial;
 
     const writeStatus = async (status: 'online' | 'away' | 'busy' | 'offline') => {
       if (!user) return;
       try {
-        await updateDoc(doc(db, 'users', user.uid), { onlineStatus: status, lastSeen: serverTimestamp() });
+        await updateDoc(doc(db, 'users', user.uid), {
+          onlineStatus: status,
+          statusUpdatedAt: serverTimestamp(),
+        });
         if (status !== 'offline') localStorage.setItem('nexus.lastStatus', status);
       } catch {}
     };
 
-    if (profile?.onlineStatus !== initial && navigator.onLine) {
-      writeStatus(initial);
-    } else if (!navigator.onLine && !isOfflineRef.current) {
-      isOfflineRef.current = true;
+    if (!navigator.onLine) {
       writeStatus('offline');
     }
 
-    const onOnline = async () => {
-      if (isOfflineRef.current) {
-        isOfflineRef.current = false;
-        await writeStatus(lastStatusRef.current);
-      }
+    const handleOnline = async () => {
+      const stored = localStorage.getItem('nexus.lastStatus') as 'online' | 'away' | 'busy' | null;
+      const status: 'online' | 'away' | 'busy' = (stored && allowed.includes(stored)) ? stored : 'online';
+      preOfflineStatusRef.current = status;
+      await writeStatus(status);
     };
-    const onOffline = async () => {
-      if (!isOfflineRef.current) {
-        isOfflineRef.current = true;
-        await writeStatus('offline');
-      }
+    const handleOffline = () => {
+      writeStatus('offline');
     };
-    window.addEventListener('online', onOnline);
-    window.addEventListener('offline', onOffline);
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
     return () => {
-      window.removeEventListener('online', onOnline);
-      window.removeEventListener('offline', onOffline);
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
     };
-  }, [user, profile]);
+  }, [user]);
 }
 
 function NexusApp() {

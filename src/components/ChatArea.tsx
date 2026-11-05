@@ -5,7 +5,7 @@ import { db } from '../lib/firebase';
 import { useAuth } from './AuthProvider';
 import { useCall } from './CallProvider';
 import { Chat, Message, UserProfile, Call } from '../types';
-import { cn } from '../lib/utils';
+import { cn, getDisplayStatus } from '../lib/utils';
 import ProfileModal from './ProfileModal';
 import { TranslateBox, TranslateToggle, useTranslateTarget } from './TranslateBox';
 import { Image, MoreVertical, Send, Smile, Phone, Video, MessageSquarePlus, Play, Mic, Square, Pause, Trash2, ListChecks, X, Info, Eye, EyeOff, Lock, LogOut, Shield, UserX, UserCheck, Ban, Settings, Reply, Pencil, Download, ChevronLeft, Camera, SwitchCamera } from 'lucide-react';
@@ -1231,14 +1231,13 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
       };
     }
     
-    const s = otherUser?.onlineStatus || 'online';
+    const s = getDisplayStatus(otherUser);
     const labels = { online: t('chat.stOnline'), away: t('chat.stAway'), busy: t('chat.stBusy'), offline: t('chat.stOffline') };
-    const statusKey = ['online', 'away', 'busy', 'offline'].includes(s) ? s : 'offline';
     
     return {
       name: otherUser?.displayName || t('chat.loading'),
-      statusText: labels[statusKey as keyof typeof labels] || t('side.noStatus'),
-      status: statusKey,
+      statusText: labels[s as keyof typeof labels] || t('side.noStatus'),
+      status: s,
       uin: otherUser?.uin,
       photoURL: otherUser?.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${chatId}`
     };

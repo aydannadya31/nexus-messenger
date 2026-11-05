@@ -54,11 +54,39 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
   const selectedChatIdRef = useRef(selectedChatId);
   selectedChatIdRef.current = selectedChatId;
   const myStatusRef = useRef<'online' | 'away' | 'busy' | 'offline'>('online');
+  const [isOffline, setIsOffline] = useState(!navigator.onLine);
+  const [stalenessTick, setStalenessTick] = useState(0);
+
+  const OFFLINE_STALE_MS = 30000;
+
+  const getStatusWithStaleness = (p: UserProfile | null | undefined): 'online' | 'away' | 'busy' | 'offline' => {
+    const status = (p?.onlineStatus || 'online') as 'online' | 'away' | 'busy' | 'offline';
+    const updatedAt = p?.statusUpdatedAt;
+    if (!updatedAt) return status;
+    const ms =
+      typeof updatedAt === 'object' && updatedAt !== null && typeof (updatedAt as any).toMillis === 'function'
+        ? (updatedAt as any).toMillis()
+        : Number(updatedAt);
+    if (ms && Date.now() - ms > OFFLINE_STALE_MS) return 'offline';
+    return status;
+  };
 
   useEffect(() => {
     if (user && 'Notification' in window && Notification.permission === 'default') {
       Notification.requestPermission();
     }
+
+    const onOffline = () => setIsOffline(true);
+    const onOnline = () => setIsOffline(false);
+    window.addEventListener('offline', onOffline);
+    window.addEventListener('online', onOnline);
+
+    const tick = setInterval(() => setStalenessTick(t => t + 1), 10000);
+    return () => {
+      window.removeEventListener('offline', onOffline);
+      window.removeEventListener('online', onOnline);
+      clearInterval(tick);
+    };
   }, [user]);
   const [chatMenuOpen, setChatMenuOpen] = useState<string | null>(null);
   const [hiddenChats, setHiddenChats] = useState<string[]>([]);
@@ -318,7 +346,9 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
 
   const [showStatusMenu, setShowStatusMenu] = useState(false);
   const [showProfileModal, setShowProfileModal] = useState(false);
-    const myStatus = (!navigator.onLine ? 'offline' : profile?.onlineStatus) || 'online';
+    const myStatus: 'online' | 'away' | 'busy' | 'offline' = isOffline
+      ? 'offline'
+      : ((profile?.onlineStatus || 'online') as 'online' | 'away' | 'busy' | 'offline');
     myStatusRef.current = myStatus;
 
   const [searchQuery, setSearchQuery] = useState('');
@@ -503,7 +533,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
                       <div className="w-12 h-12 bg-slate-200 rounded-full flex-shrink-0 relative shadow-sm">
                         <img src={fp.photoURL} alt={fp.displayName} className="w-full h-full object-cover rounded-full" />
                         {fp.onlineStatus && (
-                          <StatusBullet status={fp.onlineStatus} className="absolute bottom-0 right-0 w-3.5 h-3.5" />
+                          <StatusBullet status={getStatusWithStaleness(fp)} className="absolute bottom-0 right-0 w-3.5 h-3.5" />
                         )}
                         {unread > 0 && (
                           <div className="absolute -top-1 -right-1 min-w-[18px] h-[18px] bg-red-500 border-2 border-white dark:border-slate-900 rounded-full flex items-center justify-center shadow-lg z-10">
@@ -517,10 +547,10 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
                           {fp.onlineStatus && (
                             <span className={cn(
                               "text-[8px] px-1 py-0.5 font-bold uppercase tracking-tighter shrink-0",
-                              fp.onlineStatus === 'online' ? "bg-green-100 dark:bg-green-950 text-green-600 dark:text-green-400" : 
-                              fp.onlineStatus === 'away' ? "bg-amber-100 dark:bg-amber-950 text-amber-600 dark:text-amber-400" : "bg-red-100 dark:bg-red-950 text-red-600 dark:text-red-400"
+                              getStatusWithStaleness(fp) === 'online' ? "bg-green-100 dark:bg-green-950 text-green-600 dark:text-green-400" : 
+                              getStatusWithStaleness(fp) === 'away' ? "bg-amber-100 dark:bg-amber-950 text-amber-600 dark:text-amber-400" : "bg-slate-100 dark:bg-slate-900 text-slate-600 dark:text-slate-400"
                             )}>
-                              {fp.onlineStatus === 'online' ? t('side.online') : fp.onlineStatus === 'away' ? t('side.away') : t('side.busy')}
+                              {getStatusWithStaleness(fp) === 'online' ? t('side.online') : getStatusWithStaleness(fp) === 'away' ? t('side.away') : getStatusWithStaleness(fp) === 'offline' ? t('side.offline') : t('side.busy')}
                             </span>
                           )}
                         </div>
@@ -729,9 +759,9 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
           >
             <span className={cn(
               "text-[10px] font-black uppercase tracking-wider",
-              myStatus === 'online' ? "text-green-600" : myStatus === 'away' ? "text-amber-600" : "text-red-600"
+              myStatus === 'online' ? "text-green-600" : myStatus === 'away' ? "text-amber-600" : myStatus === 'offline' ? "text-slate-600" : "text-red-600"
             )}>
-              {myStatus === 'online' ? t('side.active') : myStatus === 'away' ? t('side.away') : t('side.busy')}
+              {myStatus === 'online' ? t('side.active') : myStatus === 'away' ? t('side.away') : myStatus === 'offline' ? t('side.offline') : t('side.busy')}
             </span>
             <ChevronUp size={12} className={cn("text-slate-400 transition-transform duration-300", showStatusMenu && "rotate-180")} />
           </button>

@@ -8,6 +8,7 @@ export interface UserProfile {
   about?: string;
   uin?: string;
   onlineStatus?: 'online' | 'away' | 'busy' | 'offline';
+  statusUpdatedAt?: any;
   profileCompleted?: boolean;
   nickname?: string;
   country?: string;
