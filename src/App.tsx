@@ -62,12 +62,17 @@ function usePresence() {
           statusUpdatedAt: serverTimestamp(),
         });
         if (status !== 'offline') localStorage.setItem('nexus.lastStatus', status);
-      } catch {}
+      } catch (err) {
+        console.error('Presence write error:', err);
+      }
     };
 
-    if (!navigator.onLine) {
-      writeStatus('offline');
-    }
+    const desiredStatus = (): 'online' | 'away' | 'busy' | 'offline' =>
+      !navigator.onLine ? 'offline' : preOfflineStatusRef.current;
+
+    const syncPresence = async () => {
+      await writeStatus(desiredStatus());
+    };
 
     const handleOnline = async () => {
       const stored = localStorage.getItem('nexus.lastStatus') as 'online' | 'away' | 'busy' | null;
@@ -75,15 +80,21 @@ function usePresence() {
       preOfflineStatusRef.current = status;
       await writeStatus(status);
     };
-    const handleOffline = () => {
-      writeStatus('offline');
+    const handleOffline = async () => {
+      await writeStatus('offline');
     };
 
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
+
+    const interval = setInterval(syncPresence, 30000);
+
+    syncPresence();
+
     return () => {
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
+      clearInterval(interval);
     };
   }, [user]);
 }
