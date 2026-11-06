@@ -42,6 +42,7 @@ export interface Chat {
     roles?: Record<string, 'editor' | 'viewer'>;
     holdEnabled?: boolean;
     passive?: boolean;
+    discoverable?: boolean;
   };
   lastMessage?: {
     text: string;

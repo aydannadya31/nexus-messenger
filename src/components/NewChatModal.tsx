@@ -199,6 +199,7 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({ onClose, onChatCreat
         groupMetadata: {
           name: groupName.trim(), createdBy: user.uid, adminId: user.uid,
           photoURL: `https://api.dicebear.com/7.x/initials/svg?seed=${groupName}`,
+          discoverable: true,
           ...(groupPassword.trim() ? { password: groupPassword.trim() } : {})
         },
         updatedAt: serverTimestamp(), lastMessage: null
@@ -214,7 +215,7 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({ onClose, onChatCreat
   const loadGroups = async (name: string = '') => {
     setGroupSearchLoading(true);
     try {
-      const snap = await getDocs(query(collection(db, 'chats'), where('type', '==', 'group'), limit(20)));
+      const snap = await getDocs(query(collection(db, 'chats'), where('type', '==', 'group'), where('groupMetadata.discoverable', '==', true), limit(20)));
       console.log("loadGroups: fetched", snap.docs.length, "group docs");
       const groups = snap.docs.map(d => ({ ...d.data(), id: d.id } as Chat)).filter(g =>
         (!name || g.groupMetadata?.name?.toLowerCase().includes(name.toLowerCase())) &&
