@@ -23,7 +23,7 @@ export const LANGS: Lang[] = [
 type Dict = Record<string, Partial<Record<LangCode, string>>>;
 
 const core: Dict = {
-  'app.syncing': { tr: 'Syncing Core...', en: 'Syncing Core...' },
+  'app.syncing': { tr: 'Nexus Messenger Yükleniyor...', en: 'Nexus Messenger Yükleniyor...' },
   'app.banned': { tr: 'Hesabınız Banlanmış', en: 'Your Account Is Banned' },
   'app.bannedDesc': { tr: 'Hesabınız geçici olarak askıya alınmıştır.', en: 'Your account has been temporarily suspended.' },
   'app.remaining': { tr: 'KALAN SÜRE', en: 'TIME REMAINING' },
