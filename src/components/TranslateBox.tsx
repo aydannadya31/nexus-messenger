@@ -161,7 +161,7 @@ export function TranslateBox({ target, original, onSend }: {
       <textarea
         value={text}
         onChange={e => { setText(e.target.value); setEdited(true); }}
-        onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }}
+        onKeyDown={e => { if (e.isComposing || e.keyCode === 229) return; if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }}
         rows={1}
         placeholder={failed ? t('chat.trFailed') : sameLang ? t('chat.trSameLang') : t('chat.trPlaceholder')}
         className="w-full min-h-[38px] max-h-24 bg-transparent border-none focus:ring-0 resize-none text-sm px-1 py-0.5 text-slate-900 dark:text-slate-100 placeholder:text-slate-400"

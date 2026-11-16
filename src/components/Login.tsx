@@ -187,6 +187,7 @@ export const Login: React.FC = () => {
               value={adminPassword}
               onChange={e => setAdminPassword(e.target.value)}
               onKeyDown={async e => {
+                if (e.isComposing || e.keyCode === 229) return;
                 if (e.key === 'Enter') {
                   const pw = adminPassword;
                   setAdminPassword('');

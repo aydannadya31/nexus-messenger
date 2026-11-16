@@ -33,6 +33,9 @@ function useDarkMode() {
   });
   useEffect(() => {
     document.documentElement.classList.toggle('dark', dark);
+    document.documentElement.style.colorScheme = dark ? 'dark' : 'light';
+    const meta = document.querySelector('meta[name="color-scheme"]');
+    if (meta) meta.setAttribute('content', dark ? 'dark' : 'light');
     localStorage.setItem('theme', dark ? 'dark' : 'light');
     if (localStorage.getItem('theme') !== null) return;
     const mq = window.matchMedia('(prefers-color-scheme: dark)');
