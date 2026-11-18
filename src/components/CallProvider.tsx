@@ -1,8 +1,10 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
-import { collection, query, where, onSnapshot, addDoc, serverTimestamp, doc, updateDoc } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, addDoc, setDoc, getDoc, serverTimestamp, doc, updateDoc, runTransaction } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { useAuth } from './AuthProvider';
 import { Call } from '../types';
+import { getRingtone, DEFAULT_AUDIO_RINGTONE, DEFAULT_VIDEO_RINGTONE } from '../lib/ringtones';
+import { sendPushToUsers } from '../lib/messaging';
 
 interface CallContextType {
   activeCall: Call | null;
@@ -10,6 +12,7 @@ interface CallContextType {
   startCall: (chatId: string, participants: string[], type: 'private' | 'group', mediaType: 'audio' | 'video') => Promise<void>;
   inviteToCall: (userIds: string[]) => Promise<void>;
   acceptCall: () => Promise<void>;
+  joinCall: (call: Call) => Promise<void>;
   rejectCall: () => Promise<void>;
   leaveCall: () => Promise<void>;
   endCall: () => Promise<void>;
@@ -34,29 +37,122 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => { activeCallRef.current = activeCall; }, [activeCall]);
   useEffect(() => { incomingCallRef.current = incomingCall; }, [incomingCall]);
 
+  const [rtAudio, setRtAudio] = useState<string>(DEFAULT_AUDIO_RINGTONE);
+  const [rtVideo, setRtVideo] = useState<string>(DEFAULT_VIDEO_RINGTONE);
+
+  useEffect(() => {
+    if (!user?.uid) return;
+    let alive = true;
+    getDoc(doc(db, 'users', user.uid)).then((snap) => {
+      if (!alive) return;
+      const d = snap.data();
+      if (typeof d?.ringtoneAudio === 'string') setRtAudio(d.ringtoneAudio);
+      if (typeof d?.ringtoneVideo === 'string') setRtVideo(d.ringtoneVideo);
+    }).catch((e) => console.debug('Ringtone prefs load error:', e));
+    return () => { alive = false; };
+  }, [user?.uid]);
+
+  const ringRef = useRef<{ ctx: AudioContext | null; interval: number | null; timeout: number | null }>({ ctx: null, interval: null, timeout: null });
+
+  const stopRingtone = useCallback(() => {
+    const r = ringRef.current;
+    if (r.timeout) { window.clearTimeout(r.timeout); r.timeout = null; }
+    if (r.interval) { window.clearInterval(r.interval); r.interval = null; }
+    try {
+      if (r.ctx) r.ctx.close();
+    } catch (e) { console.debug('Ringtone close error:', e); }
+    ringRef.current = { ctx: null, interval: null, timeout: null };
+  }, []);
+
+  useEffect(() => {
+    if (!incomingCall) return;
+    stopRingtone();
+    try {
+      const AudioCtx: typeof AudioContext | undefined = window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+      if (!AudioCtx) return;
+      const ctx = new AudioCtx();
+      ctx.resume().catch(() => {});
+      ringRef.current = { ctx, interval: null, timeout: null };
+      const isVideo = incomingCall.mediaType === 'video';
+      const rt = getRingtone(isVideo ? rtVideo : rtAudio);
+      const playOnce = () => {
+        const r = ringRef.current;
+        if (!r.ctx) return;
+        try { rt.play(r.ctx); } catch (e) { console.error('Ringtone play error:', e); }
+      };
+      playOnce();
+      ringRef.current.interval = window.setInterval(playOnce, rt.durationMs + 500);
+      ringRef.current.timeout = window.setTimeout(async () => {
+        const call = incomingCallRef.current;
+        if (!call) return;
+        try {
+          await updateDoc(doc(db, 'calls', call.id), { status: 'ended' });
+          await writeCallHistory(
+            call.id, call.chatId, call.mediaType,
+            'missed', call.callerId,
+            { createdAtMs: call.createdAt?.toMillis?.() }
+          );
+        } catch (e) { console.error('Auto reject call error:', e); }
+        setIncomingCall(null);
+        stopRingtone();
+      }, 120000);
+    } catch (e) {
+      console.error('Ringtone error:', e);
+    }
+    return () => stopRingtone();
+  }, [incomingCall?.id, stopRingtone, rtAudio, rtVideo]);
+
   const writeCallHistory = useCallback(async (
     callId: string,
     chatId: string,
     mediaType: 'audio' | 'video',
     callStatus: 'completed' | 'missed' | 'rejected',
-    callerId: string
+    callerId: string,
+    opts?: { createdAtMs?: number; answeredAtMs?: number }
   ) => {
     const currentUser = userRef.current;
     if (!currentUser || writtenMessagesRef.current.has(callId)) return;
     writtenMessagesRef.current.add(callId);
 
-    const duration = callStatus === 'completed' && callAnsweredAtRef.current[callId]
-      ? Math.floor((Date.now() - callAnsweredAtRef.current[callId]) / 1000)
+    let wonLock = false;
+    try {
+      await runTransaction(db, async (tx) => {
+        const callRef = doc(db, 'calls', callId);
+        const snap = await tx.get(callRef);
+        if (snap.exists() && snap.data().historyWritten) return;
+        wonLock = true;
+        if (snap.exists()) tx.update(callRef, { historyWritten: true });
+      });
+    } catch (e) {
+      console.error("Call history lock error:", e);
+      return;
+    }
+    if (!wonLock) return;
+
+    const endMs = Date.now();
+    const answeredAt = opts?.answeredAtMs || callAnsweredAtRef.current[callId];
+    const startMs = answeredAt || opts?.createdAtMs || endMs;
+    const duration = callStatus === 'completed' && answeredAt
+      ? Math.floor((endMs - answeredAt) / 1000)
       : 0;
 
     try {
       const mediaTypeName = mediaType === 'video' ? 'Görüntülü' : 'Sesli';
-      const statusText = callStatus === 'completed'
-        ? `Görüşme ${Math.floor(duration / 60)}:${String(duration % 60).padStart(2, '0')}`
-        : callStatus === 'missed' ? 'Cevaplanmadı' : 'Reddedildi';
+      const hhmm = (ms: number) => {
+        const d = new Date(ms);
+        return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+      };
+      const mins = Math.max(1, Math.round(duration / 60));
+      const text = callStatus === 'completed'
+        ? `${mediaTypeName} görüşme — Başlangıç: ${hhmm(answeredAt || startMs)}, Bitiş: ${hhmm(endMs)}, Süre: ${mins} dakika`
+        : `Cevapsız görüşme — ${hhmm(startMs)}`;
 
-      await addDoc(collection(db, 'chats', chatId, 'messages'), {
-        senderId: currentUser.uid,
+      const msgRef = doc(db, 'chats', chatId, 'messages', `call_${callId}`);
+      const existing = await getDoc(msgRef);
+      if (existing.exists()) return;
+
+      await setDoc(msgRef, {
+        senderId: 'system',
         timestamp: serverTimestamp(),
         type: 'call',
         callType: mediaType,
@@ -64,13 +160,14 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
         callDuration: duration,
         callerId,
         status: 'sent',
+        text,
       });
 
       await updateDoc(doc(db, 'chats', chatId), {
         lastMessage: {
-          text: `${mediaTypeName} Arama - ${statusText}`,
-          senderId: currentUser.uid,
-          senderName: currentUser.displayName,
+          text,
+          senderId: 'system',
+          senderName: '',
           timestamp: serverTimestamp()
         },
         updatedAt: serverTimestamp()
@@ -113,17 +210,21 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const wasAnswered = !!callAnsweredAtRef.current[curActive.id];
         writeCallHistory(
           curActive.id, curActive.chatId, curActive.mediaType,
-          wasAnswered ? 'completed' : 'missed', curActive.callerId
+          wasAnswered ? 'completed' : 'missed', curActive.callerId,
+          {
+            createdAtMs: curActive.createdAt?.toMillis?.(),
+            answeredAtMs: callAnsweredAtRef.current[curActive.id],
+          }
         );
         setActiveCall(null);
-        // Cleanup answered time tracking
         delete callAnsweredAtRef.current[curActive.id];
       }
 
       if (curIncoming && !myIncomingStillExists) {
         writeCallHistory(
           curIncoming.id, curIncoming.chatId, curIncoming.mediaType,
-          'missed', curIncoming.callerId
+          'missed', curIncoming.callerId,
+          { createdAtMs: curIncoming.createdAt?.toMillis?.() }
         );
         setIncomingCall(null);
       }
@@ -170,6 +271,10 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
         status: type === 'group' ? 'ongoing' : 'calling',
         createdAt: serverTimestamp(),
       });
+      const others = participants.filter((p) => p !== user.uid);
+      if (others.length) {
+        sendPushToUsers(others, user.displayName || 'Nexus', mediaType === 'video' ? 'Görüntülü çağrı başlatıyor' : 'Sesli çağrı başlatıyor', { type: 'call', chatId }, { bypassStatus: true });
+      }
     } catch (error) {
       console.error("Start call error:", error);
     }
@@ -179,8 +284,10 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (!activeCall || !user) return;
     try {
       const newParticipants = Array.from(new Set([...activeCall.participants, ...userIds]));
+      const newActive = Array.from(new Set([...(activeCall.activeParticipants || []), ...userIds, user.uid]));
       await updateDoc(doc(db, 'calls', activeCall.id), {
-        participants: newParticipants
+        participants: newParticipants,
+        activeParticipants: newActive
       });
     } catch (error) {
       console.error("Invite to call error:", error);
@@ -201,6 +308,20 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  const joinCall = async (call: Call) => {
+    if (!user) return;
+    try {
+      const activeParts = Array.from(new Set([...(call.activeParticipants || []), user.uid]));
+      await updateDoc(doc(db, 'calls', call.id), {
+        status: 'ongoing',
+        activeParticipants: activeParts
+      });
+      if (incomingCallRef.current?.id === call.id) setIncomingCall(null);
+    } catch (error) {
+      console.error("Join call error:", error);
+    }
+  };
+
   const rejectCall = async () => {
     if (!incomingCall) return;
     try {
@@ -212,7 +333,8 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // Write 'rejected' history before listener fires (dedup set prevents double-write)
       await writeCallHistory(
         incomingCall.id, incomingCall.chatId, incomingCall.mediaType,
-        'rejected', incomingCall.callerId
+        'rejected', incomingCall.callerId,
+        { createdAtMs: incomingCall.createdAt?.toMillis?.() }
       );
       setIncomingCall(null);
     } catch (error) {
@@ -225,17 +347,24 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       const activeParts = (activeCall.activeParticipants || []).filter(id => id !== user.uid);
       const updates: any = { activeParticipants: activeParts };
+      const willEnd = activeParts.length === 0 || activeCall.type === 'private';
 
-      if (activeParts.length === 0) {
+      if (willEnd) {
         updates.status = 'ended';
       }
 
       await updateDoc(doc(db, 'calls', activeCall.id), updates);
 
-      await writeCallHistory(
-        activeCall.id, activeCall.chatId, activeCall.mediaType,
-        'completed', activeCall.callerId
-      );
+      if (willEnd) {
+        await writeCallHistory(
+          activeCall.id, activeCall.chatId, activeCall.mediaType,
+          'completed', activeCall.callerId,
+          {
+            createdAtMs: activeCall.createdAt?.toMillis?.(),
+            answeredAtMs: callAnsweredAtRef.current[activeCall.id],
+          }
+        );
+      }
 
       setActiveCall(null);
     } catch (error) {
@@ -253,7 +382,11 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       await writeCallHistory(
         callToEnd.id, callToEnd.chatId, callToEnd.mediaType,
-        activeCall ? 'completed' : 'missed', callToEnd.callerId
+        activeCall ? 'completed' : 'missed', callToEnd.callerId,
+        {
+          createdAtMs: callToEnd.createdAt?.toMillis?.(),
+          answeredAtMs: activeCall ? callAnsweredAtRef.current[callToEnd.id] : undefined,
+        }
       );
 
       setActiveCall(null);
@@ -264,7 +397,7 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   return (
-    <CallContext.Provider value={{ activeCall, incomingCall, startCall, inviteToCall, acceptCall, rejectCall, leaveCall, endCall }}>
+    <CallContext.Provider value={{ activeCall, incomingCall, startCall, inviteToCall, acceptCall, joinCall, rejectCall, leaveCall, endCall }}>
       {children}
     </CallContext.Provider>
   );

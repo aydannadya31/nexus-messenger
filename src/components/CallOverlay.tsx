@@ -20,16 +20,24 @@ export const CallOverlay = () => {
   const [callerInfo, setCallerInfo] = useState<UserProfile | null>(null);
   const [isInviting, setIsInviting] = useState(false);
   const [localUserInfo, setLocalUserInfo] = useState<UserProfile | null>(null);
+  const [mediaError, setMediaError] = useState<string | null>(null);
 
   const pcs = useRef<Record<string, RTCPeerConnection>>({});
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const newVideoTrackRef = useRef<MediaStreamTrack | null>(null);
+  const localStreamRef = useRef<MediaStream | null>(null);
+  const pendingSignalsRef = useRef<CallSignal[]>([]);
+  const pendingCandidatesRef = useRef<Record<string, RTCIceCandidateInit[]>>({});
+  const signalChainRef = useRef<Promise<void>>(Promise.resolve());
 
   const configuration: RTCConfiguration = {
     iceServers: [
       { urls: 'stun:stun.l.google.com:19302' },
       { urls: 'stun:stun1.l.google.com:19302' },
       { urls: 'stun:stun2.l.google.com:19302' },
+      { urls: 'turn:openrelay.metered.ca:80', username: 'openrelayproject', credential: 'openrelayproject' },
+      { urls: 'turn:openrelay.metered.ca:443', username: 'openrelayproject', credential: 'openrelayproject' },
+      { urls: 'turn:openrelay.metered.ca:443?transport=tcp', username: 'openrelayproject', credential: 'openrelayproject' },
     ],
     iceCandidatePoolSize: 10,
   };
@@ -113,11 +121,42 @@ export const CallOverlay = () => {
     };
 
     pc.ontrack = (event) => {
-      setRemoteStreams(prev => ({ ...prev, [pId]: event.streams[0] }));
+      setRemoteStreams(prev => {
+        if (event.streams[0]) return { ...prev, [pId]: event.streams[0] };
+        const existing = prev[pId];
+        if (existing) {
+          if (!existing.getTracks().some(t => t.id === event.track.id)) {
+            existing.addTrack(event.track);
+          }
+          return { ...prev, [pId]: existing };
+        }
+        return { ...prev, [pId]: new MediaStream([event.track]) };
+      });
     };
 
+    let iceRetried = false;
     pc.onconnectionstatechange = () => {
-      if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed' || pc.connectionState === 'closed') {
+      if (pc.connectionState === 'failed' && !iceRetried) {
+        iceRetried = true;
+        try { pc.restartIce(); } catch { cleanupPeer(pId); return; }
+        if (user && activeCall && user.uid < pId) {
+          (async () => {
+            try {
+              const offer = await pc.createOffer({ iceRestart: true });
+              await pc.setLocalDescription(offer);
+              await addDoc(collection(db, 'calls', activeCall.id, 'signals'), {
+                from: user.uid,
+                to: pId,
+                type: 'offer',
+                data: { type: offer.type, sdp: offer.sdp },
+                createdAt: serverTimestamp()
+              });
+            } catch { /* sonraki failure'da cleanup */ }
+          })();
+        }
+        return;
+      }
+      if (pc.connectionState === 'failed' || pc.connectionState === 'closed') {
         cleanupPeer(pId);
       }
     };
@@ -137,28 +176,129 @@ export const CallOverlay = () => {
     return pc;
   }, [activeCall?.id, user?.uid, localStream, cleanupPeer]);
 
-  // Initialize Local Media
   useEffect(() => {
-    if (activeCall && !localStream) {
-      const startMedia = async () => {
-        try {
-          const constraints: MediaStreamConstraints = {
-            audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
-          };
-          if (activeCall.mediaType === 'video') {
-            constraints.video = { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } };
-          }
-          const stream = await navigator.mediaDevices.getUserMedia(constraints);
-          setLocalStream(stream);
-        } catch (err) {
-          console.error("Media access error:", err);
-        }
-      };
-      startMedia();
-    }
-  }, [activeCall?.id, activeCall?.mediaType]);
+    if (!activeCall || localStream) return;
+    let cancelled = false;
 
-  // Global Signaling Listener
+    const tryGet = async (c: MediaStreamConstraints) => {
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try { return await navigator.mediaDevices.getUserMedia(c); } catch {
+          if (attempt === 0) await new Promise(r => setTimeout(r, 600));
+        }
+      }
+      return null;
+    };
+
+    const startMedia = async () => {
+      await navigator.mediaDevices?.enumerateDevices().catch(() => {});
+      const audio: MediaTrackConstraints = { echoCancellation: true, noiseSuppression: true, autoGainControl: true };
+      const video: MediaTrackConstraints = { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } };
+      let stream: MediaStream | null = null;
+      let fail: 'audio' | 'video' | null = null;
+
+      if (activeCall.mediaType === 'video') {
+        stream = await tryGet({ audio, video });
+        if (!stream) stream = await tryGet({ audio: true, video });
+        if (!stream) {
+          stream = await tryGet({ video });
+          if (stream) fail = 'audio';
+        }
+        if (!stream) {
+          stream = await tryGet({ audio });
+          if (!stream) stream = await tryGet({ audio: true });
+          fail = stream ? 'video' : 'audio';
+        }
+        if (!stream) fail = 'video';
+      } else {
+        stream = await tryGet({ audio });
+        if (!stream) stream = await tryGet({ audio: true });
+        if (!stream) fail = 'audio';
+      }
+
+      if (cancelled) {
+        stream?.getTracks().forEach(t => t.stop());
+        return;
+      }
+      if (!stream) {
+        stream = new MediaStream();
+        setMediaError(activeCall.mediaType === 'video'
+          ? 'Kamera veya mikrofon bulunamadı — görüşme sesli/görüntüsüz devam ediyor. Ayarlar > Uygulamalar > Nexus > İzinlerden kamera ve mikrofonu açın.'
+          : 'Mikrofon bulunamadı veya izin verilmedi — tarafınız sesiz kalacak. Ayarlar > Uygulamalar > Nexus > İzinlerden mikrofonu açın.');
+      } else if (fail === 'video' && activeCall.mediaType === 'video') {
+        setMediaError('Kamera açılamadı — görüntüsüz devam ediliyor.');
+      } else if (fail === 'audio') {
+        setMediaError('Mikrofon bulunamadı veya izin verilmedi.');
+      }
+      if (stream.getVideoTracks().length === 0 && activeCall.mediaType === 'video') setIsVideoOff(true);
+      setLocalStream(stream);
+    };
+
+    startMedia();
+    return () => { cancelled = true; };
+  }, [activeCall?.id, activeCall?.mediaType]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    localStreamRef.current = localStream;
+    if (!localStream) return;
+    const pending = pendingSignalsRef.current.splice(0);
+    pending.forEach(signal => {
+      signalChainRef.current = signalChainRef.current.then(() => handleSignal(signal)).catch(() => {});
+    });
+  }, [localStream]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const flushCandidates = async (pId: string, pc: RTCPeerConnection) => {
+    const queued = pendingCandidatesRef.current[pId] || [];
+    delete pendingCandidatesRef.current[pId];
+    for (const c of queued) {
+      try { await pc.addIceCandidate(new RTCIceCandidate(c)); } catch { /* ignore */ }
+    }
+  };
+
+  const handleSignal = async (signal: CallSignal) => {
+    if (!activeCall || !user) return;
+    const stream = localStreamRef.current;
+    const pc = pcs.current[signal.from] || await createPeerConnection(signal.from, false);
+    if (!pc) return;
+
+    if (signal.type === 'offer') {
+      if (pc.signalingState !== 'stable') {
+        deleteDoc(doc(db, 'calls', activeCall.id, 'signals', signal.id)).catch(() => {});
+        return;
+      }
+      await pc.setRemoteDescription(new RTCSessionDescription(signal.data));
+      await flushCandidates(signal.from, pc);
+      if (stream) {
+        stream.getTracks().forEach(track => {
+          if (!pc.getSenders().some(s => s.track === track)) {
+            try { pc.addTrack(track, stream); } catch { /* already added */ }
+          }
+        });
+      }
+      const answer = await pc.createAnswer();
+      await pc.setLocalDescription(answer);
+      await addDoc(collection(db, 'calls', activeCall.id, 'signals'), {
+        from: user.uid,
+        to: signal.from,
+        type: 'answer',
+        data: { type: answer.type, sdp: answer.sdp },
+        createdAt: serverTimestamp()
+      });
+    } else if (signal.type === 'answer') {
+      if (pc.signalingState === 'have-local-offer') {
+        await pc.setRemoteDescription(new RTCSessionDescription(signal.data));
+      }
+      await flushCandidates(signal.from, pc);
+    } else if (signal.type === 'candidate') {
+      if (!pc.remoteDescription) {
+        (pendingCandidatesRef.current[signal.from] ||= []).push(signal.data);
+      } else {
+        try { await pc.addIceCandidate(new RTCIceCandidate(signal.data)); } catch { /* ignore */ }
+      }
+    }
+
+    deleteDoc(doc(db, 'calls', activeCall.id, 'signals', signal.id)).catch(() => {});
+  };
+
   useEffect(() => {
     if (!activeCall || !user) return;
 
@@ -168,43 +308,20 @@ export const CallOverlay = () => {
     );
 
     const unsubscribe = onSnapshot(qSignals, (snapshot) => {
-      snapshot.docChanges().forEach(async (change) => {
-        if (change.type === 'added') {
-          const signal = { id: change.doc.id, ...change.doc.data() } as CallSignal;
-          const pc = pcs.current[signal.from] || await createPeerConnection(signal.from, false);
-          if (!pc) return;
-
-          if (signal.type === 'offer') {
-            await pc.setRemoteDescription(new RTCSessionDescription(signal.data));
-            const answer = await pc.createAnswer();
-            await pc.setLocalDescription(answer);
-            await addDoc(collection(db, 'calls', activeCall.id, 'signals'), {
-              from: user.uid,
-              to: signal.from,
-              type: 'answer',
-              data: { type: answer.type, sdp: answer.sdp },
-              createdAt: serverTimestamp()
-            });
-          } else if (signal.type === 'answer') {
-            await pc.setRemoteDescription(new RTCSessionDescription(signal.data));
-          } else if (signal.type === 'candidate') {
-            try {
-              await pc.addIceCandidate(new RTCIceCandidate(signal.data));
-            } catch (e) {
-              // Ignore
-            }
-          }
-          
-          // Delete signal after processing to keep collection clean
-          deleteDoc(doc(db, 'calls', activeCall.id, 'signals', signal.id));
+      snapshot.docChanges().forEach((change) => {
+        if (change.type !== 'added') return;
+        const signal = { id: change.doc.id, ...change.doc.data() } as CallSignal;
+        if (!localStreamRef.current) {
+          pendingSignalsRef.current.push(signal);
+          return;
         }
+        signalChainRef.current = signalChainRef.current.then(() => handleSignal(signal)).catch(() => {});
       });
     });
 
     return () => unsubscribe();
-  }, [activeCall?.id, user?.uid, createPeerConnection]);
+  }, [activeCall?.id, user?.uid, createPeerConnection]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Mesh Management: Connect to active participants
   useEffect(() => {
     if (!activeCall || !user || !localStream) return;
 
@@ -320,8 +437,18 @@ export const CallOverlay = () => {
     </div>
   );
 
+  const resumeMedia = () => {
+    document.querySelectorAll('audio, video').forEach(el => {
+      const m = el as HTMLMediaElement;
+      if (m.paused) m.play().catch(() => {});
+    });
+  };
+
   return (
-    <div className="fixed inset-0 z-50 flex flex-col sm:items-center sm:justify-center sm:p-6 pointer-events-auto overflow-hidden bg-slate-950">
+    <div
+      className="fixed inset-0 z-50 flex flex-col sm:items-center sm:justify-center sm:p-6 pointer-events-auto overflow-hidden bg-slate-950"
+      onPointerDown={resumeMedia}
+    >
       <AnimatePresence>
         {incomingCall && (
           <motion.div 
@@ -330,25 +457,25 @@ export const CallOverlay = () => {
             exit={{ opacity: 0, scale: 0.9 }}
             className="absolute inset-0 z-20 flex items-center justify-center bg-slate-950/70 pointer-events-auto"
           >
-            <div className="bg-white rounded-[2.5rem] p-8 shadow-2xl flex flex-col items-center gap-6 border border-slate-100">
+            <div className="bg-white dark:bg-slate-900 rounded-[2.5rem] p-8 shadow-2xl flex flex-col items-center gap-6 border border-slate-100 dark:border-slate-800">
               <div className="relative">
-                <div className="w-24 h-24 rounded-full bg-blue-100 overflow-hidden border-4 border-white shadow-lg">
+                <div className="w-24 h-24 rounded-full bg-blue-100 dark:bg-blue-950 overflow-hidden border-4 border-white dark:border-slate-700 shadow-lg">
                   <img src={callerInfo?.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${incomingCall.callerId}`} className="w-full h-full object-cover" />
                 </div>
-                <div className={cn("absolute -bottom-2 -right-2 p-2 rounded-full border-4 border-white", incomingCall.mediaType === 'video' ? "bg-green-500" : "bg-blue-500")}>
+                <div className={cn("absolute -bottom-2 -right-2 p-2 rounded-full border-4 border-white dark:border-slate-700", incomingCall.mediaType === 'video' ? "bg-green-500" : "bg-blue-500")}>
                   {incomingCall.mediaType === 'video' ? <Video size={16} className="text-white" /> : <Phone size={16} className="text-white" />}
                 </div>
               </div>
               
               <div className="text-center">
-                <h3 className="text-xl font-black text-slate-900 tracking-tight">{callerInfo?.displayName || 'Yükleniyor...'}</h3>
+                <h3 className="text-xl font-black text-slate-900 dark:text-slate-100 tracking-tight">{callerInfo?.displayName || 'Yükleniyor...'}</h3>
                 <p className="text-[10px] font-black text-blue-500 uppercase tracking-[0.2em] mt-1">{incomingCall.mediaType === 'video' ? 'Gelen Görüntülü Arama' : 'Gelen Sesli Arama'}</p>
               </div>
 
               <div className="flex gap-4">
                 <button 
                   onClick={rejectCall}
-                  className="w-14 h-14 bg-red-100 text-red-600 rounded-full flex items-center justify-center hover:bg-red-200 transition-colors active:scale-90"
+                  className="w-14 h-14 bg-red-100 dark:bg-red-950 text-red-600 dark:text-red-400 rounded-full flex items-center justify-center hover:bg-red-200 dark:hover:bg-red-900 transition-colors active:scale-90"
                 >
                   <PhoneOff size={24} />
                 </button>
@@ -383,10 +510,11 @@ export const CallOverlay = () => {
                   className={cn("w-full h-full object-cover", !isVideoOff && "mirror")}
                 />
                 {/* Camera off / audio mode overlay: show avatar */}
-                {(isVideoOff || activeCall.mediaType === 'audio') && (
+                {(isVideoOff || activeCall.mediaType === 'audio' || !localStream?.getVideoTracks().length || mediaError) && (
                   <AvatarOverlay
                     photoURL={localUserInfo?.photoURL}
                     displayName="Sen (Ben)"
+                    subtitle={mediaError || undefined}
                   />
                 )}
                 <div className="absolute bottom-4 left-4 flex items-center gap-2 bg-black/40 backdrop-blur-md px-3 py-1.5 rounded-xl border border-white/10 z-10">
@@ -402,27 +530,46 @@ export const CallOverlay = () => {
                 return (
                   <div key={pId} className="relative bg-slate-900 rounded-[2rem] overflow-hidden shadow-inner group">
                     {stream ? (
-                      <>
-                        <video 
-                          autoPlay 
-                          playsInline 
-                          ref={el => { 
-                            if (el) {
-                              el.srcObject = stream;
-                              if (el.paused) {
-                                el.play().catch(err => console.warn('[CallOverlay] Autoplay prevented:', err));
-                              }
-                            }
-                          }}
-                          className="w-full h-full object-cover"
-                        />
-                        {/* Always show avatar as fallback behind video */}
-                        <AvatarOverlay
-                          photoURL={info?.photoURL}
-                          displayName={info?.displayName || 'Katılımcı'}
-                          subtitle="Kamera Kapalı"
-                        />
-                      </>
+                      (() => {
+                        const vTrack = stream.getVideoTracks().find(t => t.readyState === 'live' && t.enabled);
+                        const showVideo = !!vTrack && activeCall.mediaType === 'video';
+                        if (showVideo) {
+                          return (
+                            <video 
+                              autoPlay 
+                              playsInline 
+                              ref={el => { 
+                                if (el) {
+                                  el.srcObject = stream;
+                                  if (el.paused) {
+                                    el.play().catch(err => console.warn('[CallOverlay] Autoplay prevented:', err));
+                                  }
+                                }
+                              }}
+                              className="w-full h-full object-cover"
+                            />
+                          );
+                        }
+                        return (
+                          <>
+                            <audio
+                              autoPlay
+                              playsInline
+                              ref={el => {
+                                if (el && el.srcObject !== stream) el.srcObject = stream;
+                                if (el && el.paused) {
+                                  el.play().catch(err => console.warn('[CallOverlay] Remote audio autoplay:', err));
+                                }
+                              }}
+                            />
+                            <AvatarOverlay
+                              photoURL={info?.photoURL}
+                              displayName={info?.displayName || 'Katılımcı'}
+                              subtitle={activeCall.mediaType === 'audio' ? 'Sesli Görüşme' : 'Kamera Kapalı'}
+                            />
+                          </>
+                        );
+                      })()
                     ) : (
                       <AvatarOverlay
                         photoURL={info?.photoURL}
@@ -508,24 +655,24 @@ export const CallOverlay = () => {
                   initial={{ x: '100%' }}
                   animate={{ x: 0 }}
                   exit={{ x: '100%' }}
-                  className="absolute inset-y-0 right-0 w-full sm:w-80 bg-white shadow-2xl z-10 flex flex-col"
+                  className="absolute inset-y-0 right-0 w-full sm:w-80 bg-white dark:bg-slate-900 shadow-2xl z-10 flex flex-col"
                 >
-                  <div className="p-6 border-b border-slate-100 flex items-center justify-between">
-                    <h3 className="text-sm font-black text-slate-900 uppercase tracking-widest">Üye Ekle</h3>
-                    <button onClick={() => setIsInviting(false)} className="text-slate-400 hover:text-slate-900">
+                  <div className="p-6 border-b border-slate-100 dark:border-slate-700 flex items-center justify-between">
+                    <h3 className="text-sm font-black text-slate-900 dark:text-slate-100 uppercase tracking-widest">Üye Ekle</h3>
+                    <button onClick={() => setIsInviting(false)} className="text-slate-400 hover:text-slate-900 dark:hover:text-slate-100">
                       <X size={20} />
                     </button>
                   </div>
                   <div className="flex-1 overflow-y-auto p-4 space-y-2">
                     {activeCall.participants.filter(pId => !activeCall.activeParticipants.includes(pId)).map(pId => (
-                      <div key={pId} className="flex items-center justify-between p-3 rounded-2xl bg-slate-50 border border-slate-100">
+                      <div key={pId} className="flex items-center justify-between p-3 rounded-2xl bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700">
                         <div className="flex items-center gap-3">
                            <img src={participantInfo[pId]?.photoURL} className="w-8 h-8 rounded-lg" />
-                           <span className="text-xs font-bold text-slate-700">{participantInfo[pId]?.displayName}</span>
+                           <span className="text-xs font-bold text-slate-700 dark:text-slate-200">{participantInfo[pId]?.displayName}</span>
                         </div>
                         <button 
                           onClick={() => inviteToCall([pId])}
-                          className="text-[10px] font-black text-blue-600 hover:text-blue-700 uppercase tracking-tighter"
+                          className="text-[10px] font-black text-blue-600 dark:text-blue-400 hover:text-blue-700 uppercase tracking-tighter"
                         >
                           Hemen Ara
                         </button>

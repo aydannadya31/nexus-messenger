@@ -4,18 +4,26 @@ import { db, logout } from '../lib/firebase';
 import { useAuth } from './AuthProvider';
 import { useToast } from '../lib/toast';
 import { Chat, UserProfile } from '../types';
+import Logo from './Logo';
 import { cn } from '../lib/utils';
-import { LogOut, MessageSquarePlus, Search, User as UserIcon, ChevronUp, Settings, Radio, X, MoreVertical, UserPlus, Users, Shield } from 'lucide-react';
+import { LogOut, MessageSquarePlus, Search, User as UserIcon, ChevronUp, Settings, Radio, X, MoreVertical, UserPlus, Users, Shield, Moon, Sun, Palette, Languages, Music } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import ProfileModal from './ProfileModal';
 import FriendRequestsModal from './FriendRequestsModal';
 import { AdminPanel } from './AdminPanel';
+import { ThemePanel, LanguagePanel, RingtonePanel } from './SettingsPanels';
+import { useI18n } from '../lib/i18n';
+import { QRCode } from 'react-qr-code';
+import { Badge } from '@capawesome/capacitor-badge';
+
+const APK_URL = 'https://aydannadya31.github.io/nexus-messenger/download/nexus-messenger.apk';
 
 const StatusBullet: React.FC<{ status?: string; className?: string }> = ({ status, className }) => {
   const colors = {
     online: 'bg-green-500',
     away: 'bg-amber-500',
     busy: 'bg-red-500',
+    offline: 'bg-slate-500',
     default: 'bg-slate-300'
   };
   
@@ -31,15 +39,55 @@ interface SidebarProps {
   selectedChatId?: string;
   onStartNewChat: () => void;
   onOpenBroadcast: () => void;
+  darkMode?: boolean;
+  onToggleDark?: () => void;
 }
 
-export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, onStartNewChat, onOpenBroadcast }) => {
+export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, onStartNewChat, onOpenBroadcast, darkMode, onToggleDark }) => {
   const { user, profile } = useAuth();
   const { addToast } = useToast();
+  const { t } = useI18n();
   const [chats, setChats] = useState<Chat[]>([]);
   const [chatDetails, setChatDetails] = useState<Record<string, UserProfile>>({});
   const prevLastMessagesRef = useRef<Record<string, any>>({});
   const chatDetailsRef = useRef<Record<string, UserProfile>>({});
+  const selectedChatIdRef = useRef(selectedChatId);
+  selectedChatIdRef.current = selectedChatId;
+  const myStatusRef = useRef<'online' | 'away' | 'busy' | 'offline'>('online');
+  const [isOffline, setIsOffline] = useState(!navigator.onLine);
+  const [stalenessTick, setStalenessTick] = useState(0);
+
+  const OFFLINE_STALE_MS = 30000;
+
+  const getStatusWithStaleness = (p: UserProfile | null | undefined): 'online' | 'away' | 'busy' | 'offline' => {
+    const status = (p?.onlineStatus || 'online') as 'online' | 'away' | 'busy' | 'offline';
+    const updatedAt = p?.statusUpdatedAt;
+    if (!updatedAt) return status;
+    const ms =
+      typeof updatedAt === 'object' && updatedAt !== null && typeof (updatedAt as any).toMillis === 'function'
+        ? (updatedAt as any).toMillis()
+        : Number(updatedAt);
+    if (ms && Date.now() - ms > OFFLINE_STALE_MS) return 'offline';
+    return status;
+  };
+
+  useEffect(() => {
+    if (user && 'Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission();
+    }
+
+    const onOffline = () => setIsOffline(true);
+    const onOnline = () => setIsOffline(false);
+    window.addEventListener('offline', onOffline);
+    window.addEventListener('online', onOnline);
+
+    const tick = setInterval(() => setStalenessTick(t => t + 1), 10000);
+    return () => {
+      window.removeEventListener('offline', onOffline);
+      window.removeEventListener('online', onOnline);
+      clearInterval(tick);
+    };
+  }, [user]);
   const [chatMenuOpen, setChatMenuOpen] = useState<string | null>(null);
   const [hiddenChats, setHiddenChats] = useState<string[]>([]);
   const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({});
@@ -52,6 +100,15 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
   const [sidebarView, setSidebarView] = useState<'friends' | 'groups'>('friends');
   const [friendsList, setFriendsList] = useState<string[]>([]);
   const [friendProfiles, setFriendProfiles] = useState<Record<string, UserProfile>>({});
+  const [showThemePanel, setShowThemePanel] = useState(false);
+  const [showLangPanel, setShowLangPanel] = useState(false);
+  const [showRingPanel, setShowRingPanel] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+
+  useEffect(() => {
+    const total = Object.values(unreadCounts).reduce((sum, n) => sum + n, 0);
+    Badge.set({ count: total }).catch((e) => console.debug('Badge update failed:', e));
+  }, [unreadCounts]);
 
   useEffect(() => {
     if (!user) return;
@@ -141,23 +198,35 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
 
         if (hasPrevState && lastMsg && (!prevMsg || lastMsg.timestamp?.toMillis() > prevMsg.timestamp?.toMillis())) {
           if (lastMsg.senderId !== user.uid) {
-            if (chat.id !== selectedChatId) {
+            if (chat.id !== selectedChatIdRef.current) {
               setUnreadCounts(prev => ({ ...prev, [chat.id]: (prev[chat.id] || 0) + 1 }));
             }
-            try {
-              const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
-              const oscillator = audioCtx.createOscillator();
-              const gainNode = audioCtx.createGain();
-              oscillator.connect(gainNode);
-              gainNode.connect(audioCtx.destination);
-              oscillator.type = 'sine';
-              oscillator.frequency.setValueAtTime(880, audioCtx.currentTime);
-              oscillator.frequency.setValueAtTime(660, audioCtx.currentTime + 0.1);
-              gainNode.gain.setValueAtTime(0.3, audioCtx.currentTime);
-              gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.3);
-              oscillator.start(audioCtx.currentTime);
-              oscillator.stop(audioCtx.currentTime + 0.3);
-            } catch(e) { console.log('Audio error:', e); }
+            // Skip sound for muted chats, non-online status, or if last sound was <2s ago
+            if (!chat.muted) {
+              const lastSoundTime = parseInt(localStorage.getItem('lastNotifSound') || '0', 10);
+              const now = Date.now();
+              if (myStatusRef.current === 'online' && now - lastSoundTime > 2000) {
+                localStorage.setItem('lastNotifSound', String(now));
+                try {
+                  const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+                  const oscillator = audioCtx.createOscillator();
+                  const gainNode = audioCtx.createGain();
+                  oscillator.connect(gainNode);
+                  gainNode.connect(audioCtx.destination);
+                  oscillator.type = 'sine';
+                  oscillator.frequency.setValueAtTime(880, audioCtx.currentTime);
+                  oscillator.frequency.setValueAtTime(660, audioCtx.currentTime + 0.1);
+                  gainNode.gain.setValueAtTime(0.3, audioCtx.currentTime);
+                  gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.3);
+                  oscillator.start(audioCtx.currentTime);
+                  oscillator.stop(audioCtx.currentTime + 0.3);
+                } catch(e) { console.log('Audio error:', e); }
+              }
+              if (typeof Notification !== 'undefined' && Notification.permission === 'granted' && chat.id !== selectedChatIdRef.current) {
+                const senderName = lastMsg.senderName || 'Birisi';
+                new Notification(senderName, { body: lastMsg.text || 'Yeni mesaj', icon: '/favicon.ico' });
+              }
+            }
           }
         }
       }
@@ -208,11 +277,13 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
     };
   };
 
-  const updateMyStatus = async (status: 'online' | 'away' | 'busy') => {
+  const updateMyStatus = async (status: 'online' | 'away' | 'busy' | 'offline') => {
     if (!user) return;
     try {
+      localStorage.setItem('nexus.lastStatus', status);
       await updateDoc(doc(db, 'users', user.uid), {
-        onlineStatus: status
+        onlineStatus: status,
+        lastSeen: serverTimestamp()
       });
     } catch (error) {
       console.error("Status update error:", error);
@@ -234,6 +305,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
     });
     if (foundId) {
       onSelectChat(foundId);
+      setUnreadCounts(prev => ({ ...prev, [foundId]: 0 }));
     } else {
       const newRef = await addDoc(collection(db, 'chats'), {
         participants: [user.uid, friendUid],
@@ -253,6 +325,18 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
     try {
       const chat = chats.find(c => c.id === chatId);
       if (!chat || !user) return;
+      if (chat.groupMetadata?.adminId === user.uid) {
+        await addDoc(collection(db, 'adminDeleteRequests'), {
+          type: 'group-leave',
+          chatId,
+          chatName: chat.groupMetadata?.name || '',
+          requestedBy: user.uid,
+          timestamp: serverTimestamp(),
+          status: 'pending'
+        });
+        addToast(t('side.leaveRequested'), 'success');
+        return;
+      }
       const otherParticipants = chat.participants.filter(p => p !== user.uid);
       await updateDoc(doc(db, 'chats', chatId), { participants: otherParticipants });
     } catch (e) {
@@ -262,7 +346,10 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
 
   const [showStatusMenu, setShowStatusMenu] = useState(false);
   const [showProfileModal, setShowProfileModal] = useState(false);
-  const myStatus = profile?.onlineStatus || 'online';
+    const myStatus: 'online' | 'away' | 'busy' | 'offline' = isOffline
+      ? 'offline'
+      : ((profile?.onlineStatus || 'online') as 'online' | 'away' | 'busy' | 'offline');
+    myStatusRef.current = myStatus;
 
   const [searchQuery, setSearchQuery] = useState('');
   const [showAdminMsg, setShowAdminMsg] = useState(false);
@@ -290,32 +377,52 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
            }));
   });
 
+  const friendUnreadMap: Record<string, number> = {};
+  for (const c of chats) {
+    if (c.type !== 'private' || hiddenChats.includes(c.id)) continue;
+    const other = c.participants.find(p => p !== user?.uid);
+    if (other) friendUnreadMap[other] = (friendUnreadMap[other] || 0) + (unreadCounts[c.id] || 0);
+  }
+
   return (
-    <div className="flex flex-col h-full bg-white sm:border-r border-slate-200 w-full sm:max-w-[350px]">
+    <div className="flex flex-col h-full bg-white dark:bg-slate-900 sm:border-r border-slate-200 dark:border-slate-700 w-full sm:max-w-[350px] transition-colors">
        {/* Sidebar Header */}
-      <header className="p-4 sm:p-6 space-y-3 sm:space-y-4 z-10 bg-white border-b border-slate-200">
-        <div className="flex items-center justify-between">
-          <h1 className="text-2xl font-bold tracking-tight text-slate-900">A+F/C.B Messenger</h1>
+      <header className="p-4 sm:p-6 space-y-3 sm:space-y-4 z-10 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700 transition-colors">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2 min-w-0">
+            <Logo className="w-7 h-7 sm:w-8 sm:h-8 shrink-0" />
+            <h1 className="text-lg sm:text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-100 truncate min-w-0 nexus-name-shine">Nexus Messenger</h1>
+          </div>
+          <a
+            href={APK_URL}
+            target="_blank"
+            rel="noreferrer"
+            title={t('side.apkDownload')}
+            aria-label={t('side.apkDownload')}
+            className="shrink-0 p-1 bg-white dark:bg-white rounded-lg border border-slate-200 dark:border-slate-700 hover:scale-105 active:scale-95 transition-all"
+          >
+            <QRCode value={APK_URL} size={40} bgColor="#ffffff" fgColor="#0f172a" level="M" />
+          </a>
         </div>
-        <div className="flex items-center justify-between gap-1">
+        <div className="flex items-center justify-between gap-1 flex-wrap">
           <div className="flex flex-col items-center gap-0.5">
             <button 
               onClick={() => { markBroadcastRead(); onOpenBroadcast(); }}
-              className="p-2.5 bg-blue-50 hover:bg-blue-100 rounded-xl text-blue-600 transition-all active:scale-95 group relative"
-              title="Broadcast"
+              className="p-2.5 bg-blue-50 dark:bg-blue-950 hover:bg-blue-100 dark:hover:bg-blue-900 rounded-xl text-blue-600 dark:text-blue-400 transition-all active:scale-95 group relative"
+              title={t('side.broadcast')}
             >
               <Radio size={20} />
               {broadcastUnread && (
                 <div className="absolute -top-1 -right-1 w-2 h-2 bg-red-500 rounded-full animate-ping" />
               )}
             </button>
-            <span className="text-[8px] text-slate-400 font-bold text-center">Broadcast</span>
+            <span className="text-[8px] text-slate-400 font-bold text-center">{t('side.broadcast')}</span>
           </div>
           <div className="flex flex-col items-center gap-0.5">
             <button 
               onClick={() => setShowFriendRequests(true)}
-              className="p-2.5 bg-green-50 hover:bg-green-100 rounded-xl text-green-600 transition-all active:scale-95 group relative"
-              title="Arkadaşlık İstekleri"
+              className="p-2.5 bg-green-50 dark:bg-green-950 hover:bg-green-100 dark:hover:bg-green-900 rounded-xl text-green-600 dark:text-green-400 transition-all active:scale-95 group relative"
+              title={t('side.requestTitle')}
             >
               <UserPlus size={20} />
               {pendingRequestCount > 0 && (
@@ -324,46 +431,27 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
                 </div>
               )}
             </button>
-            <span className="text-[8px] text-slate-400 font-bold text-center">İstekler</span>
+            <span className="text-[8px] text-slate-400 font-bold text-center">{t('side.requests')}</span>
           </div>
           <div className="flex flex-col items-center gap-0.5">
             <button 
               onClick={onStartNewChat}
-              className="p-2.5 bg-blue-50 hover:bg-blue-100 rounded-xl text-blue-600 transition-all active:scale-95"
-              title="Kullanıcı Listesi"
+              className="p-2.5 bg-blue-50 dark:bg-blue-950 hover:bg-blue-100 dark:hover:bg-blue-900 rounded-xl text-blue-600 dark:text-blue-400 transition-all active:scale-95"
+              title={t('side.userListTitle')}
             >
               <MessageSquarePlus size={20} />
             </button>
-            <span className="text-[8px] text-slate-400 font-bold text-center">Kull. List.</span>
+            <span className="text-[8px] text-slate-400 font-bold text-center">{t('side.userList')}</span>
           </div>
           <div className="flex flex-col items-center gap-0.5">
-            <button 
-              onClick={() => setShowAdminMsg(true)}
-              className="p-2.5 bg-amber-50 hover:bg-amber-100 rounded-xl text-amber-600 transition-all active:scale-95"
-              title="Yöneticiye Mesaj"
+            <button
+              onClick={() => setShowSettings(true)}
+              title={t('side.settings')}
+              className="p-2.5 bg-slate-100/50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-xl text-slate-400 hover:text-blue-500 transition-all active:scale-95"
             >
-              <MessageSquarePlus size={20} />
+              <Settings size={20} />
             </button>
-            <span className="text-[8px] text-slate-400 font-bold text-center">Yön. Msj</span>
-          </div>
-          <div className="flex flex-col items-center gap-0.5">
-            <button 
-              onClick={() => setShowAdminPanel(true)}
-              className="p-2.5 bg-slate-100/50 hover:bg-amber-100 rounded-xl text-slate-400 hover:text-amber-600 transition-all active:scale-95"
-              title="Admin Paneli"
-            >
-              <Shield size={20} />
-            </button>
-            <span className="text-[8px] text-slate-400 font-bold text-center">Admin</span>
-          </div>
-          <div className="flex flex-col items-center gap-0.5">
-            <button 
-              onClick={() => logout()}
-              className="p-2.5 bg-slate-100/50 hover:bg-slate-100 rounded-xl text-slate-400 hover:text-red-500 transition-all active:scale-95"
-            >
-              <LogOut size={20} />
-            </button>
-            <span className="text-[8px] text-slate-400 font-bold text-center">Çıkış</span>
+            <span className="text-[8px] text-slate-400 font-bold text-center">{t('side.settings')}</span>
           </div>
         </div>
         
@@ -372,10 +460,10 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-blue-500 transition-colors" size={14} />
           <input 
             type="text" 
-            placeholder="Ara veya yeni sohbet başlat" 
+            placeholder={t('side.search')}
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full bg-slate-100/50 border border-slate-100 rounded-2xl py-2 pl-8 pr-3 text-sm text-slate-900 focus:border-blue-500 focus:ring-1 focus:ring-blue-500/30 transition-all outline-none"
+            className="w-full bg-slate-100/50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700 rounded-2xl py-2 pl-8 pr-3 text-sm text-slate-900 dark:text-slate-100 focus:border-blue-500 focus:ring-1 focus:ring-blue-500/30 transition-all outline-none"
           />
         </div>
       </header>
@@ -383,25 +471,25 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
       {/* Content Area with Tabs */}
       <div className="flex-1 overflow-y-auto custom-scrollbar pb-20">
         {/* Tab Navigation */}
-        <div className="flex gap-1 px-4 sm:px-6 py-3 border-b border-slate-100 bg-white sticky top-0 z-20">
+        <div className="flex gap-1 px-4 sm:px-6 py-3 border-b border-slate-100 dark:border-slate-700 bg-white dark:bg-slate-900 sticky top-0 z-20 transition-colors">
           <button
             onClick={() => setSidebarView('friends')}
             className={cn(
               "flex-1 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all relative",
-              sidebarView === 'friends' ? "bg-slate-900 text-white shadow-sm" : "bg-slate-100 text-slate-500 hover:bg-slate-200"
+              sidebarView === 'friends' ? "sidebar-tab-active bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 shadow-sm" : "bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700"
             )}
           >
-            Arkadaşlar
+            {t('side.friends')}
             <span className="ml-1 text-[8px] opacity-60">({friendsList.length})</span>
           </button>
           <button
             onClick={() => setSidebarView('groups')}
             className={cn(
               "flex-1 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all",
-              sidebarView === 'groups' ? "bg-slate-900 text-white shadow-sm" : "bg-slate-100 text-slate-500 hover:bg-slate-200"
+              sidebarView === 'groups' ? "sidebar-tab-active bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 shadow-sm" : "bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700"
             )}
           >
-            Gruplar
+            {t('side.groups')}
             <span className="ml-1 text-[8px] opacity-60">({filteredChats.filter(c => c.type === 'group').length})</span>
           </button>
         </div>
@@ -410,8 +498,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
         <div 
           onClick={() => { markBroadcastRead(); onSelectChat('__broadcast__'); }}
           className={cn(
-            "group px-4 sm:px-6 py-3 sm:py-4 flex items-center gap-3 sm:gap-4 cursor-pointer border-b border-slate-100 transition-colors",
-            selectedChatId === '__broadcast__' ? "bg-blue-50 border-r-4 border-blue-500" : "hover:bg-slate-50"
+            "group px-4 sm:px-6 py-3 sm:py-4 flex items-center gap-3 sm:gap-4 cursor-pointer border-b border-slate-100 dark:border-slate-700 transition-colors",
+            selectedChatId === '__broadcast__' ? "bg-blue-50 dark:bg-blue-900/30 border-r-4 border-blue-500" : "hover:bg-slate-50 dark:hover:bg-slate-800"
           )}
         >
           <div className="w-12 h-12 bg-blue-600 rounded-full flex-shrink-0 flex items-center justify-center shadow-sm relative">
@@ -421,8 +509,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
             )}
           </div>
           <div className="flex-1 min-w-0">
-            <h2 className="text-sm font-semibold truncate">📢 Broadcast Kanalı</h2>
-            <p className="text-xs text-slate-500 truncate mt-0.5">Tüm kullanıcılara açık kanal</p>
+            <h2 className="text-sm font-semibold truncate dark:text-slate-100">📢 {t('side.broadcastChannel')}</h2>
+            <p className="text-xs text-slate-500 dark:text-slate-400 truncate mt-0.5">{t('side.broadcastDesc')}</p>
           </div>
         </div>
 
@@ -435,36 +523,42 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
                 {friendsList.map(uid => {
                   const fp = friendProfiles[uid];
                   if (!fp) return null;
+                  const unread = friendUnreadMap[uid] || 0;
                   return (
                     <div
                       key={uid}
                       onClick={() => handleFriendClick(uid)}
-                      className="flex items-center gap-4 p-4 rounded-2xl cursor-pointer transition-all border border-transparent hover:bg-slate-50 hover:border-slate-100 active:scale-[0.98]"
+                      className="flex items-center gap-4 p-4 rounded-2xl cursor-pointer transition-all border border-transparent hover:bg-slate-50 dark:hover:bg-slate-800 hover:border-slate-100 dark:hover:border-slate-700 active:scale-[0.98]"
                     >
                       <div className="w-12 h-12 bg-slate-200 rounded-full flex-shrink-0 relative shadow-sm">
                         <img src={fp.photoURL} alt={fp.displayName} className="w-full h-full object-cover rounded-full" />
                         {fp.onlineStatus && (
-                          <StatusBullet status={fp.onlineStatus} className="absolute bottom-0 right-0 w-3.5 h-3.5" />
+                          <StatusBullet status={getStatusWithStaleness(fp)} className="absolute bottom-0 right-0 w-3.5 h-3.5" />
+                        )}
+                        {unread > 0 && (
+                          <div className="absolute -top-1 -right-1 min-w-[18px] h-[18px] bg-red-500 border-2 border-white dark:border-slate-900 rounded-full flex items-center justify-center shadow-lg z-10">
+                            <span className="text-[9px] font-black text-white leading-none px-1">{unread > 9 ? '9+' : unread}</span>
+                          </div>
                         )}
                       </div>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
-                          <h3 className="text-sm font-bold text-slate-900 truncate">{fp.displayName}</h3>
+                          <h3 className={cn("text-sm font-bold truncate", unread > 0 ? "text-blue-600 dark:text-blue-400" : "text-slate-900 dark:text-slate-100")}>{fp.displayName}</h3>
                           {fp.onlineStatus && (
                             <span className={cn(
                               "text-[8px] px-1 py-0.5 font-bold uppercase tracking-tighter shrink-0",
-                              fp.onlineStatus === 'online' ? "bg-green-100 text-green-600" : 
-                              fp.onlineStatus === 'away' ? "bg-amber-100 text-amber-600" : "bg-red-100 text-red-600"
+                              getStatusWithStaleness(fp) === 'online' ? "bg-green-100 dark:bg-green-950 text-green-600 dark:text-green-400" : 
+                              getStatusWithStaleness(fp) === 'away' ? "bg-amber-100 dark:bg-amber-950 text-amber-600 dark:text-amber-400" : "bg-slate-100 dark:bg-slate-900 text-slate-600 dark:text-slate-400"
                             )}>
-                              {fp.onlineStatus === 'online' ? 'Çevrimiçi' : fp.onlineStatus === 'away' ? 'Uzakta' : 'Meşgul'}
+                              {getStatusWithStaleness(fp) === 'online' ? t('side.online') : getStatusWithStaleness(fp) === 'away' ? t('side.away') : getStatusWithStaleness(fp) === 'offline' ? t('side.offline') : t('side.busy')}
                             </span>
                           )}
                         </div>
-                        <p className="text-[10px] text-slate-500 font-medium truncate">
+                        <p className="text-[10px] text-slate-500 dark:text-slate-400 font-medium truncate">
                           {fp.uin ? `#${fp.uin}` : fp.email}
                         </p>
                       </div>
-                      <div className="p-2 bg-blue-50 text-blue-600 rounded-xl transition-all active:scale-95">
+                      <div className="p-2 bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-400 rounded-xl transition-all active:scale-95">
                         <MessageSquarePlus size={16} />
                       </div>
                     </div>
@@ -473,13 +567,13 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
               </div>
             ) : (
               <div className="flex flex-col items-center justify-center py-16 text-center">
-                <div className="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center mb-4 text-slate-400">
+                <div className="w-16 h-16 bg-slate-100 dark:bg-slate-800 rounded-full flex items-center justify-center mb-4 text-slate-400">
                   <UserPlus size={28} />
                 </div>
-                <p className="text-sm font-bold text-slate-400 uppercase tracking-widest">Henüz arkadaşın yok</p>
-                <p className="text-xs text-slate-400 mt-2">Kullanıcı listesinden arkadaşlık isteği gönder</p>
+                <p className="text-sm font-bold text-slate-400 uppercase tracking-widest">{t('side.noFriendsYet')}</p>
+                <p className="text-xs text-slate-400 mt-2">{t('side.noFriendsHint')}</p>
                 <button onClick={onStartNewChat} className="mt-4 px-6 py-2.5 bg-blue-600 text-white rounded-xl text-[10px] font-black uppercase tracking-wider hover:bg-blue-700 transition-all active:scale-95">
-                  Kullanıcıları Gör
+                  {t('side.seeUsers')}
                 </button>
               </div>
             )}
@@ -501,7 +595,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
                       onClick={() => handleSelectChat(chat.id)}
                       className={cn(
                         "group px-4 sm:px-6 py-3 sm:py-4 flex items-center gap-3 sm:gap-4 cursor-pointer transition-colors",
-                        isSelected ? "bg-blue-50 border-r-4 border-blue-500" : "hover:bg-slate-50"
+                        isSelected ? "bg-blue-50 dark:bg-blue-950 border-r-4 border-blue-500" : "hover:bg-slate-50 dark:hover:bg-slate-800"
                       )}
                     >
                       <div className="w-12 h-12 bg-slate-200 rounded-full flex-shrink-0 relative shadow-sm">
@@ -515,10 +609,11 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
                       <div className="flex-1 min-w-0">
                         <div className="flex justify-between items-baseline">
                           <div className="flex items-center gap-2 min-w-0">
-                            <h2 className={cn("text-sm font-semibold truncate", isSelected ? "text-blue-600" : "text-slate-900")}>{info.name}</h2>
-                            <span className="text-[8px] px-1 py-0.5 bg-slate-100 text-slate-500 font-bold uppercase tracking-tighter shrink-0">
-                              {chat.participants.length} üye
+                            <h2 className={cn("text-sm font-semibold truncate", isSelected ? "text-blue-600" : "text-slate-900 dark:text-slate-100")}>{info.name}</h2>
+                            <span className="text-[8px] px-1 py-0.5 bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 font-bold uppercase tracking-tighter shrink-0">
+                              {chat.participants.length} {t('side.members')}
                             </span>
+                            {chat.muted && <span className="text-[10px]" title={t('side.muted')}>🔕</span>}
                           </div>
                           {chat.lastMessage?.timestamp && (
                             <span className="text-[10px] font-medium ml-2 text-slate-400">{formatDistanceToNow(chat.updatedAt.toDate(), { addSuffix: false })}</span>
@@ -528,35 +623,60 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
                           {chat.lastMessage?.senderName && (
                             <span className="font-bold mr-1">{chat.lastMessage.senderName}:</span>
                           )}
-                          {chat.lastMessage?.text || 'Henüz mesaj yok'}
+                          {chat.lastMessage?.text || t('side.noMessagesYet')}
                         </p>
                       </div>
                       <div className="relative shrink-0">
                         <button onClick={(e) => { e.stopPropagation(); setChatMenuOpen(chatMenuOpen === chat.id ? null : chat.id); }}
-                          className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-full transition-all sm:opacity-0 sm:group-hover:opacity-100">
+                          className="p-1.5 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-full transition-all sm:opacity-0 sm:group-hover:opacity-100">
                           <MoreVertical size={16} />
                         </button>
                         {chatMenuOpen === chat.id && (
                           <>
                             <div className="fixed inset-0 z-40" onClick={() => setChatMenuOpen(null)} />
-                            <div className="absolute right-0 top-full mt-1 flex items-center gap-1 bg-white border border-slate-200 rounded-xl shadow-xl px-2 py-1.5 z-50">
+                            <div className="absolute right-0 top-full mt-1 flex items-center gap-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl px-2 py-1.5 z-50">
                               <button onClick={() => { setChatMenuOpen(null); setShowGroupInfo(chat); }}
-                                className="p-2 text-slate-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all text-xs font-bold">ℹ️</button>
+                                className="p-2 text-slate-500 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950 rounded-lg transition-all text-xs font-bold">ℹ️</button>
                               <button onClick={() => { setChatMenuOpen(null); handleLeaveGroup(chat.id); }}
-                                className="p-2 text-slate-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all text-xs font-bold">🚪</button>
+                                className="p-2 text-slate-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950 rounded-lg transition-all text-xs font-bold">🚪</button>
                               <button onClick={async () => {
                                 setChatMenuOpen(null);
                                 try { await updateDoc(doc(db, 'chats', chat.id), { muted: !chat.muted }); }
                                 catch(e) { console.error(e); }
-                              }} className="p-2 text-slate-500 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-all text-xs font-bold">
+                          }} className="p-2 text-slate-500 hover:text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950 rounded-lg transition-all text-xs font-bold">
                                 {chat.muted ? '🔔' : '🔕'}
                               </button>
-                              {chat.heldBy && (
+                              {chat.heldBy && chat.heldBy === user?.uid && (
                                 <button onClick={async () => {
                                   setChatMenuOpen(null);
                                   try { await updateDoc(doc(db, 'chats', chat.id), { heldBy: null, holdExpiresAt: null }); }
                                   catch(e) { console.error(e); }
-                                }} className="p-2 text-slate-500 hover:text-green-600 hover:bg-green-50 rounded-lg transition-all text-xs font-bold">✅</button>
+                                }} className="p-2 text-slate-500 hover:text-green-600 hover:bg-green-50 dark:hover:bg-green-950 rounded-lg transition-all text-xs font-bold">✅</button>
+                              )}
+                              {chat.heldBy && chat.heldBy !== user?.uid && (
+                                <button onClick={async () => {
+                                  setChatMenuOpen(null);
+                                  const lastNotifyKey = `holdNotify_${chat.id}`;
+                                  const lastNotify = localStorage.getItem(lastNotifyKey);
+                                  const now = Date.now();
+                                  if (lastNotify && now - parseInt(lastNotify) < 30 * 60 * 1000) {
+                                    alert(t('side.holdNotify'));
+                                    return;
+                                  }
+                                  try {
+                                    await addDoc(collection(db, 'adminMessages'), {
+                                      userId: user?.uid,
+                                      userDisplayName: user?.displayName || '',
+                                      userNickname: profile?.nickname || '',
+                                      userUIN: profile?.uin || '',
+                                      message: `"${chat.groupMetadata?.name || 'Sohbet'}" ${t('side.holdMessage')}`,
+                                      timestamp: serverTimestamp(),
+                                      type: 'hold-notification',
+                                      chatId: chat.id
+                                    });
+                                    localStorage.setItem(lastNotifyKey, now.toString());
+                                  } catch(e) { console.error(e); }
+                                }} className="p-2 text-slate-500 hover:text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950 rounded-lg transition-all text-xs font-bold">🔔</button>
                               )}
                             </div>
                           </>
@@ -568,13 +688,13 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
               })
             ) : (
               <div className="flex flex-col items-center justify-center py-16 text-center">
-                <div className="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center mb-4 text-slate-400">
+                <div className="w-16 h-16 bg-slate-100 dark:bg-slate-800 rounded-full flex items-center justify-center mb-4 text-slate-400">
                   <Users size={28} />
                 </div>
-                <p className="text-sm font-bold text-slate-400 uppercase tracking-widest">Henüz grupta değilsin</p>
-                <p className="text-xs text-slate-400 mt-2">Kullanıcı listesinden gruplara katılabilirsin</p>
+                <p className="text-sm font-bold text-slate-400 uppercase tracking-widest">{t('side.noGroupsYet')}</p>
+                <p className="text-xs text-slate-400 mt-2">{t('side.noGroupsHint')}</p>
                 <button onClick={onStartNewChat} className="mt-4 px-6 py-2.5 bg-blue-600 text-white rounded-xl text-[10px] font-black uppercase tracking-wider hover:bg-blue-700 transition-all active:scale-95">
-                  Grupları Gör
+                  {t('side.seeGroups')}
                 </button>
               </div>
             )}
@@ -583,23 +703,23 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
       </div>
 
       {/* Footer Profile */}
-      <footer className="p-3 sm:p-4 border-t border-slate-100 bg-white shrink-0 relative">
+      <footer className="p-3 sm:p-4 border-t border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 shrink-0 relative">
         {showStatusMenu && (
-          <div className="absolute bottom-full left-6 mb-2 bg-white rounded-2xl shadow-xl border border-slate-100 overflow-hidden z-20 w-40 animate-in fade-in slide-in-from-bottom-2">
-            {(['online', 'away', 'busy'] as const).map(s => (
+          <div className="absolute bottom-full left-6 mb-2 bg-white dark:bg-slate-800 rounded-2xl shadow-xl border border-slate-100 dark:border-slate-700 overflow-hidden z-20 w-40 animate-in fade-in slide-in-from-bottom-2">
+            {(['online', 'away', 'busy', 'offline'] as const).map(s => (
               <button
                 key={s}
                 onClick={() => {
                   updateMyStatus(s);
                   setShowStatusMenu(false);
                 }}
-                className="w-full px-4 py-3 flex items-center gap-3 hover:bg-slate-50 transition-colors text-xs font-bold text-slate-700"
+                className="w-full px-4 py-3 flex items-center gap-3 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors text-xs font-bold text-slate-700 dark:text-slate-200"
               >
                 <div className={cn(
                   "w-2 h-2 rounded-full",
-                  s === 'online' ? "bg-green-500" : s === 'away' ? "bg-amber-500" : "bg-red-500"
+                  s === 'online' ? "bg-green-500" : s === 'away' ? "bg-amber-500" : s === 'offline' ? "bg-slate-500" : "bg-red-500"
                 )} />
-                {s === 'online' ? 'Çevrimiçi' : s === 'away' ? 'Uzakta' : 'Meşgul'}
+                {s === 'online' ? t('side.online') : s === 'away' ? t('side.away') : s === 'offline' ? t('side.offline') : t('side.busy')}
               </button>
             ))}
           </div>
@@ -609,7 +729,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
             <div className="flex items-center space-x-3 group cursor-pointer" onClick={() => setShowProfileModal(true)}>
               <div className="relative">
                 <img 
-                  src={profile?.photoURL || user?.photoURL || ''} 
+                  src={profile?.photoURL || user?.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user?.uid || 'default'}`} 
                   alt="Profile" 
                   className="w-10 h-10 rounded-xl bg-slate-900 object-cover shadow-sm group-hover:ring-2 group-hover:ring-blue-500/20 transition-all"
                 />
@@ -622,26 +742,26 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
                 </div>
               </div>
               <div className="flex flex-col min-w-0">
-                <span className="text-sm font-semibold text-slate-900 truncate max-w-[100px]">
+                <span className="text-sm font-semibold text-slate-900 dark:text-slate-100 truncate max-w-[100px]">
                   {profile?.displayName || user?.displayName}
                 </span>
                 <span className="text-[9px] font-black text-blue-500 tracking-tighter uppercase">
                   { profile?.uin || '...' }
                 </span>
                 <span className="text-[10px] text-slate-400 truncate max-w-[100px]">
-                  {profile?.about || 'Durum yok'}
+                  {profile?.about || t('side.noStatus')}
                 </span>
               </div>
             </div>
           <button 
             onClick={() => setShowStatusMenu(!showStatusMenu)}
-            className="flex items-center space-x-1.5 px-3 py-1.5 bg-slate-50 hover:bg-slate-100 rounded-xl transition-all border border-slate-100 active:scale-95"
+            className="flex items-center space-x-1.5 px-3 py-1.5 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-xl transition-all border border-slate-100 dark:border-slate-700 active:scale-95"
           >
             <span className={cn(
               "text-[10px] font-black uppercase tracking-wider",
-              myStatus === 'online' ? "text-green-600" : myStatus === 'away' ? "text-amber-600" : "text-red-600"
+              myStatus === 'online' ? "text-green-600" : myStatus === 'away' ? "text-amber-600" : myStatus === 'offline' ? "text-slate-600" : "text-red-600"
             )}>
-              {myStatus === 'online' ? 'Aktif' : myStatus === 'away' ? 'Uzakta' : 'Meşgul'}
+              {myStatus === 'online' ? t('side.active') : myStatus === 'away' ? t('side.away') : myStatus === 'offline' ? t('side.offline') : t('side.busy')}
             </span>
             <ChevronUp size={12} className={cn("text-slate-400 transition-transform duration-300", showStatusMenu && "rotate-180")} />
           </button>
@@ -663,27 +783,109 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
         <AdminPanel onClose={() => setShowAdminPanel(false)} />
       )}
 
-      {/* Admin Message Dialog */}
-      {showAdminMsg && (
-        <div className="fixed inset-0 z-[9999] bg-black/50 flex items-center justify-center p-4" onClick={() => { setShowAdminMsg(false); setAdminMsgText(''); }}>
-          <div className="bg-white rounded-3xl p-6 shadow-2xl max-w-sm w-full" onClick={e => e.stopPropagation()}>
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-base font-black text-slate-900">Yöneticiye Mesaj Gönder</h3>
-              <button onClick={() => { setShowAdminMsg(false); setAdminMsgText(''); }} className="p-1.5 hover:bg-slate-100 rounded-full text-slate-400">
+      {showThemePanel && <ThemePanel onClose={() => setShowThemePanel(false)} />}
+      {showLangPanel && <LanguagePanel onClose={() => setShowLangPanel(false)} />}
+      {showRingPanel && <RingtonePanel onClose={() => setShowRingPanel(false)} />}
+
+      {showSettings && (
+        <div className="fixed inset-0 z-[9999] bg-black/50 flex items-center justify-center p-4" onClick={() => setShowSettings(false)}>
+          <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 shadow-2xl max-w-sm w-full animate-slide-up" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-5">
+              <h3 className="text-base font-black text-slate-900 dark:text-slate-100">{t('side.settings')}</h3>
+              <button onClick={() => setShowSettings(false)} className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full text-slate-400">
                 <X size={18} />
               </button>
             </div>
-            <p className="text-[10px] text-slate-400 font-bold mb-4">Sorun, öneri veya ihlal bildirimi gönderebilirsiniz.</p>
+            <div className="space-y-2">
+              <button
+                onClick={() => { setShowSettings(false); setShowAdminMsg(true); }}
+                className="w-full flex items-center gap-3 p-3 rounded-2xl hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
+              >
+                <span className="w-9 h-9 rounded-full bg-green-500 text-white flex items-center justify-center shrink-0">
+                  <MessageSquarePlus size={18} />
+                </span>
+                <span className="text-sm font-bold text-slate-900 dark:text-slate-100">{t('side.adminMsg')}</span>
+              </button>
+              <button
+                onClick={() => { setShowSettings(false); setShowAdminPanel(true); }}
+                className="w-full flex items-center gap-3 p-3 rounded-2xl hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
+              >
+                <span className="w-9 h-9 rounded-full bg-green-500 text-white flex items-center justify-center shrink-0">
+                  <Shield size={18} />
+                </span>
+                <span className="text-sm font-bold text-slate-900 dark:text-slate-100">{t('side.admin')}</span>
+              </button>
+              <button
+                onClick={() => { setShowSettings(false); setShowThemePanel(true); }}
+                className="w-full flex items-center gap-3 p-3 rounded-2xl hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
+              >
+                <span className="w-9 h-9 rounded-full bg-green-500 text-white flex items-center justify-center shrink-0">
+                  <Palette size={18} />
+                </span>
+                <span className="text-sm font-bold text-slate-900 dark:text-slate-100">{t('set.theme')}</span>
+              </button>
+              <button
+                onClick={() => { setShowSettings(false); setShowLangPanel(true); }}
+                className="w-full flex items-center gap-3 p-3 rounded-2xl hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
+              >
+                <span className="w-9 h-9 rounded-full bg-green-500 text-white flex items-center justify-center shrink-0">
+                  <Languages size={18} />
+                </span>
+                <span className="text-sm font-bold text-slate-900 dark:text-slate-100">{t('set.language')}</span>
+              </button>
+              <button
+                onClick={() => { setShowSettings(false); setShowRingPanel(true); }}
+                className="w-full flex items-center gap-3 p-3 rounded-2xl hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
+              >
+                <span className="w-9 h-9 rounded-full bg-green-500 text-white flex items-center justify-center shrink-0">
+                  <Music size={18} />
+                </span>
+                <span className="text-sm font-bold text-slate-900 dark:text-slate-100">{t('set.ringtones')}</span>
+              </button>
+              <button
+                onClick={() => { setShowSettings(false); onToggleDark?.(); }}
+                className="w-full flex items-center gap-3 p-3 rounded-2xl hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
+              >
+                <span className="w-9 h-9 rounded-full bg-green-500 text-white flex items-center justify-center shrink-0">
+                  {darkMode ? <Sun size={18} /> : <Moon size={18} />}
+                </span>
+                <span className="text-sm font-bold text-slate-900 dark:text-slate-100">{darkMode ? t('side.light') : t('side.dark')}</span>
+              </button>
+              <button
+                onClick={() => { setShowSettings(false); logout(); }}
+                className="w-full flex items-center gap-3 p-3 rounded-2xl hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+              >
+                <span className="w-9 h-9 rounded-full bg-red-500 text-white flex items-center justify-center shrink-0">
+                  <LogOut size={18} />
+                </span>
+                <span className="text-sm font-bold text-red-500">{t('side.logout')}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Admin Message Dialog */}
+      {showAdminMsg && (
+        <div className="fixed inset-0 z-[9999] bg-black/50 flex items-center justify-center p-4" onClick={() => { setShowAdminMsg(false); setAdminMsgText(''); }}>
+          <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 shadow-2xl max-w-sm w-full" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-base font-black text-slate-900 dark:text-slate-100">{t('side.adminMsgTitle')}</h3>
+              <button onClick={() => { setShowAdminMsg(false); setAdminMsgText(''); }} className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full text-slate-400">
+                <X size={18} />
+              </button>
+            </div>
+            <p className="text-[10px] text-slate-400 font-bold mb-4">{t('side.adminMsgHint')}</p>
             <textarea
               value={adminMsgText}
               onChange={e => setAdminMsgText(e.target.value)}
-              placeholder="Mesajınız..."
-              className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-4 text-sm font-bold text-slate-900 outline-none min-h-[100px] resize-none"
+              placeholder={t('side.msgPlaceholder')}
+              className="w-full bg-slate-50 dark:bg-slate-800 border-2 border-slate-100 dark:border-slate-700 rounded-2xl p-4 text-sm font-bold text-slate-900 dark:text-slate-100 outline-none min-h-[100px] resize-none"
             />
             <div className="flex gap-3 mt-4">
               <button
                 onClick={() => { setShowAdminMsg(false); setAdminMsgText(''); }}
-                className="flex-1 py-2.5 bg-slate-100 text-slate-600 rounded-xl text-[10px] font-black uppercase tracking-wider"
+                className="flex-1 py-2.5 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 rounded-xl text-[10px] font-black uppercase tracking-wider"
               >
                 İptal
               </button>
@@ -701,9 +903,9 @@ export const Sidebar: React.FC<SidebarProps> = ({ onSelectChat, selectedChatId, 
                     });
                     setShowAdminMsg(false);
                     setAdminMsgText('');
-                    addToast('Mesajınız yöneticiye iletilmiştir.', 'success');
+                    addToast(t('side.adminMsgSent'), 'success');
                   } catch {
-                    addToast('Mesaj gönderilemedi. Lütfen tekrar deneyin.', 'error');
+                    addToast(t('side.adminMsgFail'), 'error');
                   }
                 }}
                 className="flex-1 py-2.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-[10px] font-black uppercase tracking-wider disabled:opacity-40"

@@ -36,7 +36,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
             await setDoc(userRef, {
               uid: firebaseUser.uid,
-              displayName: existingData?.displayName || firebaseUser.displayName || 'Anonymous',
+              displayName: existingData?.displayName || firebaseUser.displayName || '',
               email: firebaseUser.email || '',
               photoURL: existingData?.photoURL || firebaseUser.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${firebaseUser.uid}`,
               lastSeen: serverTimestamp(),

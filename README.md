@@ -6,6 +6,30 @@ Real-time messaging app with voice/video calls and admin panel.
 
 [https://aydannadya31.github.io/nexus-messenger/](https://aydannadya31.github.io/nexus-messenger/)
 
+## Tanıtım
+
+**Hızlı. Ücretsiz. Kurulumsuz.** Arkadaşlarınla ve gruplarınla yazış, ara, paylaş — hepsi tarayıcında, tek tıkla. İndirmek, kurmak yok.
+
+📄 [Tanıtım PDF'ini indir](https://aydannadya31.github.io/nexus-messenger/AFCB-Messenger-Tanitim.pdf)
+
+### Neler Yapabilirsin?
+
+- **Anlık Mesajlaşma** — Arkadaşlarınla birebir veya grupta yazış; resim, video, ses ve dosya gönder.
+- **Arkadaşlık Sistemi** — Kişilerden arkadaş ekle, istek gönder; ülke filtresiyle yeni insanlar keşfet.
+- **Grup Sohbetleri** — Şifresiz gruplara anında katıl, şifrelilere şifrenle gir; yönetici devri ve üye yönetimiyle.
+- **Sesli & Görüntülü Arama** — Tek dokunuşla ara. LiveKit, Agora ve yedek bağlantı motorlarıyla kesintisiz görüşme.
+- **15 Saniyelik Video** — Uygulama içinde anında video kaydet ve paylaş; kayıt 15 saniyede kendiliğinden durur.
+- **Tamamen Ücretsiz** — Abonelik, lisans, kurulum yok. Tarayıcını aç, hemen kullan.
+
+### Gizlilik Senin Elinde
+
+- **Tek Bakışlık Mesajlar** — Gönderdiğin özel mesaj karşı tarafça bir kez görülür; sonra kaybolur.
+- **Şifreli Mesajlar** — Hassas konuşmaların şifreli olarak saklanır, sadece senin erişimin vardır.
+- **Mesaj Geçmişi PDF Aktarımı** — Sohbetini yazı olarak PDF'e kaydet; fotoğraflar, videolar ve sesler aynı klasöre kendi formatlarında ayrı olarak iner.
+- **Yakınlaştır ve İndir** — Resme tıkla, istediğin kadar yakınlaş, sürükleyerek gez. Bastır ve indir ile tek hamlede kaydet.
+- **Emoji ve Profil** — Duygunu emojiyle anlat; profilinde takma adın, ülken ve doğum tarihin seni tanır.
+- **Spam Koruması** — Dakikada 3 mesaj limiti istenmeyen kalabalığı önler, sohbetler temiz kalır.
+
 ## Local Development
 
 ```bash

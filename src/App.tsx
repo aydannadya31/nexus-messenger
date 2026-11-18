@@ -3,9 +3,10 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { useState, useEffect } from 'react';
-import { doc, getDoc, updateDoc } from 'firebase/firestore';
+import { useState, useEffect, useRef } from 'react';
+import { doc, getDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from './lib/firebase';
+import { initPush, initNativePush } from './lib/messaging';
 import { AuthProvider, useAuth } from './components/AuthProvider';
 import { Sidebar } from './components/Sidebar';
 import { ChatArea } from './components/ChatArea';
@@ -18,19 +19,101 @@ import { CallProvider, useCall } from './components/CallProvider';
 import { CallOverlay } from './components/CallOverlay';
 import { ProfileSetup } from './components/ProfileSetup';
 import { ToastProvider } from './lib/toast';
+import { I18nProvider, useI18n } from './lib/i18n';
+import { ThemeProvider } from './lib/theme';
 import ToastContainer from './components/Toast';
 import { cn } from './lib/utils';
 import { MessageSquare, Ban } from 'lucide-react';
 
+function useDarkMode() {
+  const [dark, setDark] = useState(() => {
+    const saved = localStorage.getItem('theme');
+    if (saved !== null) return saved === 'dark';
+    return window.matchMedia('(prefers-color-scheme: dark)').matches;
+  });
+  useEffect(() => {
+    document.documentElement.classList.toggle('dark', dark);
+    document.documentElement.style.colorScheme = dark ? 'dark' : 'light';
+    const meta = document.querySelector('meta[name="color-scheme"]');
+    if (meta) meta.setAttribute('content', dark ? 'dark' : 'light');
+    localStorage.setItem('theme', dark ? 'dark' : 'light');
+    if (localStorage.getItem('theme') !== null) return;
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    const handler = () => setDark(mq.matches);
+    mq.addEventListener('change', handler);
+    return () => mq.removeEventListener('change', handler);
+  }, [dark]);
+  return { dark, toggle: () => setDark(d => !d) };
+}
+
+function usePresence() {
+  const { user } = useAuth();
+  const preOfflineStatusRef = useRef<'online' | 'away' | 'busy'>('online');
+
+  useEffect(() => {
+    if (!user) return;
+    const allowed: ('online' | 'away' | 'busy')[] = ['online', 'away', 'busy'];
+    const stored = localStorage.getItem('nexus.lastStatus') as 'online' | 'away' | 'busy' | null;
+    const initial: 'online' | 'away' | 'busy' = (stored && allowed.includes(stored)) ? stored : 'online';
+    preOfflineStatusRef.current = initial;
+
+    const writeStatus = async (status: 'online' | 'away' | 'busy' | 'offline') => {
+      if (!user) return;
+      try {
+        await updateDoc(doc(db, 'users', user.uid), {
+          onlineStatus: status,
+          statusUpdatedAt: serverTimestamp(),
+        });
+        if (status !== 'offline') localStorage.setItem('nexus.lastStatus', status);
+      } catch (err) {
+        console.error('Presence write error:', err);
+      }
+    };
+
+    const desiredStatus = (): 'online' | 'away' | 'busy' | 'offline' =>
+      !navigator.onLine ? 'offline' : preOfflineStatusRef.current;
+
+    const syncPresence = async () => {
+      await writeStatus(desiredStatus());
+    };
+
+    const handleOnline = async () => {
+      const stored = localStorage.getItem('nexus.lastStatus') as 'online' | 'away' | 'busy' | null;
+      const status: 'online' | 'away' | 'busy' = (stored && allowed.includes(stored)) ? stored : 'online';
+      preOfflineStatusRef.current = status;
+      await writeStatus(status);
+    };
+    const handleOffline = async () => {
+      await writeStatus('offline');
+    };
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    const interval = setInterval(syncPresence, 30000);
+
+    syncPresence();
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+      clearInterval(interval);
+    };
+  }, [user]);
+}
+
 function NexusApp() {
   const { user, profile, loading } = useAuth();
+  usePresence();
   const { activeCall, incomingCall } = useCall();
+  const { t } = useI18n();
   const [selectedChatId, setSelectedChatId] = useState<string | undefined>();
   const [isNewChatModalOpen, setIsNewChatModalOpen] = useState(false);
   const [isBroadcastModalOpen, setIsBroadcastModalOpen] = useState(false);
   const [showMobileSidebar, setShowMobileSidebar] = useState(true);
   const [banned, setBanned] = useState<{ until: Date; reason?: string } | null>(null);
   const [showProfileSetup, setShowProfileSetup] = useState(false);
+  const { dark, toggle: toggleDark } = useDarkMode();
 
   useEffect(() => {
     if (user && profile && !profile.profileCompleted && !showProfileSetup) {
@@ -56,6 +139,13 @@ function NexusApp() {
     return () => clearInterval(interval);
   }, [user]);
 
+  useEffect(() => {
+    if (user?.uid) {
+      initPush(user.uid);
+      initNativePush(user.uid);
+    }
+  }, [user?.uid]);
+
   // Handle back button on mobile
   useEffect(() => {
     if (!selectedChatId || showMobileSidebar) return;
@@ -72,11 +162,18 @@ function NexusApp() {
     return () => window.removeEventListener('popstate', handlePopState);
   }, [selectedChatId, showMobileSidebar]);
 
-  // Confirm before leaving the app (mobile back from sidebar)
   useEffect(() => {
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
-      e.preventDefault();
-      e.returnValue = '';
+      const active = document.activeElement as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement | null;
+      const editing = active && (
+        (active.tagName === 'INPUT' && active.type !== 'file' && active.value.trim().length > 0) ||
+        (active.tagName === 'TEXTAREA' && active.value.trim().length > 0) ||
+        active.tagName === 'SELECT'
+      );
+      if (editing) {
+        e.preventDefault();
+        e.returnValue = '';
+      }
     };
     window.addEventListener('beforeunload', handleBeforeUnload);
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
@@ -84,11 +181,11 @@ function NexusApp() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-screen bg-slate-50">
+      <div className="flex items-center justify-center h-screen bg-slate-50 dark:bg-slate-950">
         <div className="relative flex flex-col items-center">
-          <div className="w-20 h-20 border-4 border-blue-50 border-t-blue-600 rounded-full animate-spin shadow-xl shadow-blue-100" />
+          <div className="w-20 h-20 border-4 border-blue-50 dark:border-blue-950 border-t-blue-600 rounded-full animate-spin shadow-xl shadow-blue-100 dark:shadow-blue-950" />
           <MessageSquare className="absolute top-7 left-1/2 -translate-x-1/2 text-blue-600" size={28} />
-          <span className="mt-8 text-[10px] font-black text-slate-400 uppercase tracking-[0.3em] animate-pulse">Syncing Core...</span>
+          <span className="mt-8 text-[10px] font-black text-slate-400 uppercase tracking-[0.3em] animate-pulse">{t('app.syncing')}</span>
         </div>
       </div>
     );
@@ -104,24 +201,24 @@ function NexusApp() {
     const minutes = Math.floor((remaining % 3600) / 60);
     const seconds = remaining % 60;
     return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
-        <div className="bg-white rounded-3xl p-10 shadow-2xl max-w-md w-full text-center border border-slate-200">
-          <div className="w-20 h-20 bg-red-100 rounded-3xl flex items-center justify-center mx-auto mb-6">
+      <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex items-center justify-center p-4">
+        <div className="bg-white dark:bg-slate-900 rounded-3xl p-10 shadow-2xl max-w-md w-full text-center border border-slate-200 dark:border-slate-800">
+          <div className="w-20 h-20 bg-red-100 dark:bg-red-950 rounded-3xl flex items-center justify-center mx-auto mb-6">
             <Ban size={40} className="text-red-500" />
           </div>
-          <h1 className="text-2xl font-black text-slate-900 mb-3">Hesabınız Banlanmış</h1>
-          <p className="text-sm text-slate-500 font-bold mb-6 leading-relaxed">
-            Hesabınız geçici olarak askıya alınmıştır.
+          <h1 className="text-2xl font-black text-slate-900 dark:text-slate-100 mb-3">{t('app.banned')}</h1>
+          <p className="text-sm text-slate-500 dark:text-slate-400 font-bold mb-6 leading-relaxed">
+            {t('app.bannedDesc')}
           </p>
-          <div className="bg-slate-50 rounded-2xl p-4 mb-6 border border-slate-100">
-            <p className="text-[10px] text-slate-400 font-black uppercase tracking-widest mb-2">KALAN SÜRE</p>
+          <div className="bg-slate-50 dark:bg-slate-800 rounded-2xl p-4 mb-6 border border-slate-100 dark:border-slate-700">
+            <p className="text-[10px] text-slate-400 font-black uppercase tracking-widest mb-2">{t('app.remaining')}</p>
             <p className="text-3xl font-black text-red-600 tabular-nums tracking-tight font-mono">
               {String(hours).padStart(2, '0')}:{String(minutes).padStart(2, '0')}:{String(seconds).padStart(2, '0')}
             </p>
           </div>
           {banned.reason && (
-            <p className="text-xs text-slate-500 font-medium mb-4">
-              Sebep: {banned.reason}
+            <p className="text-xs text-slate-500 dark:text-slate-400 font-medium mb-4">
+              {t('app.reason')} {banned.reason}
             </p>
           )}
         </div>
@@ -144,6 +241,8 @@ function NexusApp() {
           }}
           onStartNewChat={() => setIsNewChatModalOpen(true)}
           onOpenBroadcast={() => setIsBroadcastModalOpen(true)}
+          darkMode={dark}
+          onToggleDark={toggleDark}
         />
       </div>
 
@@ -193,9 +292,11 @@ function NexusApp() {
         country={profile?.country || ''}
         userUid={user.uid}
         onSave={async (data) => {
+          const savedStatus = localStorage.getItem('nexus.lastStatus');
+          const saveStatus = (savedStatus && ['online', 'away', 'busy'].includes(savedStatus) ? savedStatus : 'online') as 'online' | 'away' | 'busy';
           await updateDoc(doc(db, 'users', user.uid), {
             ...data,
-            onlineStatus: 'online',
+            onlineStatus: saveStatus,
             profileCompleted: true
           });
         }}
@@ -207,13 +308,17 @@ function NexusApp() {
 
 export default function App() {
   return (
-    <AuthProvider>
-      <CallProvider>
-        <ToastProvider>
-          <NexusApp />
-          <ToastContainer />
-        </ToastProvider>
-      </CallProvider>
-    </AuthProvider>
+    <I18nProvider>
+      <ThemeProvider>
+        <AuthProvider>
+          <CallProvider>
+            <ToastProvider>
+              <NexusApp />
+              <ToastContainer />
+            </ToastProvider>
+          </CallProvider>
+        </AuthProvider>
+      </ThemeProvider>
+    </I18nProvider>
   );
 }

@@ -3,7 +3,8 @@ import { collection, query, onSnapshot, where, getDocs, addDoc, serverTimestamp,
 import { db } from '../lib/firebase';
 import { useAuth } from './AuthProvider';
 import { Chat, UserProfile } from '../types';
-import { cn } from '../lib/utils';
+import { cn, getDisplayStatus } from '../lib/utils';
+import { useI18n, translate } from '../lib/i18n';
 import { MessageSquarePlus, Users, Search, Loader2 } from 'lucide-react';
 
 interface UsersPageProps {
@@ -11,24 +12,28 @@ interface UsersPageProps {
 }
 
 const statusLabels: Record<string, string> = {
-  online: 'Çevrimiçi',
-  away: 'Uzakta',
-  busy: 'Meşgul',
+  online: 'side.online',
+  away: 'side.away',
+  busy: 'side.busy',
+  offline: 'side.offline',
 };
 
 const statusDot: Record<string, string> = {
   online: 'bg-green-500',
   away: 'bg-amber-500',
   busy: 'bg-red-500',
+  offline: 'bg-slate-500',
 };
 
 const statusBadge: Record<string, string> = {
   online: 'bg-green-100 text-green-600',
   away: 'bg-amber-100 text-amber-600',
   busy: 'bg-red-100 text-red-600',
+  offline: 'bg-slate-100 text-slate-600',
 };
 
 export const UsersPage: React.FC<UsersPageProps> = ({ onSelectChat }) => {
+  const { t } = useI18n();
   const { user } = useAuth();
   const [friendsList, setFriendsList] = useState<string[]>([]);
   const [friendProfiles, setFriendProfiles] = useState<Record<string, UserProfile>>({});
@@ -156,7 +161,7 @@ export const UsersPage: React.FC<UsersPageProps> = ({ onSelectChat }) => {
   return (
     <div className="flex-1 flex flex-col bg-slate-50 min-w-0">
       <header className="min-h-14 sm:h-20 bg-white border-b border-slate-200 flex items-center px-4 sm:px-8 shrink-0">
-        <h2 className="text-lg font-black text-slate-900 tracking-tight">Kullanıcılar</h2>
+        <h2 className="text-lg font-black text-slate-900 tracking-tight">{t('up.title')}</h2>
         <span className="ml-2 text-xs font-bold text-slate-400">({friendsList.length + groups.length})</span>
       </header>
 
@@ -165,7 +170,7 @@ export const UsersPage: React.FC<UsersPageProps> = ({ onSelectChat }) => {
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
           <input
             type="text"
-            placeholder="Arkadaş veya grup ara..."
+            placeholder={t('up.searchPlaceholder')}
             value={searchQuery}
             onChange={e => setSearchQuery(e.target.value)}
             className="w-full bg-slate-100 rounded-xl py-2.5 pl-10 pr-4 text-sm outline-none focus:ring-2 focus:ring-blue-500/30 transition-all"
@@ -188,12 +193,12 @@ export const UsersPage: React.FC<UsersPageProps> = ({ onSelectChat }) => {
               )}
             </div>
             <p className="text-sm font-bold text-slate-400 uppercase tracking-widest">
-              {searchQuery ? 'Sonuç bulunamadı' : 'Henüz bağlantın yok'}
+              {searchQuery ? t('up.noResults') : t('up.noConnections')}
             </p>
             <p className="text-xs text-slate-400 mt-2 max-w-[200px]">
               {searchQuery
-                ? 'Farklı bir arama dene'
-                : 'Kullanıcı eklemek için sol üstteki "Kull. List." butonunu kullan'}
+                ? t('up.tryDifferentSearch')
+                : t('up.addUsersHint')}
             </p>
           </div>
         ) : (
@@ -202,7 +207,7 @@ export const UsersPage: React.FC<UsersPageProps> = ({ onSelectChat }) => {
               <div>
                 <div className="px-4 sm:px-8 pt-4 pb-2">
                   <h3 className="text-xs font-black text-slate-500 uppercase tracking-widest">
-                    Arkadaşlar
+                    {t('side.friends')}
                     <span className="ml-1.5 text-[10px] opacity-60">({filteredFriends.length})</span>
                   </h3>
                 </div>
@@ -225,21 +230,21 @@ export const UsersPage: React.FC<UsersPageProps> = ({ onSelectChat }) => {
                           {fp.onlineStatus && (
                             <div className={cn(
                               "absolute bottom-0 right-0 w-3.5 h-3.5 rounded-full border-2 border-white",
-                              statusDot[fp.onlineStatus]
+                              statusDot[getDisplayStatus(fp)]
                             )} />
                           )}
                         </div>
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2">
                             <h3 className="text-sm font-bold text-slate-900 truncate">
-                              {fp.displayName || 'İsimsiz'}
+                              {fp.displayName || t('up.anonymous')}
                             </h3>
                             {fp.onlineStatus && (
                               <span className={cn(
                                 "text-[8px] px-1.5 py-0.5 font-bold uppercase tracking-tighter shrink-0 rounded",
-                                statusBadge[fp.onlineStatus]
+                                statusBadge[getDisplayStatus(fp)]
                               )}>
-                                {statusLabels[fp.onlineStatus]}
+                                {translate(statusLabels[getDisplayStatus(fp)])}
                               </span>
                             )}
                           </div>
@@ -257,7 +262,7 @@ export const UsersPage: React.FC<UsersPageProps> = ({ onSelectChat }) => {
                         <button
                           onClick={(e) => { e.stopPropagation(); handleFriendClick(uid); }}
                           className="p-2.5 bg-blue-50 hover:bg-blue-100 text-blue-600 rounded-xl transition-all active:scale-95 shrink-0"
-                          title="Mesaj Gönder"
+                          title={t('up.sendMessage')}
                         >
                           <MessageSquarePlus size={18} />
                         </button>
@@ -272,7 +277,7 @@ export const UsersPage: React.FC<UsersPageProps> = ({ onSelectChat }) => {
               <div>
                 <div className="px-4 sm:px-8 pt-6 pb-2">
                   <h3 className="text-xs font-black text-slate-500 uppercase tracking-widest">
-                    Gruplar
+                    {t('side.groups')}
                     <span className="ml-1.5 text-[10px] opacity-60">({filteredGroups.length})</span>
                   </h3>
                 </div>
@@ -293,17 +298,17 @@ export const UsersPage: React.FC<UsersPageProps> = ({ onSelectChat }) => {
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
                           <h3 className="text-sm font-bold text-slate-900 truncate">
-                            {group.groupMetadata?.name || 'Grup'}
-                          </h3>
-                          <span className="text-[8px] px-1.5 py-0.5 font-bold bg-slate-100 text-slate-500 uppercase tracking-tighter rounded shrink-0">
-                            {group.participants.length} üye
-                          </span>
-                        </div>
-                        <p className="text-[10px] text-slate-500 font-medium truncate mt-0.5">
-                          {group.lastMessage?.text
-                            ? `${group.lastMessage.senderName || 'Birisi'}: ${group.lastMessage.text}`
-                            : 'Henüz mesaj yok'}
-                        </p>
+                                {group.groupMetadata?.name || t('up.groupFallback')}
+                              </h3>
+                              <span className="text-[8px] px-1.5 py-0.5 font-bold bg-slate-100 text-slate-500 uppercase tracking-tighter rounded shrink-0">
+                                {group.participants.length} {t('side.members')}
+                              </span>
+                            </div>
+                            <p className="text-[10px] text-slate-500 font-medium truncate mt-0.5">
+                              {group.lastMessage?.text
+                                ? `${group.lastMessage.senderName || t('up.someone')}: ${group.lastMessage.text}`
+                                : t('side.noMessagesYet')}
+                            </p>
                       </div>
                       <div className="p-2 bg-blue-50 text-blue-600 rounded-xl transition-all active:scale-95 shrink-0">
                         <MessageSquarePlus size={16} />

@@ -5,7 +5,7 @@ import { useAuth } from './AuthProvider';
 import { X, Radio, Send, Globe } from 'lucide-react';
 import { motion } from 'motion/react';
 
-const COUNTRIES: { code: string; name: string }[] = [
+export const COUNTRIES: { code: string; name: string }[] = [
   { code: 'TUR', name: 'Türkiye' }, { code: 'USA', name: 'United States' }, { code: 'GBR', name: 'United Kingdom' },
   { code: 'DEU', name: 'Germany' }, { code: 'FRA', name: 'France' }, { code: 'ITA', name: 'Italy' },
   { code: 'ESP', name: 'Spain' }, { code: 'RUS', name: 'Russia' }, { code: 'CHN', name: 'China' },
@@ -124,6 +124,7 @@ export const BroadcastModal: React.FC<BroadcastModalProps> = ({ onClose }) => {
           <select value={country} onChange={e => setCountry(e.target.value)}
             className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl py-3.5 px-4 text-sm font-bold text-slate-900 outline-none focus:border-blue-500 transition-all">
             <option value="">Hedef ülke seçin...</option>
+            <option value="ALL">🌍 Tüm Dünya</option>
             {COUNTRIES.map(c => (<option key={c.code} value={c.code}>{c.name}</option>))}
           </select>
 

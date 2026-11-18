@@ -5,6 +5,7 @@ import { useToast } from '../lib/toast';
 import { UserProfile } from '../types';
 import { X, Check, User, Info, Wifi, Camera, Upload, Trash2, RefreshCw } from 'lucide-react';
 import { cn } from '../lib/utils';
+import { useI18n } from '../lib/i18n';
 
 interface ProfileModalProps {
   user: UserProfile;
@@ -14,6 +15,7 @@ interface ProfileModalProps {
 
 const ProfileModal: React.FC<ProfileModalProps> = ({ user, onClose, readOnly }) => {
   const { addToast } = useToast();
+  const { t } = useI18n();
   const [displayName, setDisplayName] = useState(user.displayName);
   const [nickname, setNickname] = useState(user.nickname || '');
   const [about, setAbout] = useState(user.about || '');
@@ -35,6 +37,10 @@ const ProfileModal: React.FC<ProfileModalProps> = ({ user, onClose, readOnly }) 
   const isReadOnly = readOnly === true;
 
   const handleSave = async () => {
+    if (!displayName.trim() || !nickname.trim()) {
+      addToast('İsim ve takma ad boş olamaz.', 'error');
+      return;
+    }
     setSaving(true);
     try {
       let finalPhotoURL = photoURL;
@@ -123,9 +129,10 @@ const ProfileModal: React.FC<ProfileModalProps> = ({ user, onClose, readOnly }) 
   };
 
   const statusOptions = [
-    { value: 'online', label: 'Çevrimiçi', color: 'bg-green-500' },
-    { value: 'away', label: 'Uzakta', color: 'bg-amber-500' },
-    { value: 'busy', label: 'Meşgul', color: 'bg-red-500' }
+    { value: 'online', label: t('side.online'), color: 'bg-green-500' },
+    { value: 'away', label: t('side.away'), color: 'bg-amber-500' },
+    { value: 'busy', label: t('side.busy'), color: 'bg-red-500' },
+    { value: 'offline', label: t('side.offline'), color: 'bg-slate-500' }
   ];
 
   return (
@@ -238,7 +245,7 @@ const ProfileModal: React.FC<ProfileModalProps> = ({ user, onClose, readOnly }) 
               onChange={(e) => setNickname(e.target.value)}
               readOnly={isReadOnly}
               className={cn("w-full bg-slate-50 border-2 border-slate-100 rounded-2xl px-4 py-3 text-sm font-bold text-slate-900 focus:border-purple-500 focus:ring-4 focus:ring-purple-500/10 outline-none transition-all placeholder:text-slate-300", isReadOnly && "opacity-70 cursor-default")}
-              placeholder="Takma adınız (opsiyonel)..."
+              placeholder="Takma adınız..."
             />
           </div>
 

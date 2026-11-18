@@ -7,7 +7,18 @@ export interface UserProfile {
   status?: string;
   about?: string;
   uin?: string;
-  onlineStatus?: 'online' | 'away' | 'busy';
+  onlineStatus?: 'online' | 'away' | 'busy' | 'offline';
+  statusUpdatedAt?: any;
+  profileCompleted?: boolean;
+  nickname?: string;
+  country?: string;
+  birthDate?: string;
+  phone?: string;
+  location?: string;
+  showBirthDate?: boolean;
+  showPhone?: boolean;
+  showLocation?: boolean;
+  bannedUntil?: any;
 }
 
 export interface Chat {
@@ -18,6 +29,20 @@ export interface Chat {
     name: string;
     photoURL?: string;
     createdBy: string;
+    adminId?: string;
+    adminHistory?: string[];
+    bannedUsers?: Array<{
+      uid: string;
+      displayName: string;
+      bannedUntil?: any;
+      bannedAt?: any;
+      bannedBy?: string;
+    }>;
+    password?: string;
+    roles?: Record<string, 'editor' | 'viewer'>;
+    holdEnabled?: boolean;
+    passive?: boolean;
+    discoverable?: boolean;
   };
   lastMessage?: {
     text: string;
@@ -28,6 +53,12 @@ export interface Chat {
   updatedAt: any;
   heldBy?: string | null;
   holdExpiresAt?: any;
+  holdCounts?: Record<string, { date: string; count: number }>;
+  groupCountry?: string;
+  muted?: boolean;
+  historyHidden?: boolean;
+  historyHiddenAt?: any;
+  historyHiddenBy?: string;
 }
 
 export interface Message {
@@ -49,6 +80,14 @@ export interface Message {
   callDuration?: number;
   callStatus?: 'missed' | 'completed' | 'rejected';
   callerId?: string;
+  blockedByAdmin?: boolean;
+  deletedBy?: string[];
+  replyTo?: { id: string; text?: string; senderId: string };
+  edited?: boolean;
+  editedAt?: any;
+  viewOnce?: boolean;
+  viewOnceOpened?: boolean;
+  viewOnceViews?: string[];
 }
 
 export interface Call {

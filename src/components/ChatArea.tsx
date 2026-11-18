@@ -1,83 +1,33 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
-import { collection, query, onSnapshot, orderBy, addDoc, serverTimestamp, doc, updateDoc, setDoc, getDoc, where, deleteDoc, getDocs } from 'firebase/firestore';
+import { jsPDF } from 'jspdf';
+import { collection, query, onSnapshot, orderBy, addDoc, serverTimestamp, doc, updateDoc, setDoc, getDoc, where, deleteDoc, getDocs, writeBatch, arrayUnion } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { useAuth } from './AuthProvider';
 import { useCall } from './CallProvider';
 import { Chat, Message, UserProfile, Call } from '../types';
-import { cn } from '../lib/utils';
+import { cn, getDisplayStatus } from '../lib/utils';
 import ProfileModal from './ProfileModal';
-import { Image, MoreVertical, Send, Smile, Phone, Video, MessageSquarePlus, Clock, Play, Mic, Square, Pause, Trash2, ListChecks, X, Info, Eye, EyeOff, Lock, LogOut, Shield, UserX, UserCheck, Ban, Settings } from 'lucide-react';
+import { TranslateBox, TranslateToggle, useTranslateTarget } from './TranslateBox';
+import { Image, MoreVertical, Send, Smile, Phone, Video, MessageSquarePlus, Play, Mic, Square, Pause, Trash2, ListChecks, X, Info, Eye, EyeOff, Lock, LogOut, Shield, UserX, UserCheck, Ban, Settings, Reply, Pencil, Download, ChevronLeft, Camera, SwitchCamera } from 'lucide-react';
 import { format } from 'date-fns';
 import { motion, AnimatePresence } from 'motion/react';
 import { encryptMessage, decryptMessage } from '../lib/crypto';
-
-const DecryptContent: React.FC<{ msg: Message; onClose: () => void }> = ({ msg, onClose }) => {
-  const [pwd, setPwd] = useState('');
-  const [decrypted, setDecrypted] = useState<{ text?: string; imageUrl?: string; videoUrl?: string; audioUrl?: string } | null>(null);
-  const [error, setError] = useState('');
-
-  const handleSubmit = () => {
-    if (!msg.imagePassword) return;
-    if (btoa(pwd) === msg.imagePassword) {
-      setDecrypted({ text: msg.text, imageUrl: msg.imageUrl, videoUrl: msg.videoUrl, audioUrl: msg.audioUrl });
-      setError('');
-    } else {
-      setError('Hatalı şifre!');
-    }
-  };
-
-  if (decrypted) {
-    return (
-      <div className="space-y-4">
-        {decrypted.text && (
-          <p className="text-sm font-bold leading-relaxed text-slate-800">{decrypted.text}</p>
-        )}
-        {decrypted.imageUrl && (
-          <img src={decrypted.imageUrl} alt="" className="max-w-full h-auto rounded-xl" />
-        )}
-        {decrypted.videoUrl && (
-          <video src={decrypted.videoUrl} className="max-w-full h-auto rounded-xl" controls playsInline />
-        )}
-        {decrypted.audioUrl && (
-          <audio src={decrypted.audioUrl} controls className="w-full" />
-        )}
-        <button onClick={onClose}
-          className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition-all">
-          Kapat
-        </button>
-      </div>
-    );
-  }
-
-  return (
-    <div className="space-y-4">
-      <p className="text-xs text-slate-500 font-bold text-center">Bu mesajı görüntülemek için şifreyi girin</p>
-      <input type="text" value={pwd} onChange={e => setPwd(e.target.value)} autoFocus
-        placeholder="Şifre..."
-        onKeyDown={e => e.key === 'Enter' && handleSubmit()}
-        className="w-full bg-slate-100 border-2 border-slate-200 rounded-2xl px-4 py-3 text-sm font-bold text-center outline-none focus:border-blue-500 transition-all" />
-      {error && <p className="text-xs font-bold text-red-500 text-center">{error}</p>}
-      <div className="flex gap-2">
-        <button onClick={onClose}
-          className="flex-1 py-2.5 rounded-xl text-xs font-bold text-slate-500 hover:bg-slate-50 border border-slate-200 transition-all">
-          İptal
-        </button>
-        <button onClick={handleSubmit}
-          className="flex-1 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition-all shadow-lg shadow-blue-600/10">
-          Çöz
-        </button>
-      </div>
-    </div>
-  );
-};
+import { useI18n } from '../lib/i18n';
+import { toBase64, emojiCategories, compressImageToDataUrl, compressVideoToDataUrl } from '../lib/chatMedia';
+import DecryptContent from './DecryptContent';
+import { AudioPlayer, MessageStatus } from './MessageWidgets';
+import { sendPushToUsers } from '../lib/messaging';
 
 interface ChatAreaProps {
   chatId: string;
+  onBack?: () => void;
 }
 
-export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
+export const ChatArea: React.FC<ChatAreaProps> = ({ chatId, onBack }) => {
   const { user } = useAuth();
-  const { startCall, activeCall, acceptCall } = useCall();
+  const { t, lang } = useI18n();
+  const { target: trTarget, setTarget: setTrTarget } = useTranslateTarget();
+  const { startCall, activeCall, joinCall } = useCall();
   const [messages, setMessages] = useState<Message[]>([]);
   const [chat, setChat] = useState<Chat | null>(null);
   const [otherUser, setOtherUser] = useState<UserProfile | null>(null);
@@ -86,7 +36,48 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
   const [activeCallForChat, setActiveCallForChat] = useState<Call | null>(null);
   const [reactionMenu, setReactionMenu] = useState<{ msgId: string, x: number, y: number } | null>(null);
   const [isHeaderMenuOpen, setIsHeaderMenuOpen] = useState(false);
+  const [headerMenuPos, setHeaderMenuPos] = useState({ x: 0, y: 0 });
   const [isEmojiMenuOpen, setIsEmojiMenuOpen] = useState(false);
+  const [exportingPdf, setExportingPdf] = useState(false);
+  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
+  const [lightboxZoom, setLightboxZoom] = useState(1);
+  const [lightboxPan, setLightboxPan] = useState({ x: 0, y: 0 });
+  const [panning, setPanning] = useState(false);
+  const panStartRef = useRef<{ x: number; y: number; px: number; py: number } | null>(null);
+  const [longPressId, setLongPressId] = useState<string | null>(null);
+  const lpTimer = useRef<number | null>(null);
+  const lpFired = useRef(false);
+  const startLongPress = (msgId: string) => {
+    lpFired.current = false;
+    if (lpTimer.current) window.clearTimeout(lpTimer.current);
+    lpTimer.current = window.setTimeout(() => {
+      lpFired.current = true;
+      setLongPressId(msgId);
+    }, 1500);
+  };
+  const cancelLongPress = () => {
+    if (lpTimer.current) { window.clearTimeout(lpTimer.current); lpTimer.current = null; }
+  };
+  const downloadMedia = async (url: string, prefix: string) => {
+    try {
+      const res = await fetch(url);
+      const blob = await res.blob();
+      const ext = ((blob.type.split('/')[1]) || 'bin').replace('jpeg', 'jpg');
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `${prefix}-${new Date().toISOString().slice(0,10)}.${ext}`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+    } catch {
+      window.open(url, '_blank');
+    }
+    setLongPressId(null);
+  };
+  const lpProps = (msg: Message) => ({
+    onPointerDown: () => msg.id && startLongPress(msg.id),
+    onPointerUp: cancelLongPress,
+    onPointerLeave: cancelLongPress,
+  });
   const [showDeletedMessages, setShowDeletedMessages] = useState(false);
   const [batchMode, setBatchMode] = useState(false);
   const [selectedMsgs, setSelectedMsgs] = useState<Set<string>>(new Set());
@@ -102,16 +93,28 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
     onConfirm?: () => void;
   } | null>(null);
   const [encryptMode, setEncryptMode] = useState(false);
+  const [viewOnceMode, setViewOnceMode] = useState(false);
+  const [viewOnceModal, setViewOnceModal] = useState<Message | null>(null);
+  const [viewOnceUnlocked, setViewOnceUnlocked] = useState(false);
   const [decryptModal, setDecryptModal] = useState<Message | null>(null);
+  const [emojiCategory, setEmojiCategory] = useState<string>('sik');
+  const [editingMsg, setEditingMsg] = useState<Message | null>(null);
+  const [replyTo, setReplyTo] = useState<Message | null>(null);
 
   // Upload menu state
   const [showUploadMenu, setShowUploadMenu] = useState(false);
+  const [showCameraPicker, setShowCameraPicker] = useState(false);
+  const [showCameraPreview, setShowCameraPreview] = useState(false);
+  const cameraStreamRef = useRef<MediaStream | null>(null);
+  const cameraPreviewRef = useRef<HTMLVideoElement>(null);
 
   // Group admin state
   const [showGroupAdmin, setShowGroupAdmin] = useState(false);
   const [editGroupName, setEditGroupName] = useState('');
   const [showEditGroupName, setShowEditGroupName] = useState(false);
   const [showTransferAdmin, setShowTransferAdmin] = useState(false);
+  const [showGroupInfo, setShowGroupInfo] = useState(false);
+  const [viewProfileMember, setViewProfileMember] = useState<UserProfile | null>(null);
 
   // System admin check
   const [isSystemAdmin, setIsSystemAdmin] = useState(false);
@@ -126,10 +129,53 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
   const [kickMemberId, setKickMemberId] = useState<string | null>(null);
   const [kickDuration, setKickDuration] = useState<number>(0);
   const [kickDurationUnit, setKickDurationUnit] = useState<'minutes' | 'hours' | 'days'>('minutes');
+  const [kickMode, setKickMode] = useState<'kick' | 'temp' | 'untilAllowed'>('kick');
   const [allMembers, setAllMembers] = useState<UserProfile[]>([]);
   const [loadingMembers, setLoadingMembers] = useState(false);
 
   const isGroupAdmin = chat?.type === 'group' && chat?.groupMetadata?.adminId === user?.uid;
+  const canManageGroup = isGroupAdmin || isSystemAdmin;
+
+  const [joinRequests, setJoinRequests] = useState<{ uid: string; displayName?: string; photoURL?: string; uin?: string }[]>([]);
+  useEffect(() => {
+    if (!showGroupAdmin || !chatId || !canManageGroup) return;
+    return onSnapshot(collection(db, 'chats', chatId, 'joinRequests'), snap => {
+      setJoinRequests(snap.docs.map(d => ({ uid: d.id, ...(d.data() as { displayName?: string; photoURL?: string; uin?: string }) })));
+    });
+  }, [showGroupAdmin, chatId, canManageGroup]);
+
+  const handleToggleRole = async (uid: string, role: 'editor' | 'viewer') => {
+    if (!chatId || !canManageGroup) return;
+    try {
+      await updateDoc(doc(db, 'chats', chatId), { [`groupMetadata.roles.${uid}`]: role });
+    } catch (err) {
+      console.error("Role toggle error:", err);
+    }
+  };
+
+  const handleToggleHoldEnabled = async () => {
+    if (!chatId || !chat || !canManageGroup) return;
+    try {
+      await updateDoc(doc(db, 'chats', chatId), { 'groupMetadata.holdEnabled': chat.groupMetadata?.holdEnabled === false });
+    } catch (err) {
+      console.error("holdEnabled toggle error:", err);
+    }
+  };
+
+  const handleJoinRequest = async (uid: string, approve: boolean, role: 'viewer' | 'editor' = 'viewer') => {
+    if (!chatId || !canManageGroup) return;
+    try {
+      await deleteDoc(doc(db, 'chats', chatId, 'joinRequests', uid));
+      if (approve) {
+        await updateDoc(doc(db, 'chats', chatId), {
+          participants: arrayUnion(uid),
+          [`groupMetadata.roles.${uid}`]: role
+        });
+      }
+    } catch (err) {
+      console.error("Join request error:", err);
+    }
+  };
 
   const showCustomAlert = (title: string, message: string) => {
     setCustomDialog({
@@ -199,27 +245,30 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
 
   const handleKickMember = async (targetId: string) => {
     if (!chatId || !chat || !isGroupAdmin) return;
+    if (kickMode === 'temp' && kickDuration <= 0) return;
     try {
       const newParticipants = chat.participants.filter(id => id !== targetId);
-      const now = new Date();
-      let bannedUntil = null;
-      if (kickDuration > 0) {
-        let ms = 0;
-        if (kickDurationUnit === 'minutes') ms = kickDuration * 60 * 1000;
-        else if (kickDurationUnit === 'hours') ms = kickDuration * 3600 * 1000;
-        else ms = kickDuration * 86400 * 1000;
-        bannedUntil = new Date(now.getTime() + ms);
-      }
-      const bannedUser = allMembers.find(m => m.uid === targetId);
       const newBanned = chat.groupMetadata?.bannedUsers || [];
-      if (bannedUser) {
-        newBanned.push({
-          uid: targetId,
-          displayName: bannedUser.displayName,
-          bannedUntil: bannedUntil,
-          bannedAt: now,
-          bannedBy: user?.uid || ''
-        });
+      if (kickMode !== 'kick') {
+        const now = new Date();
+        let bannedUntil = null;
+        if (kickMode === 'temp') {
+          let ms = 0;
+          if (kickDurationUnit === 'minutes') ms = kickDuration * 60 * 1000;
+          else if (kickDurationUnit === 'hours') ms = kickDuration * 3600 * 1000;
+          else ms = kickDuration * 86400 * 1000;
+          bannedUntil = new Date(now.getTime() + ms);
+        }
+        const bannedUser = allMembers.find(m => m.uid === targetId);
+        if (bannedUser) {
+          newBanned.push({
+            uid: targetId,
+            displayName: bannedUser.displayName,
+            bannedUntil: bannedUntil,
+            bannedAt: now,
+            bannedBy: user?.uid || ''
+          });
+        }
       }
       await updateDoc(doc(db, 'chats', chatId), {
         participants: newParticipants,
@@ -229,6 +278,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
       setShowKickMember(false);
       setKickMemberId(null);
       setKickDuration(0);
+      setKickMode('kick');
     } catch (error) {
       console.error("Kick member error:", error);
     }
@@ -251,23 +301,17 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
   const handleAdminLeaveGroup = async () => {
     if (!chatId || !chat || !user || chat.type !== 'group') return;
     try {
-      const remainingParticipants = chat.participants.filter(id => id !== user.uid);
-      if (remainingParticipants.length < 2) {
-        // Auto-delete group: save data to admin panel first
-        await handleGroupAutoDelete(chatId);
-        return;
-      }
-      // Find most active user (or first participant) as new admin
-      let newAdminId = remainingParticipants[0];
-      const currentHistory = chat.groupMetadata?.adminHistory || [];
-      await updateDoc(doc(db, 'chats', chatId), {
-        participants: remainingParticipants,
-        'groupMetadata.adminId': newAdminId,
-        'groupMetadata.adminHistory': [...currentHistory, newAdminId]
+      await addDoc(collection(db, 'adminDeleteRequests'), {
+        type: 'group-leave',
+        chatId,
+        chatName: chat.groupMetadata?.name || '',
+        requestedBy: user.uid,
+        timestamp: serverTimestamp(),
+        status: 'pending'
       });
-      // Let the snapshot listener handle state updates
+      showCustomAlert(t('chat.leaveGroup'), t('chat.leaveRequested'));
     } catch (error) {
-      console.error("Admin leave group error:", error);
+      console.error("Admin leave request error:", error);
     }
   };
 
@@ -334,8 +378,8 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
     setReactionMenu({ msgId, x: e.clientX, y: e.clientY });
   };
 
-  const amIHolding = chat?.heldBy === user?.uid;
-  const isBeingHeld = !!chat?.heldBy && !amIHolding;
+  const amIHolding = !!(chat?.heldBy && (!chat?.holdExpiresAt?.toDate || chat.holdExpiresAt.toDate().getTime() > Date.now())) && chat?.heldBy === user?.uid;
+  const isBeingHeld = !!(chat?.heldBy && (!chat?.holdExpiresAt?.toDate || chat.holdExpiresAt.toDate().getTime() > Date.now())) && chat?.heldBy !== user?.uid;
 
   // Check if current user is banned from this group
   const isBannedFromGroup = chat?.type === 'group' && chat?.groupMetadata?.bannedUsers?.some(b => {
@@ -344,13 +388,59 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
     return new Date(b.bannedUntil.seconds * 1000 || b.bannedUntil) > new Date();
   });
 
+  const isViewer = chat?.type === 'group' && !!user?.uid && chat?.groupMetadata?.roles?.[user.uid] === 'viewer' && !isGroupAdmin && !isSystemAdmin;
+  const isPassiveGroup = chat?.type === 'group' && !!chat?.groupMetadata?.passive;
+  const sendBlocked = isBeingHeld || isViewer || isPassiveGroup;
+
+  const holdQuotaLeft = (!chat || chat.type === 'group' || !user?.uid) ? null : (() => {
+    const today = new Date().toISOString().slice(0, 10);
+    const rec = chat.holdCounts?.[user.uid];
+    const used = rec && rec.date === today ? rec.count : 0;
+    return Math.max(0, 10 - used);
+  })();
+
+  const [, setHoldTick] = useState(0);
+  useEffect(() => {
+    if (!chat?.heldBy || !chat?.holdExpiresAt?.toDate) return;
+    const ms = chat.holdExpiresAt.toDate().getTime() - Date.now();
+    if (ms <= 0) {
+      if (chat.heldBy === user?.uid && chatId) {
+        updateDoc(doc(db, 'chats', chatId), { heldBy: null, holdExpiresAt: null }).catch(() => {});
+      }
+      setHoldTick(v => v + 1);
+      return;
+    }
+    const timer = setTimeout(() => setHoldTick(v => v + 1), Math.min(ms + 100, 2147483000));
+    return () => clearTimeout(timer);
+  }, [chat?.heldBy, chat?.holdExpiresAt, chatId, user?.uid]);
+
   const handleHoldToggle = async () => {
     if (!chatId || !user || !chat) return;
+    if (chat.type === 'group') {
+      if (!isGroupAdmin) return;
+      if (chat.groupMetadata?.holdEnabled === false) return;
+    }
     try {
       if (amIHolding) {
         await updateDoc(doc(db, 'chats', chatId), { heldBy: null, holdExpiresAt: null });
       } else {
-        await updateDoc(doc(db, 'chats', chatId), { heldBy: user.uid, holdExpiresAt: new Date(Date.now() + 24*60*60*1000) });
+        const expires = new Date(Date.now() + 30 * 60 * 1000);
+        if (chat.type !== 'group') {
+          const today = new Date().toISOString().slice(0, 10);
+          const rec = chat.holdCounts?.[user.uid];
+          const used = rec && rec.date === today ? rec.count : 0;
+          if (used >= 10) {
+            showCustomAlert(t('chat.holdQuotaTitle'), t('chat.holdQuotaDesc'));
+            return;
+          }
+          await updateDoc(doc(db, 'chats', chatId), {
+            heldBy: user.uid,
+            holdExpiresAt: expires,
+            [`holdCounts.${user.uid}`]: { date: today, count: used + 1 }
+          });
+          return;
+        }
+        await updateDoc(doc(db, 'chats', chatId), { heldBy: user.uid, holdExpiresAt: expires });
       }
     } catch (err) {
       console.error("Hold toggle error:", err);
@@ -363,13 +453,15 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
     // Listen for calls for this specific chat
     const callsQuery = query(
       collection(db, 'calls'),
-      where('chatId', '==', chatId),
+      where('participants', 'array-contains', user.uid),
       where('status', 'in', ['calling', 'ongoing'])
     );
 
     const unsubCalls = onSnapshot(callsQuery, (snapshot) => {
-      const call = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Call))[0];
-      setActiveCallForChat(call || null);
+      const call = snapshot.docs
+        .map(d => ({ id: d.id, ...d.data() } as Call))
+        .find(c => c.chatId === chatId) || null;
+      setActiveCallForChat(call);
     });
 
     // Fetch chat metadata
@@ -395,8 +487,8 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
             const bannedUntilMs = bannedInfo.bannedUntil?.seconds ? bannedInfo.bannedUntil.seconds * 1000 : new Date(bannedInfo.bannedUntil).getTime();
             return bannedUntilMs <= Date.now();
           });
-          if (nonBannedParticipants.length < 2 && user?.uid && nonBannedParticipants.includes(user.uid)) {
-            // The current user is one of the <2 remaining - trigger auto-delete
+          if (nonBannedParticipants.length < 2 && user?.uid && nonBannedParticipants.includes(user.uid) && !autoDeleteInProgress.current) {
+            autoDeleteInProgress.current = true;
             handleGroupAutoDelete(chatId).catch(console.error);
           }
           // Group: Fetch all participant names for message display
@@ -418,23 +510,23 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
       orderBy('timestamp', 'asc')
     );
 
-    const unsubMsgs = onSnapshot(q, (snapshot) => {
+    const unsubMsgs = onSnapshot(q, async (snapshot) => {
       const msgs = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Message));
       setMessages(msgs);
 
       // Mark incoming messages as read
-      msgs.forEach(async (msg) => {
-        if (msg.senderId !== user.uid && msg.status !== 'read') {
-          try {
-            await updateDoc(doc(db, 'chats', chatId, 'messages', msg.id), {
-              status: 'read'
-            });
-          } catch (error) {
-            // Silently fail if rules prevent it (e.g. if we are not a participant anymore)
-            console.warn("Could not mark message as read", error);
-          }
+      const unreadMsgs = msgs.filter(m => m.senderId !== user.uid && m.status !== 'read');
+      if (unreadMsgs.length > 0) {
+        try {
+          const batch = writeBatch(db);
+          unreadMsgs.forEach(msg => {
+            batch.update(doc(db, 'chats', chatId, 'messages', msg.id), { status: 'read' });
+          });
+          await batch.commit();
+        } catch (error) {
+          console.warn("Could not mark messages as read", error);
         }
-      });
+      }
     });
 
     const handleClickOutside = () => setReactionMenu(null);
@@ -454,46 +546,247 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
     }
   }, [messages]);
 
+  const askEncryptFields = (): { encrypted?: boolean; imagePassword?: string } | null => {
+    if (!encryptMode) return {};
+    const pwd = prompt(t('chat.promptPassword')) || '';
+    setEncryptMode(false);
+    if (!pwd) return null;
+    return { encrypted: true, imagePassword: toBase64(pwd) };
+  };
+
+  const viewOnceFields = () => (viewOnceMode ? { viewOnce: true } : {});
+
+  const openViewOnce = (msg: Message) => {
+    setViewOnceUnlocked(!msg.encrypted || isGroupAdmin);
+    setViewOnceModal(msg);
+  };
+
+  const canOpenViewOnce = (msg: Message) => {
+    if (isGroupAdmin) return true;
+    if (msg.viewOnceOpened) return false;
+    return !(msg.viewOnceViews || []).includes(user?.uid || '');
+  };
+
+  const viewOnceSenderStatus = (msg: Message) => {
+    if (chat?.type !== 'group') return msg.viewOnceOpened ? t('chat.voViewed') : t('chat.voNotOpened');
+    const total = Math.max(0, chat.participants.length - 1);
+    const viewed = (msg.viewOnceViews || []).length;
+    const remaining = Math.max(0, total - viewed);
+    return remaining === 0 ? t('chat.voViewed') : t('chat.voRemaining', { r: remaining, t: total });
+  };
+
+  const closeViewOnce = async () => {
+    const msg = viewOnceModal;
+    setViewOnceModal(null);
+    setViewOnceUnlocked(false);
+    if (!msg || !msg.id || !chatId || msg.senderId === user?.uid) return;
+    try {
+      if (chat?.type === 'group') {
+        if (msg.viewOnceOpened) return;
+        if (!(msg.viewOnceViews || []).includes(user?.uid || '')) {
+          await updateDoc(doc(db, 'chats', chatId, 'messages', msg.id), {
+            viewOnceViews: arrayUnion(user?.uid || '')
+          });
+        }
+      } else if (!msg.viewOnceOpened) {
+        await updateDoc(doc(db, 'chats', chatId, 'messages', msg.id), {
+          viewOnceOpened: true
+        });
+      }
+    } catch (error) {
+      console.error('ViewOnce open error:', error);
+    }
+  };
+
+  const resendViewOnce = async (msg: Message) => {
+    if (!user || !chatId) return;
+    try {
+      const payload: Record<string, unknown> = {
+        senderId: user.uid,
+        timestamp: serverTimestamp(),
+        type: msg.type,
+        status: 'sent',
+        viewOnce: true,
+      };
+      if (msg.type === 'text') payload.text = msg.text;
+      if (msg.imageUrl) payload.imageUrl = msg.imageUrl;
+      if (msg.videoUrl) payload.videoUrl = msg.videoUrl;
+      if (msg.audioUrl) payload.audioUrl = msg.audioUrl;
+      if (msg.encrypted) {
+        payload.encrypted = true;
+        payload.imagePassword = msg.imagePassword;
+      }
+      await addDoc(collection(db, 'chats', chatId, 'messages'), payload);
+      await updateDoc(doc(db, 'chats', chatId), {
+        lastMessage: { text: t('chat.lastViewOnce'), senderId: user.uid, senderName: user.displayName, timestamp: serverTimestamp() },
+        updatedAt: serverTimestamp()
+      });
+    } catch (error) {
+      console.error('ViewOnce resend error:', error);
+    }
+  };
+
+  const stopCameraPreview = () => {
+    cameraStreamRef.current?.getTracks().forEach(t => t.stop());
+    cameraStreamRef.current = null;
+    setShowCameraPreview(false);
+  };
+
+  const openCameraPreview = async (facing: 'user' | 'environment') => {
+    setShowCameraPicker(false);
+    setShowUploadMenu(false);
+    if (!user || !chatId) return;
+    cameraStreamRef.current?.getTracks().forEach(t => t.stop());
+    cameraStreamRef.current = null;
+    try {
+      let stream: MediaStream | null = null;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { exact: facing } }, audio: false });
+      } catch {
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: facing }, audio: false });
+        } catch {
+          stream = null;
+        }
+      }
+      if (!stream) throw new Error('camera unavailable');
+      const reported = stream.getVideoTracks()[0]?.getSettings?.().facingMode;
+      if (reported && reported !== facing) {
+        stream.getTracks().forEach(t => t.stop());
+        showCustomAlert(t('chat.camErr'), t('chat.camNoImage'));
+        return;
+      }
+      cameraStreamRef.current = stream;
+      setShowCameraPreview(true);
+    } catch (error) {
+      console.error("Photo capture error:", error);
+      showCustomAlert(t('chat.camErr'), t('chat.camErrDesc'));
+    }
+  };
+
+  useEffect(() => {
+    if (!showCameraPreview) return;
+    const video = cameraPreviewRef.current;
+    const stream = cameraStreamRef.current;
+    if (!video || !stream) return;
+    video.srcObject = stream;
+    video.play().catch(() => {});
+    const failsafe = setTimeout(() => {
+      if (!video.videoWidth) {
+        stopCameraPreview();
+        showCustomAlert(t('chat.camErr'), t('chat.camNoImage'));
+      }
+    }, 2500);
+    return () => clearTimeout(failsafe);
+  }, [showCameraPreview]);
+
+  useEffect(() => () => {
+    cameraStreamRef.current?.getTracks().forEach(t => t.stop());
+    cameraStreamRef.current = null;
+  }, []);
+
+  const takePhotoFromPreview = async () => {
+    if (!user || !chatId) return;
+    const video = cameraPreviewRef.current;
+    const stream = cameraStreamRef.current;
+    if (!video || !stream || !video.videoWidth) {
+      stopCameraPreview();
+      showCustomAlert(t('chat.camErr'), t('chat.camNoImage'));
+      return;
+    }
+    try {
+      const canvas = document.createElement('canvas');
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      canvas.getContext('2d')?.drawImage(video, 0, 0);
+      stopCameraPreview();
+      const blob: Blob | null = await new Promise(res => canvas.toBlob(res, 'image/jpeg', 0.85));
+      if (!blob) return;
+      const file = new File([blob], `photo_${Date.now()}.jpg`, { type: 'image/jpeg' });
+      const enc = askEncryptFields();
+      if (enc === null) return;
+      const base64Data = await compressImageToDataUrl(file);
+      if (base64Data.length > 800 * 1024) {
+        showCustomAlert(t('chat.fileLimit'), t('chat.photoTooBig'));
+        return;
+      }
+      await addDoc(collection(db, 'chats', chatId, 'messages'), {
+        imageUrl: base64Data,
+        senderId: user.uid,
+        timestamp: serverTimestamp(),
+        type: 'image',
+        status: 'sent',
+        ...enc,
+        ...viewOnceFields()
+      });
+      await updateDoc(doc(db, 'chats', chatId), {
+        lastMessage: { text: viewOnceMode ? t('chat.lastViewOnce') : enc.encrypted ? t('chat.lastPhotoEnc') : t('chat.lastPhoto'), senderId: user.uid, senderName: user.displayName, timestamp: serverTimestamp() },
+        updatedAt: serverTimestamp()
+      });
+      setViewOnceMode(false);
+    } catch (error) {
+      console.error("Photo capture error:", error);
+      showCustomAlert(t('chat.camErr'), t('chat.photoSendFail'));
+    }
+  };
+
+  const startPhotoCapture = async () => {
+    setShowUploadMenu(false);
+    if (sendBlocked) return;
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const cams = devices.filter(d => d.kind === 'videoinput');
+      if (cams.length >= 2) {
+        setShowCameraPicker(true);
+      } else {
+        await openCameraPreview('user');
+      }
+    } catch {
+      await openCameraPreview('user');
+    }
+  };
+
   const handleVideoSend = () => {
     videoInputRef.current?.click();
   };
 
-  const handleVideoFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleVideoFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file || !user || !chatId) return;
-
-    if (file.size > 1500 * 1024) {
-      showCustomAlert("Dosya Boyutu Sınırı", "Ses/video dosyası çok büyük (maksimum 1.5MB olmalıdır).");
-      return;
-    }
-
-    const reader = new FileReader();
-    reader.onloadend = async () => {
-      const base64Video = reader.result as string;
-      try {
-        await addDoc(collection(db, 'chats', chatId, 'messages'), {
-          videoUrl: base64Video,
-          senderId: user.uid,
-          timestamp: serverTimestamp(),
-          type: 'video',
-          status: 'sent'
-        });
-
-        await updateDoc(doc(db, 'chats', chatId), {
-          lastMessage: {
-            text: '🎥 Video Mesajı',
-            senderId: user.uid,
-            senderName: user.displayName,
-            timestamp: serverTimestamp()
-          },
-          updatedAt: serverTimestamp()
-        });
-      } catch (error) {
-        console.error("Video gönderme hatası:", error);
-      }
-    };
-    reader.readAsDataURL(file);
     e.target.value = '';
+    if (!file || !user || !chatId) return;
+    if (sendBlocked) return;
+
+    const enc = askEncryptFields();
+    if (enc === null) return;
+    try {
+      const base64Video = await compressVideoToDataUrl(file);
+      if (base64Video.length > 1500 * 1024) {
+        showCustomAlert(t('chat.fileLimit'), t('chat.videoTooBig'));
+        return;
+      }
+      await addDoc(collection(db, 'chats', chatId, 'messages'), {
+        videoUrl: base64Video,
+        senderId: user.uid,
+        timestamp: serverTimestamp(),
+        type: 'video',
+        status: 'sent',
+        ...enc,
+        ...viewOnceFields()
+      });
+
+      await updateDoc(doc(db, 'chats', chatId), {
+        lastMessage: {
+          text: viewOnceMode ? t('chat.lastViewOnce') : enc.encrypted ? t('chat.lastVideoMsgEnc') : t('chat.lastVideoMsg'),
+          senderId: user.uid,
+          senderName: user.displayName,
+          timestamp: serverTimestamp()
+        },
+        updatedAt: serverTimestamp()
+      });
+      setViewOnceMode(false);
+    } catch (error) {
+      console.error("Video gönderme hatası:", error);
+    }
   };
 
   const [isRecording, setIsRecording] = useState(false);
@@ -509,10 +802,20 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
   const videoChunksRef = useRef<Blob[]>([]);
   const videoTimerRef = useRef<any>(null);
   const videoPreviewRef = useRef<HTMLVideoElement>(null);
+  const autoDeleteInProgress = useRef(false);
   const [videoPreviewStream, setVideoPreviewStream] = useState<MediaStream | null>(null);
   const MAX_VIDEO_SECONDS = 15;
+  const [showVideoCamPicker, setShowVideoCamPicker] = useState(false);
+  const [videoFacing, setVideoFacing] = useState<'user' | 'environment'>('user');
+
+  useEffect(() => {
+    if (videoPreviewRef.current && videoPreviewStream) {
+      videoPreviewRef.current.srcObject = videoPreviewStream;
+    }
+  }, [videoPreviewStream]);
 
   const startRecording = async () => {
+    if (sendBlocked) return;
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const mediaRecorder = new MediaRecorder(stream);
@@ -530,7 +833,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
         reader.onloadend = async () => {
           const base64Audio = reader.result as string;
           if (base64Audio.length > 800000) {
-            showCustomAlert("Ses Kaydı Sınırı", "Ses mesajı çok uzun, lütfen daha kısa bir kayıt yapın.");
+            showCustomAlert(t('chat.audioLimit'), t('chat.audioTooLong'));
             return;
           }
           await sendAudioMessage(base64Audio);
@@ -557,9 +860,11 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
     }
   };
 
-  const startVideoRecording = async () => {
+  const startVideoRecording = async (facing: 'user' | 'environment' = 'user') => {
+    if (sendBlocked) return;
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: { width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 15 } } });
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: { facingMode: facing, width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 15 } } });
+      setVideoFacing(facing);
       setVideoPreviewStream(stream);
       if (videoPreviewRef.current) {
         videoPreviewRef.current.srcObject = stream;
@@ -576,44 +881,43 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
         stream.getTracks().forEach(track => track.stop());
         setVideoPreviewStream(null);
         const videoBlob = new Blob(videoChunksRef.current, { type: 'video/webm' });
-        const reader = new FileReader();
-        reader.readAsDataURL(videoBlob);
-        reader.onloadend = async () => {
-          const base64Video = reader.result as string;
+        try {
+          const base64Video = await compressVideoToDataUrl(videoBlob);
           if (base64Video.length > 1500 * 1024) {
-            showCustomAlert("Video Boyutu Sınırı", "Video çok büyük, lütfen daha kısa bir kayıt yapın.");
+            showCustomAlert(t('chat.videoRecLimit'), t('chat.videoRecTooBig'));
             return;
           }
-          try {
-            await addDoc(collection(db, 'chats', chatId, 'messages'), {
-              videoUrl: base64Video,
-              senderId: user.uid,
-              timestamp: serverTimestamp(),
-              type: 'video',
-              status: 'sent'
-            });
-            await updateDoc(doc(db, 'chats', chatId), {
-              lastMessage: { text: '🎥 Video Mesajı', senderId: user.uid, senderName: user.displayName, timestamp: serverTimestamp() },
-              updatedAt: serverTimestamp()
-            });
-          } catch (error) {
-            console.error("Video kaydı gönderme hatası:", error);
-          }
-        };
+          const enc = askEncryptFields();
+          if (enc === null) return;
+          await addDoc(collection(db, 'chats', chatId, 'messages'), {
+            videoUrl: base64Video,
+            senderId: user.uid,
+            timestamp: serverTimestamp(),
+            type: 'video',
+            status: 'sent',
+            ...enc,
+            ...viewOnceFields()
+          });
+          await updateDoc(doc(db, 'chats', chatId), {
+            lastMessage: { text: viewOnceMode ? t('chat.lastViewOnce') : enc.encrypted ? t('chat.lastVideoMsgEnc') : t('chat.lastVideoMsg'), senderId: user.uid, senderName: user.displayName, timestamp: serverTimestamp() },
+            updatedAt: serverTimestamp()
+          });
+          setViewOnceMode(false);
+        } catch (error) {
+          console.error("Video kaydı gönderme hatası:", error);
+        }
       };
 
       mediaRecorder.start();
       setIsVideoRecording(true);
       setVideoRecordingTime(0);
+      let ticks = 0;
       videoTimerRef.current = setInterval(() => {
-        setVideoRecordingTime(prev => {
-          const next = prev + 1;
-          if (next >= MAX_VIDEO_SECONDS) {
-            stopVideoRecording();
-            return MAX_VIDEO_SECONDS;
-          }
-          return next;
-        });
+        ticks += 1;
+        setVideoRecordingTime(ticks);
+        if (ticks >= MAX_VIDEO_SECONDS) {
+          stopVideoRecording();
+        }
       }, 1000);
     } catch (error) {
       console.error("Video kaydı başlatma hatası:", error);
@@ -621,152 +925,166 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
   };
 
   const stopVideoRecording = () => {
-    if (videoRecorderRef.current && isVideoRecording) {
-      videoRecorderRef.current.stop();
-      setIsVideoRecording(false);
+    const rec = videoRecorderRef.current;
+    if (rec && rec.state !== 'inactive') {
+      rec.stop();
+    }
+    setIsVideoRecording(false);
+    if (videoTimerRef.current) {
       clearInterval(videoTimerRef.current);
+      videoTimerRef.current = null;
+    }
+  };
+
+  const handleVideoRecordClick = async () => {
+    if (sendBlocked) return;
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const cams = devices.filter(d => d.kind === 'videoinput');
+      if (cams.length >= 2) {
+        setShowVideoCamPicker(true);
+      } else {
+        await startVideoRecording('user');
+      }
+    } catch {
+      await startVideoRecording('user');
+    }
+  };
+
+  const switchVideoCamera = async () => {
+    const stream = videoPreviewStream;
+    if (!stream || !isVideoRecording) return;
+    const newFacing = videoFacing === 'user' ? 'environment' : 'user';
+    try {
+      const newStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: newFacing }, audio: false });
+      const newTrack = newStream.getVideoTracks()[0];
+      const oldTrack = stream.getVideoTracks()[0];
+      if (!newTrack || !oldTrack) {
+        newStream.getTracks().forEach(tr => tr.stop());
+        return;
+      }
+      stream.removeTrack(oldTrack);
+      stream.addTrack(newTrack);
+      oldTrack.stop();
+      setVideoFacing(newFacing);
+      // ponytail: track swap keeps MediaRecorder on same stream; upgrade to insertable streams if artifacts
+    } catch (error) {
+      console.error("Kamera değiştirme hatası:", error);
     }
   };
 
   const sendAudioMessage = async (audioUrl: string) => {
     if (!user || !chatId) return;
+    const enc = askEncryptFields();
+    if (enc === null) return;
     try {
       await addDoc(collection(db, 'chats', chatId, 'messages'), {
         audioUrl,
         senderId: user.uid,
         timestamp: serverTimestamp(),
         type: 'audio',
-        status: 'sent'
+        status: 'sent',
+        ...enc,
+        ...viewOnceFields()
       });
 
       await updateDoc(doc(db, 'chats', chatId), {
         lastMessage: {
-          text: '🎤 Ses Mesajı',
+          text: viewOnceMode ? t('chat.lastViewOnce') : enc.encrypted ? t('chat.lastAudioEnc') : t('chat.lastAudioMsg'),
           senderId: user.uid,
           senderName: user.displayName,
           timestamp: serverTimestamp()
         },
         updatedAt: serverTimestamp()
       });
+      setViewOnceMode(false);
     } catch (error) {
       console.error("Audio send error:", error);
     }
-  };
-
-  const AudioPlayer: React.FC<{ url: string; isMe: boolean }> = ({ url, isMe }) => {
-    const [isPlaying, setIsPlaying] = useState(false);
-    const audioRef = useRef<HTMLAudioElement | null>(null);
-
-    const togglePlay = () => {
-      if (!audioRef.current) return;
-      if (isPlaying) {
-        audioRef.current.pause();
-      } else {
-        audioRef.current.play();
-      }
-      setIsPlaying(!isPlaying);
-    };
-
-    return (
-      <div className={cn(
-        "flex items-center gap-3 min-w-[200px] py-1",
-        isMe ? "text-white" : "text-slate-800"
-      )}>
-        <button 
-          onClick={togglePlay}
-          className={cn(
-            "w-9 h-9 rounded-full flex items-center justify-center transition-all",
-            isMe ? "bg-white/20 hover:bg-white/30" : "bg-blue-50 hover:bg-blue-100 text-blue-600 shadow-sm"
-          )}
-        >
-          {isPlaying ? <Pause size={18} fill="currentColor" /> : <Play size={18} fill="currentColor" className="ml-0.5" />}
-        </button>
-        <div className="flex-1 flex flex-col gap-1">
-          <div className="h-1 bg-current opacity-20 rounded-full relative overflow-hidden">
-             <div className="absolute inset-0 bg-current rounded-full" style={{ width: '40%' }} />
-          </div>
-          <span className="text-[10px] font-bold opacity-60">Ses Mesajı</span>
-        </div>
-        <audio 
-          ref={audioRef} 
-          src={url} 
-          onEnded={() => setIsPlaying(false)}
-          className="hidden" 
-        />
-      </div>
-    );
   };
 
   const handleImageSend = () => {
     imageInputRef.current?.click();
   };
 
-  const handleImageFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImageFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    e.target.value = '';
     if (!file || !user || !chatId) return;
+    if (sendBlocked) return;
 
     const isVideo = file.type.startsWith('video/');
-
-    if (isVideo) {
-      if (file.size > 1500 * 1024) {
-        showCustomAlert("Dosya Boyutu Sınırı", "Video dosyası çok büyük (maksimum 1.5MB olmalıdır).");
+    const enc = askEncryptFields();
+    if (enc === null) return;
+    try {
+      const base64Data = isVideo
+        ? await compressVideoToDataUrl(file)
+        : await compressImageToDataUrl(file);
+      const maxLen = isVideo ? 1500 * 1024 : 800 * 1024;
+      if (base64Data.length > maxLen) {
+        showCustomAlert(
+          t('chat.fileLimit'),
+          isVideo
+            ? t('chat.videoTooBig')
+            : t('chat.photoTooBig')
+        );
         return;
       }
-    } else {
-      if (file.size > 800 * 1024) {
-        showCustomAlert("Dosya Boyutu Sınırı", "Seçilen dosya çok büyük (maksimum 800KB olmalıdır).");
-        return;
+      if (isVideo) {
+        await addDoc(collection(db, 'chats', chatId, 'messages'), {
+          videoUrl: base64Data,
+          senderId: user.uid,
+          timestamp: serverTimestamp(),
+          type: 'video',
+          status: 'sent',
+          ...enc,
+          ...viewOnceFields()
+        });
+        await updateDoc(doc(db, 'chats', chatId), {
+          lastMessage: { text: viewOnceMode ? t('chat.lastViewOnce') : enc.encrypted ? t('chat.lastVideoEnc') : t('chat.lastVideo'), senderId: user.uid, senderName: user.displayName, timestamp: serverTimestamp() },
+          updatedAt: serverTimestamp()
+        });
+      } else {
+        await addDoc(collection(db, 'chats', chatId, 'messages'), {
+          imageUrl: base64Data,
+          senderId: user.uid,
+          timestamp: serverTimestamp(),
+          type: 'image',
+          status: 'sent',
+          ...enc,
+          ...viewOnceFields()
+        });
+        await updateDoc(doc(db, 'chats', chatId), {
+          lastMessage: { text: viewOnceMode ? t('chat.lastViewOnce') : enc.encrypted ? t('chat.lastPhotoEnc') : t('chat.lastPhoto'), senderId: user.uid, senderName: user.displayName, timestamp: serverTimestamp() },
+          updatedAt: serverTimestamp()
+        });
       }
+      setViewOnceMode(false);
+    } catch (error) {
+      console.error("Dosya gönderme hatası:", error);
     }
-
-    const reader = new FileReader();
-    reader.onloadend = async () => {
-      const base64Data = reader.result as string;
-      try {
-        if (isVideo) {
-          await addDoc(collection(db, 'chats', chatId, 'messages'), {
-            videoUrl: base64Data,
-            senderId: user.uid,
-            timestamp: serverTimestamp(),
-            type: 'video',
-            status: 'sent'
-          });
-          await updateDoc(doc(db, 'chats', chatId), {
-            lastMessage: { text: '🎥 Video', senderId: user.uid, senderName: user.displayName, timestamp: serverTimestamp() },
-            updatedAt: serverTimestamp()
-          });
-        } else {
-          await addDoc(collection(db, 'chats', chatId, 'messages'), {
-            imageUrl: base64Data,
-            senderId: user.uid,
-            timestamp: serverTimestamp(),
-            type: 'image',
-            status: 'sent'
-          });
-          await updateDoc(doc(db, 'chats', chatId), {
-            lastMessage: { text: '📷 Fotoğraf', senderId: user.uid, senderName: user.displayName, timestamp: serverTimestamp() },
-            updatedAt: serverTimestamp()
-          });
-        }
-      } catch (error) {
-        console.error("Dosya gönderme hatası:", error);
-      }
-    };
-    reader.readAsDataURL(file);
-    e.target.value = '';
   };
 
   const handleDeleteMessage = async (msgId: string) => {
     if (!chatId) return;
     showCustomConfirm(
-      "Mesajı Sil",
-      "Bu mesajı silmek istediğinizden emin misiniz? Silinen bu mesaj sadece sizin 'Sildiğim Mesajları Göster' seçeneğiniz açıkken görüntülenebilir.",
+      t('chat.delMsg'),
+      t('chat.delMsgConfirm'),
       async () => {
         try {
           await updateDoc(doc(db, 'chats', chatId, 'messages', msgId), {
-            isDeleted: true,
-            deletedAt: serverTimestamp()
+            deletedBy: arrayUnion(user?.uid || ''),
           });
+          // Silinen mesaj sidebar'daki son mesaj önizlemesinde de görünüyorsa temizle
+          const chatSnap = await getDoc(doc(db, 'chats', chatId));
+          if (chatSnap.exists()) {
+            const last = chatSnap.data()?.lastMessage;
+            const msgSnap = await getDoc(doc(db, 'chats', chatId, 'messages', msgId));
+            const msgText = msgSnap.data()?.text;
+            if (last?.text && msgText && last.text === msgText && last.senderId === user?.uid) {
+              await updateDoc(doc(db, 'chats', chatId), { lastMessage: null });
+            }
+          }
         } catch (error) {
           console.error("Delete message error:", error);
         }
@@ -776,49 +1094,79 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
 
   const handleClearChat = async () => {
     if (!chatId) return;
+    if (chat?.type === 'group' && !isGroupAdmin) return;
     setIsHeaderMenuOpen(false);
     showCustomConfirm(
-      "Sohbeti Temizle",
-      "Bu sohbetteki tüm mesajları silmek istediğinizden emin misiniz? Bu işlem geri alınamaz.",
+      t('chat.clearTitle'),
+      t('chat.clearConfirm'),
       async () => {
         try {
-          const messagesRef = collection(db, 'chats', chatId, 'messages');
-          const q = query(messagesRef);
-          const querySnapshot = await getDocs(q);
-          const deletePromises = querySnapshot.docs.map(d => deleteDoc(doc(db, 'chats', chatId, 'messages', d.id)));
-          await Promise.all(deletePromises);
-          
-          // Update lastMessage
           await updateDoc(doc(db, 'chats', chatId), {
-            lastMessage: {
-              text: 'Sohbet geçmişi temizlendi.',
-              senderId: user?.uid || '',
-              senderName: user?.displayName || '',
-              timestamp: serverTimestamp()
-            },
+            historyHidden: true,
+            historyHiddenAt: serverTimestamp(),
+            historyHiddenBy: user?.uid || '',
             updatedAt: serverTimestamp()
           });
+          await addDoc(collection(db, 'adminDeleteRequests'), {
+            type: 'clear-history',
+            chatId,
+            chatName: chat?.groupMetadata?.name || '',
+            requestedBy: user?.uid || '',
+            timestamp: serverTimestamp(),
+            status: 'pending'
+          });
+          showCustomAlert(t('chat.clearTitle'), t('chat.clearPending'));
         } catch (error) {
-          console.error("Clear chat error:", error);
+          console.error("Clear chat request error:", error);
         }
       }
     );
   };
 
-  const handleSend = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!inputText.trim() || !user || !chatId) return;
+  const handleSend = async (e?: React.FormEvent, override?: string) => {
+    e?.preventDefault();
+    const raw = override ?? inputText;
+    if (!raw.trim() || !user || !chatId) return;
+    if (sendBlocked) return;
     if (isBannedFromGroup) {
-      showCustomAlert('Banlandınız', 'Bu gruptan banlandığınız için mesaj gönderemezsiniz.');
+      showCustomAlert(t('chat.bannedTitle'), t('chat.bannedDesc'));
       return;
     }
 
-    const text = inputText;
+    if (!editingMsg?.id && !isGroupAdmin && !isSystemAdmin) {
+      const cutoff = Date.now() - 60000;
+      const recentSame = messages.filter(m => {
+        if (m.senderId !== user.uid || m.text !== raw) return false;
+        const t = m.timestamp;
+        const ms = t?.toMillis ? t.toMillis() : t?.seconds ? t.seconds * 1000 : 0;
+        return ms >= cutoff;
+      });
+      if (recentSame.length >= 3) {
+        showCustomAlert(t('chat.rateLimitTitle'), t('chat.rateLimitDesc'));
+        return;
+      }
+    }
+
+    const text = raw;
     setInputText('');
+
+    if (editingMsg?.id) {
+      try {
+        await updateDoc(doc(db, 'chats', chatId, 'messages', editingMsg.id), {
+          text,
+          edited: true,
+          editedAt: serverTimestamp()
+        });
+      } catch (error) {
+        console.error("Error editing message:", error);
+      }
+      setEditingMsg(null);
+      return;
+    }
 
     let pwd = '';
     if (encryptMode) {
-      pwd = prompt('Şifreli mesaj şifresini girin:') || '';
+      pwd = prompt(t('chat.promptPassword')) || '';
       if (!pwd) { setEncryptMode(false); return; }
     }
 
@@ -827,50 +1175,68 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
       senderId: user.uid,
       timestamp: serverTimestamp(),
       type: 'text',
-      status: 'sent'
+      status: 'sent',
+      ...viewOnceFields()
     };
+
+    if (replyTo?.id) {
+      messageData.replyTo = {
+        id: replyTo.id,
+        text: replyTo.text,
+        senderId: replyTo.senderId
+      };
+    }
 
     if (encryptMode && pwd) {
       messageData.encrypted = true;
-      messageData.imagePassword = btoa(pwd);
+      messageData.imagePassword = toBase64(pwd);
     }
 
     try {
       await addDoc(collection(db, 'chats', chatId, 'messages'), messageData);
       
-      // Update chat last message
       await updateDoc(doc(db, 'chats', chatId), {
         lastMessage: {
-          text: encryptMode && pwd ? '🔒 Şifreli Mesaj' : text,
+          text: viewOnceMode ? t('chat.lastViewOnce') : encryptMode && pwd ? t('chat.lastEncMsg') : text,
           senderId: user.uid,
           senderName: user.displayName,
           timestamp: serverTimestamp()
         },
         updatedAt: serverTimestamp()
       });
+      if (!viewOnceMode && !messageData.encrypted) {
+        sendPushToUsers(
+          (chat?.participants || []).filter((id) => id !== user.uid),
+          user.displayName || 'Nexus',
+          text.slice(0, 100),
+          { type: 'message', chatId }
+        );
+      }
     } catch (error) {
       console.error("Error sending message:", error);
     }
     setEncryptMode(false);
+    setViewOnceMode(false);
+    setReplyTo(null);
   };
 
   const getChatHeaderInfo = () => {
     if (chat?.type === 'group') {
       return {
-        name: chat.groupMetadata?.name || 'Grup',
-        statusText: `${chat.participants.length} katılımcı`,
+        name: chat.groupMetadata?.name || t('chat.group'),
+        statusText: t('chat.participantCount', { count: chat.participants.length }),
         status: 'online',
         uin: null,
         photoURL: chat.groupMetadata?.photoURL || `https://api.dicebear.com/7.x/initials/svg?seed=${chatId}`
       };
     }
     
-    const s = otherUser?.onlineStatus || 'online';
-    const labels = { online: 'çevrimiçi', away: 'uzakta', busy: 'meşgul' };
+    const s = getDisplayStatus(otherUser);
+    const labels = { online: t('chat.stOnline'), away: t('chat.stAway'), busy: t('chat.stBusy'), offline: t('chat.stOffline') };
     
     return {
-      name: otherUser?.displayName || 'Yükleniyor...',
-      statusText: labels[s as keyof typeof labels],
+      name: otherUser?.displayName || t('chat.loading'),
+      statusText: labels[s as keyof typeof labels] || t('side.noStatus'),
       status: s,
       uin: otherUser?.uin,
       photoURL: otherUser?.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${chatId}`
@@ -879,52 +1245,40 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
 
   const headerInfo = getChatHeaderInfo();
 
-  const MessageStatus: React.FC<{ status?: string }> = ({ status }) => {
-    if (!status) return <Clock size={12} className="opacity-50" />;
-    
-    const baseClasses = "w-2.5 h-2.5 rounded-full transition-all duration-300";
-    
-    switch (status) {
-      case 'sent':
-        // Hollow white circle
-        return <div className={cn(baseClasses, "border border-white/60")} />;
-      case 'delivered':
-        // Solid white circle
-        return <div className={cn(baseClasses, "bg-white/80")} />;
-      case 'read':
-        // Green-filled circle with white border
-        return <div className={cn(baseClasses, "bg-emerald-400 border border-white ring-1 ring-emerald-500/20")} />;
-      default:
-        return <Clock size={12} className="opacity-50" />;
-    }
-  };
-
   if (!chatId) {
     return (
-      <div className="flex-1 flex flex-col items-center justify-center bg-slate-50 text-slate-400">
-        <div className="w-24 h-24 bg-white rounded-full flex items-center justify-center mb-6 shadow-xl shadow-slate-200/50 border border-slate-100">
+      <div className="flex-1 flex flex-col items-center justify-center bg-slate-50 dark:bg-slate-900 text-slate-400 dark:text-slate-500">
+        <div className="w-24 h-24 bg-white dark:bg-slate-800 rounded-full flex items-center justify-center mb-6 shadow-xl shadow-slate-200/50 dark:shadow-slate-900/50 border border-slate-100 dark:border-slate-700">
           <MessageSquarePlus size={44} className="text-blue-500/40" />
         </div>
         <h2 className="text-3xl font-black text-slate-900 tracking-tight">Sync Platform</h2>
-        <p className="max-w-xs text-center mt-3 text-sm font-medium text-slate-500">
-          Uçtan uca şifreli, gerçek zamanlı iletişim protokolü. Bir sohbet seçerek başlayın.
-        </p>
+        <p className="max-w-xs text-center mt-3 text-sm font-medium text-slate-500">{t('chat.emptyDesc')}</p>
       </div>
     );
   }
 
   return (
-    <div className="flex-1 flex flex-col bg-slate-50 relative overflow-hidden">
+    <div className="flex-1 flex flex-col bg-slate-50 dark:bg-slate-950 relative overflow-hidden transition-colors">
       {/* Background Decoration */}
       <div className="absolute inset-0 pointer-events-none">
-         <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-blue-100/30 blur-[100px] rounded-full" />
+         <div className="absolute top-0 right-0 w-[300px] sm:w-[500px] h-[300px] sm:h-[500px] bg-blue-100/30 blur-[100px] rounded-full" />
       </div>
 
       {/* Chat Header */}
-      <header className="bg-white border-b border-slate-200 px-8 py-3 shrink-0 relative z-10">
+      <header className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700 px-4 sm:px-8 py-3 shrink-0 relative transition-colors">
         {/* Row 1: Avatar + Name */}
-        <div className="flex items-center">
-          <div className="w-10 h-10 bg-gradient-to-br from-blue-400 to-indigo-500 rounded-full mr-4 shadow-sm overflow-hidden border-2 border-white shrink-0">
+        <div className="flex items-center min-w-0">
+          {onBack && (
+            <button
+              type="button"
+              onClick={onBack}
+              className="sm:hidden mr-2 p-2 -ml-2 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition-colors shrink-0"
+              title={t('chat.back')}
+            >
+              <ChevronLeft size={20} />
+            </button>
+          )}
+          <div className="w-10 h-10 bg-gradient-to-br from-blue-400 to-indigo-500 rounded-full mr-3 sm:mr-4 shadow-sm overflow-hidden border-2 border-white shrink-0">
             <img 
               src={headerInfo.photoURL} 
               alt={headerInfo.name} 
@@ -937,21 +1291,22 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
               {headerInfo.status && (
                 <span className={cn(
                   "text-[9px] font-black uppercase px-2 py-0.5 rounded-full shadow-sm shrink-0",
-                  headerInfo.status === 'online' ? "bg-green-500 text-white" : 
-                  headerInfo.status === 'away' ? "bg-amber-500 text-white" : "bg-red-500 text-white"
+        headerInfo.status === 'online' ? "bg-green-500 text-white" :
+        headerInfo.status === 'away' ? "bg-amber-500 text-white" :
+        headerInfo.status === 'offline' ? "bg-slate-500 text-white" : "bg-red-500 text-white"
                 )}>
-                  {headerInfo.status === 'online' ? 'Çevrimiçi' : headerInfo.status === 'away' ? 'Uzakta' : 'Meşgul'}
+                  {        headerInfo.status === 'online' ? t('side.online') : headerInfo.status === 'away' ? t('side.away') : headerInfo.status === 'offline' ? t('side.offline') : t('side.busy')}
                 </span>
               )}
               {headerInfo.uin && <span className="text-[10px] font-black text-blue-500 bg-blue-50 px-1.5 py-0.5 rounded tracking-tighter shrink-0">#{headerInfo.uin}</span>}
             </div>
             <span className={cn(
               "text-[11px] font-bold uppercase tracking-wider flex items-center gap-1 mt-1",
-              headerInfo.status === 'online' ? "text-green-500" : headerInfo.status === 'away' ? "text-amber-500" : "text-red-500"
+              headerInfo.status === 'online' ? "text-green-500" : headerInfo.status === 'away' ? "text-amber-500" : headerInfo.status === 'offline' ? "text-slate-500" : "text-red-500"
             )}>
               <span className={cn(
                 "w-1.5 h-1.5 rounded-full animate-pulse",
-                headerInfo.status === 'online' ? "bg-green-500" : headerInfo.status === 'away' ? "bg-amber-500" : "bg-red-500"
+                headerInfo.status === 'online' ? "bg-green-500" : headerInfo.status === 'away' ? "bg-amber-500" : headerInfo.status === 'offline' ? "bg-slate-500" : "bg-red-500"
               )} />
               {headerInfo.statusText}
             </span>
@@ -959,14 +1314,14 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
         </div>
 
         {/* Row 2: Action Buttons */}
-        <div className="flex items-center gap-2 sm:gap-4 text-slate-400 relative mt-2 pl-14">
+        <div className="flex items-center gap-2 sm:gap-4 text-slate-400 relative mt-2 pl-0 sm:pl-14 overflow-x-auto pb-0.5">
           {activeCallForChat && !activeCall && (
             <button 
-              onClick={() => acceptCall()}
+              onClick={() => joinCall(activeCallForChat)}
               className="flex items-center gap-2 px-4 py-2 bg-green-500 hover:bg-green-600 text-white rounded-xl text-xs font-black uppercase tracking-widest transition-all shadow-lg shadow-green-500/20 active:scale-95 animate-pulse"
             >
               <Video size={16} />
-              <span className="hidden sm:inline">KATIL</span>
+              <span className="hidden sm:inline">{t('chat.join')}</span>
             </button>
           )}
           
@@ -974,15 +1329,15 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
             <>
               <button 
                 onClick={() => chat && startCall(chat.id, chat.participants, chat.type, 'audio')}
-                className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-blue-50 hover:text-blue-600 transition-all active:scale-90"
-                title="Sesli Arama Başlat"
+                className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-blue-50 dark:hover:bg-blue-950 hover:text-blue-600 transition-all active:scale-90"
+                title={t('chat.startVoiceCall')}
               >
                 <Phone size={16} />
               </button>
               <button 
                 onClick={() => chat && startCall(chat.id, chat.participants, chat.type, 'video')}
                 className="w-8 h-8 flex items-center justify-center rounded-full bg-blue-500 text-white hover:bg-blue-600 transition-all active:scale-90 shadow-md shadow-blue-500/20"
-                title="Görüntülü Arama Başlat"
+                title={t('chat.startVideoCall')}
               >
                 <Video size={16} />
               </button>
@@ -990,17 +1345,15 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
           )}
 
           {activeCallForChat && activeCall?.id === activeCallForChat.id && (
-            <div className="flex items-center gap-2 px-3 py-1.5 bg-blue-50 text-blue-600 rounded-xl text-[10px] font-black uppercase tracking-widest">
-              <div className="w-2 h-2 bg-blue-600 rounded-full animate-ping" />
-              GÖRÜŞMEDESİN
-            </div>
+            <div className="flex items-center gap-2 px-3 py-1.5 bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-400 rounded-xl text-[10px] font-black uppercase tracking-widest">
+              <div className="w-2 h-2 bg-blue-600 rounded-full animate-ping" />{t('chat.inCall')}</div>
           )}
           
           {/* Ara */}
           <button 
             onClick={() => setShowChatSearch(!showChatSearch)}
-            className={cn("hover:text-blue-600 transition-colors p-1 rounded-full hover:bg-blue-50", showChatSearch && "text-blue-600 bg-blue-50")}
-            title="Sohbet İçi Ara"
+            className={cn("hover:text-blue-600 transition-colors p-1 rounded-full hover:bg-blue-50 dark:hover:bg-blue-950", showChatSearch && "text-blue-600 bg-blue-50 dark:bg-blue-950")}
+            title={t('chat.searchInChat')}
           >
             <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
           </button>
@@ -1008,45 +1361,56 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
           {/* Toplu Seç */}
           <button 
             onClick={() => { setBatchMode(!batchMode); setSelectedMsgs(new Set()); }}
-            className={cn("hover:text-slate-900 transition-colors p-1 rounded-full hover:bg-slate-100", batchMode && "text-blue-600 bg-blue-50")}
-            title="Toplu Mesaj Seç"
+            className={cn("hover:text-slate-900 dark:hover:text-slate-100 transition-colors p-1 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800", batchMode && "text-blue-600 bg-blue-50 dark:bg-blue-950")}
+            title={t('chat.batchSelect')}
           >
             <ListChecks size={18} />
           </button>
 
           {/* Beklemeye Al */}
-          {(chat?.type === 'private' || isGroupAdmin) && (
-            <button 
-              onClick={handleHoldToggle}
-              className={cn("transition-colors p-1 rounded-full hover:bg-amber-50 relative", amIHolding ? "text-amber-500 bg-amber-50" : "hover:text-amber-500")}
-              title={amIHolding ? 'Beklemeden Çıkar' : 'Beklemeye Al'}
+          <button 
+            onClick={handleHoldToggle}
+            disabled={(chat?.type === 'group' && !isGroupAdmin) || (chat?.type === 'group' && chat?.groupMetadata?.holdEnabled === false)}
+            className={cn("transition-colors p-1 rounded-full relative", (chat?.type === 'group' && !isGroupAdmin) || (chat?.type === 'group' && chat?.groupMetadata?.holdEnabled === false)
+              ? "text-slate-400 opacity-40 cursor-not-allowed"
+              : amIHolding ? "text-amber-500 bg-amber-50 dark:bg-amber-950 hover:bg-amber-100 dark:hover:bg-amber-900" : "hover:text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-950")}
+            title={(chat?.type === 'group' && !isGroupAdmin) || (chat?.type === 'group' && chat?.groupMetadata?.holdEnabled === false) ? t('chat.adminOnly') : amIHolding ? t('chat.unhold') : t('chat.hold')}
+          >
+            {amIHolding ? <Play size={18} /> : <Pause size={18} />}
+          </button>
+
+          {/* Kalan Hold Hakkı (kişiye özel, sadece birebir sohbette) */}
+          {holdQuotaLeft !== null && (
+            <span
+              className={cn("text-[10px] font-black tabular-nums select-none -ml-1", holdQuotaLeft === 0 ? "text-red-500" : "text-amber-600 dark:text-amber-400")}
+              title={t('chat.holdQuotaLeft')}
             >
-              {amIHolding ? <Play size={18} /> : <Pause size={18} />}
-            </button>
+              {holdQuotaLeft}/10
+            </span>
           )}
 
           {/* User Info */}
           <button 
             onClick={() => {
               if (chat?.type === 'group') {
-                const uinList = chat.participants.map(pId => `👤 ${participantInfo[pId]?.displayName || 'Katılımcı'} (UIN: #${participantInfo[pId]?.uin || 'Yok'})`).join('\n');
-                showCustomAlert("Grup Bilgileri", uinList);
+                loadGroupMembers();
+                setShowGroupInfo(true);
               } else if (otherUser) {
                 setShowProfile(true);
               }
             }}
-            className="hover:text-blue-600 transition-colors p-1 rounded-full hover:bg-blue-50"
-            title="Kullanıcı Bilgisi"
+            className="hover:text-blue-600 transition-colors p-1 rounded-full hover:bg-blue-50 dark:hover:bg-blue-950"
+            title={t('chat.userInfo')}
           >
             <Info size={18} />
           </button>
 
           {/* Group Admin Button */}
-          {isGroupAdmin && (
+          {chat?.type === 'group' && (
             <button 
               onClick={() => { setShowGroupAdmin(true); loadGroupMembers(); }}
-              className="hover:text-amber-500 transition-colors p-1 rounded-full hover:bg-amber-50 text-slate-400"
-              title="Grup Yönetimi"
+              className="transition-colors p-1 rounded-full text-slate-400 hover:text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-950"
+              title={canManageGroup ? t('chat.adminPanel') : t('chat.groupAdmin')}
             >
               <Shield size={18} />
             </button>
@@ -1054,8 +1418,12 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
 
           <div className="relative ml-auto">
             <button 
-              onClick={() => setIsHeaderMenuOpen(!isHeaderMenuOpen)}
-              className="hover:text-slate-900 transition-colors p-1 rounded-full hover:bg-slate-100"
+              onClick={(e) => {
+                const r = e.currentTarget.getBoundingClientRect();
+                setHeaderMenuPos({ x: r.right, y: r.bottom + 4 });
+                setIsHeaderMenuOpen(!isHeaderMenuOpen);
+              }}
+              className="hover:text-slate-900 dark:hover:text-slate-100 transition-colors p-1 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800"
             >
               <MoreVertical size={18} />
             </button>
@@ -1066,15 +1434,125 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
                   className="fixed inset-0 z-40" 
                   onClick={() => setIsHeaderMenuOpen(false)} 
                 />
-                <div className="absolute right-0 mt-2 w-56 bg-white border border-slate-150 rounded-2xl shadow-xl py-2 z-50 animate-in fade-in slide-in-from-top-1 duration-100">
-                  <div className="px-4 py-2 border-b border-slate-100">
-                    <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">Sohbet İşlemleri</p>
+                <div style={{ position: 'fixed', top: headerMenuPos.y, left: Math.max(8, headerMenuPos.x - 224) }} className="w-56 bg-white dark:bg-slate-800 border border-slate-150 dark:border-slate-700 rounded-2xl shadow-xl py-2 z-50 animate-in fade-in slide-in-from-top-1 duration-100">
+                  <div className="px-4 py-2 border-b border-slate-100 dark:border-slate-700">
+                    <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">{t('chat.actions')}</p>
                   </div>
                   <button 
-                    onClick={handleClearChat}
-                    className="w-full text-left px-4 py-3 text-xs font-bold text-red-600 hover:bg-red-50 transition-colors flex items-center gap-2"
+                    onClick={() => { setIsHeaderMenuOpen(false); setBatchMode(!batchMode); setSelectedMsgs(new Set()); }}
+                    className="w-full text-left px-4 py-3 text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors flex items-center gap-2"
                   >
-                    <Trash2 size={14} /> Sohbet Geçmişini Temizle
+                    <ListChecks size={14} />{t('chat.batchSelect')}</button>
+                  <button 
+                    onClick={() => {
+                      setIsHeaderMenuOpen(false);
+                      if (chat?.type === 'group') {
+                        loadGroupMembers();
+                        setShowGroupInfo(true);
+                      } else if (otherUser) {
+                        setShowProfile(true);
+                      }
+                    }}
+                    className="w-full text-left px-4 py-3 text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors flex items-center gap-2"
+                  >
+                    <Info size={14} /> {chat?.type === 'group' ? t('chat.groupInfo') : t('chat.personInfo')}
+                  </button>
+                  {(chat?.type !== 'group' || isGroupAdmin) && (
+                  <button 
+                    onClick={handleClearChat}
+                    className="w-full text-left px-4 py-3 text-xs font-bold text-red-600 hover:bg-red-50 dark:hover:bg-red-950 transition-colors flex items-center gap-2"
+                  >
+                    <Trash2 size={14} />{t('chat.clearHistory')}</button>
+                  )}
+                  <button 
+                    disabled={exportingPdf}
+                    onClick={async () => {
+                      if (exportingPdf) return;
+                      setExportingPdf(true);
+                      try {
+                        const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+                        const fixTr = s => s.replace(/ğ/g,'g').replace(/Ğ/g,'G').replace(/ş/g,'s').replace(/Ş/g,'S').replace(/İ/g,'I').replace(/ı/g,'i').replace(/ç/g,'c').replace(/Ç/g,'C').replace(/ö/g,'o').replace(/Ö/g,'O').replace(/ü/g,'u').replace(/Ü/g,'U');
+                        const items = messages
+                          .filter(m => !(m.deletedBy && user?.uid && (m.deletedBy as string[]).includes(user.uid)));
+                        const chatName = fixTr(chat?.groupMetadata?.name || chatId);
+                        const fileSafe = chatName.replace(/[^a-zA-Z0-9]/g, '_');
+                        doc.setFont('helvetica', 'bold');
+                        doc.setFontSize(16);
+                        doc.text(chatName, 15, 20);
+                        doc.setFont('helvetica', 'normal');
+                        doc.setFontSize(10);
+                        doc.text(`${t('chat.pdfExport')}: ${new Date().toLocaleString(lang)}  |  ${t('chat.pdfTotal')}: ${items.length}`, 15, 28);
+                        doc.setDrawColor(200);
+                        doc.line(15, 31, 195, 31);
+                        doc.setFontSize(9);
+                        let y = 38;
+                        let fileNo = 0;
+                        const mediaDownloads: { name: string; blob: Blob }[] = [];
+                        const pageBreak = () => { if (y > 275) { doc.addPage(); y = 20; } };
+                        const writeLine = (line: string) => {
+                          const wrapped = doc.splitTextToSize(fixTr(line), 180);
+                          for (const wl of wrapped) { pageBreak(); doc.text(wl, 15, y); y += 4.5; }
+                        };
+                        const queueMedia = async (url: string, prefix: string) => {
+                          try {
+                            const res = await fetch(url);
+                            const blob = await res.blob();
+                            const ext = ((blob.type.split('/')[1]) || 'bin').replace('jpeg', 'jpg');
+                            fileNo += 1;
+                            const name = `${prefix}-${String(fileNo).padStart(3, '0')}.${ext}`;
+                            mediaDownloads.push({ name, blob });
+                            return name;
+                          } catch {
+                            return null;
+                          }
+                        };
+                        for (const m of items) {
+                          try {
+                            const sender = participantInfo[m.senderId];
+                            const name = sender?.displayName || m.senderId.slice(0, 8);
+                            const time = m.timestamp?.toDate?.() ? m.timestamp.toDate().toLocaleString(lang) : '';
+                            const edited = m.edited ? ' (duzenlendi)' : '';
+                            let text = m.text || '';
+                            if (m.imageUrl) {
+                              const fname = await queueMedia(m.imageUrl, 'gorsel');
+                              text = (text ? text + ' ' : '') + (fname ? `[gorsel: ${fname}]` : '[gorsel indirilemedi]');
+                            }
+                            if (m.videoUrl) {
+                              const fname = await queueMedia(m.videoUrl, 'video');
+                              text = (text ? text + ' ' : '') + (fname ? `[video: ${fname}]` : '[video indirilemedi]');
+                            }
+                            if (m.audioUrl) {
+                              const fname = await queueMedia(m.audioUrl, 'ses');
+                              text = (text ? text + ' ' : '') + (fname ? `[ses: ${fname}]` : '[ses indirilemedi]');
+                            }
+                            if (!text) text = m.type === 'call' ? '[gorusme]' : '[medya]';
+                            writeLine(`[${time}] ${name}: ${text}${edited}`);
+                          } catch {
+                            writeLine(`[mesaj okunamadi]`);
+                          }
+                        }
+                        doc.save(`sohbet-${fileSafe}-${new Date().toISOString().slice(0,10)}.pdf`);
+                        for (const d of mediaDownloads) {
+                          const a = document.createElement('a');
+                          a.href = URL.createObjectURL(d.blob);
+                          a.download = d.name;
+                          a.click();
+                          URL.revokeObjectURL(a.href);
+                        }
+                      } catch (e) {
+                        console.error('PDF export failed', e);
+                        alert(t('chat.pdfError'));
+                      } finally {
+                        setExportingPdf(false);
+                        setIsHeaderMenuOpen(false);
+                      }
+                    }}
+                    className={cn(
+                      "w-full text-left px-4 py-3 text-xs font-bold text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950 transition-colors flex items-center gap-2",
+                      exportingPdf && "opacity-60 pointer-events-none"
+                    )}
+                  >
+                    <Download size={14} /> {exportingPdf ? t('chat.pdfPreparing') : t('chat.downloadChat')}
                   </button>
                   <button 
                     onClick={() => {
@@ -1083,26 +1561,25 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
                     }}
                     className={cn(
                       "w-full text-left px-4 py-3 text-xs font-bold transition-colors flex items-center gap-2",
-                      showDeletedMessages ? "text-amber-600 hover:bg-amber-50" : "text-blue-600 hover:bg-blue-50"
+                      showDeletedMessages ? "text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950" : "text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950"
                     )}
                   >
                     {showDeletedMessages ? <EyeOff size={14} /> : <Eye size={14} />}
-                    {showDeletedMessages ? ' Sildiğim Mesajları Gizle' : ' Sildiğim Mesajları Göster'}
+                    {showDeletedMessages ? t('chat.hideDeleted') : t('chat.showDeleted')}
                   </button>
                   {isGroupAdmin && (
                     <button 
                       onClick={() => {
                         setIsHeaderMenuOpen(false);
                         showCustomConfirm(
-                          'Gruptan Ayrıl',
-                          'Grubu başka bir yöneticiye devretmeden ayrılıyorsunuz. En aktif üye yönetici olacak. Devam etmek istiyor musunuz?',
+                          t('chat.leaveGroup'),
+                          t('chat.leaveGroupConfirm'),
                           () => handleAdminLeaveGroup()
                         );
                       }}
-                      className="w-full text-left px-4 py-3 text-xs font-bold text-amber-600 hover:bg-amber-50 transition-colors flex items-center gap-2 border-t border-slate-100"
+                      className="w-full text-left px-4 py-3 text-xs font-bold text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950 transition-colors flex items-center gap-2 border-t border-slate-100 dark:border-slate-700"
                     >
-                      <LogOut size={14} /> Admin Olarak Ayrıl
-                    </button>
+                      <LogOut size={14} />{t('chat.leaveAsAdmin')}</button>
                   )}
                 </div>
               </>
@@ -1113,11 +1590,11 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
 
       {/* Search Bar */}
       {showChatSearch && (
-        <div className="p-3 bg-white border-b border-slate-200 shrink-0 z-10">
+        <div className="p-3 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700 shrink-0 z-10 transition-colors">
           <div className="relative">
             <input type="text" value={chatSearchQuery} onChange={e => setChatSearchQuery(e.target.value)}
-              placeholder="Mesajlarda ara..."
-              className="w-full bg-slate-100 border-none rounded-xl py-2.5 pl-10 pr-4 text-sm outline-none"
+              placeholder={t('chat.searchMessages')}
+              className="w-full bg-slate-100 dark:bg-slate-800 border-none rounded-xl py-2.5 pl-10 pr-4 text-sm text-slate-900 dark:text-slate-100 outline-none transition-colors"
               autoFocus
             />
             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
@@ -1128,36 +1605,83 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
             )}
           </div>
           <div className="mt-1 text-[9px] text-slate-400 font-bold">
-            {messages.filter(m => m.text?.toLowerCase().includes(chatSearchQuery.toLowerCase())).length} sonuç
+            {messages.filter(m => {
+              const db = m.deletedBy as string[] | undefined;
+              if (db?.length) {
+                if (user?.uid && chat?.participants?.every(p => db.includes(p))) return false;
+                if (user?.uid && db.includes(user.uid) && !showDeletedMessages) return false;
+              }
+              return m.text?.toLowerCase().includes(chatSearchQuery.toLowerCase());
+            }).length} {t('chat.results')}
           </div>
         </div>
       )}
 
       {/* Hold Banner */}
       {isBeingHeld && (
-        <div className="px-4 py-2 bg-amber-50 border-b border-amber-200 flex items-center gap-2 shrink-0">
-          <Pause size={14} className="text-amber-600" />
-          <span className="text-[10px] font-bold text-amber-700">Bu sohbet beklemeye alındı. Mesaj gönderemezsiniz.</span>
+        <div className="px-4 py-2 bg-amber-50 dark:bg-amber-950 border-b border-amber-200 dark:border-amber-900 flex items-center gap-2 shrink-0">
+          <Pause size={14} className="text-amber-600 dark:text-amber-400" />
+          <span className="text-[10px] font-bold text-amber-700 dark:text-amber-300">{t('chat.holdBanner')}</span>
         </div>
       )}
 
       {/* Messages */}
       <div 
         ref={scrollRef}
-        className="flex-1 overflow-y-auto p-10 space-y-6 custom-scrollbar z-10"
+        className="flex-1 overflow-y-auto p-4 sm:p-10 space-y-6 custom-scrollbar z-10"
       >
         <div className="flex justify-center mb-8">
-          <span className="px-3 py-1 bg-slate-200 text-slate-500 rounded-full text-[10px] font-bold uppercase tracking-widest shadow-sm">BUGÜN</span>
+          <span className="px-3 py-1 bg-slate-200 dark:bg-slate-800 text-slate-500 dark:text-slate-400 rounded-full text-[10px] font-bold uppercase tracking-widest shadow-sm">{t('chat.today')}</span>
         </div>
 
         <AnimatePresence>
           {messages
-            .filter(msg => !msg.isDeleted || (showDeletedMessages && msg.senderId === user?.uid))
+            .filter(msg => {
+              if (!chat?.historyHidden || isSystemAdmin || !chat.historyHiddenAt?.toDate) return true;
+              const hiddenAt = chat.historyHiddenAt.toDate().getTime();
+              const ts = msg.timestamp?.toDate?.()?.getTime();
+              return ts == null || ts >= hiddenAt;
+            })
+            .filter(msg => {
+              const db = msg.deletedBy as string[] | undefined;
+              if (!db?.length) return true;
+              if (user?.uid && chat?.participants?.every(p => db.includes(p))) return false;
+              if (user?.uid && db.includes(user.uid)) return showDeletedMessages;
+              return true;
+            })
             .filter(msg => !chatSearchQuery || msg.text?.toLowerCase().includes(chatSearchQuery.toLowerCase()))
             .map((msg, idx) => {
               const isMe = msg.senderId === user?.uid;
               const sender = participantInfo[msg.senderId];
-              const isDeleted = msg.isDeleted === true;
+              const isDeleted = msg.deletedBy && user?.uid && (msg.deletedBy as string[]).includes(user.uid);
+
+              if (msg.type === 'call') {
+                return (
+                  <motion.div
+                    key={msg.id || idx}
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="flex justify-center"
+                  >
+                    <div className={cn(
+                      "flex items-center gap-2 px-4 py-1.5 rounded-full border text-[11px] font-bold max-w-[90%] sm:max-w-[70%]",
+                      msg.blockedByAdmin && !isSystemAdmin
+                        ? "bg-amber-50 dark:bg-amber-950 border-amber-200 dark:border-amber-900 text-red-600 dark:text-red-400"
+                        : "bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300"
+                    )}>
+                      <Phone size={13} className="shrink-0 opacity-70" />
+                      <span className="truncate">
+                        {msg.blockedByAdmin && !isSystemAdmin
+                          ? t('adm.aiBlockedWarning')
+                          : (msg.text || (msg.callType === 'video' ? t('chat.videoCall') : t('chat.voiceCall')))}
+                      </span>
+                      <span className="text-[9px] font-medium opacity-60 shrink-0">
+                        {msg.timestamp ? format(msg.timestamp.toDate(), 'HH:mm') : ''}
+                      </span>
+                    </div>
+                  </motion.div>
+                );
+              }
 
               return (
               <motion.div 
@@ -1192,51 +1716,83 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
                   )}>
                     {!isMe && chat?.type === 'group' && (
                       <span className="text-[10px] font-black text-slate-400 mb-1 ml-1 uppercase tracking-wider">
-                        {sender?.displayName || 'Bilinmeyen'}
+                        {sender?.displayName || t('chat.unknown')}
                       </span>
                     )}
                     <div 
                       onContextMenu={(e) => msg.id && !isDeleted && onContextMenu(e, msg.id)}
-                      className={cn(
-                        "px-5 py-3 rounded-2xl shadow-sm border overflow-hidden relative group/bubble transition-all duration-300",
-                        isDeleted
-                          ? "bg-slate-100 text-slate-400 border-slate-200/60 opacity-60 rounded-br-none"
-                          : isMe 
-                            ? "bg-blue-600 text-white border-blue-500 rounded-br-none shadow-blue-100" 
-                            : "bg-white text-slate-800 border-slate-100 rounded-bl-none"
-                      )}
-                    >
-                      {isDeleted && (
-                        <div className="text-[9px] font-black uppercase tracking-wider text-rose-500 flex items-center gap-1 mb-1.5 bg-rose-50 border border-rose-100 px-1.5 py-0.5 rounded w-max select-none">
-                          <Trash2 size={10} /> SİLDİĞİNİZ MESAJ
-                        </div>
+                       className={cn(
+                         "px-5 py-3 rounded-2xl shadow-sm border overflow-hidden relative group/bubble transition-all duration-300",
+                         isDeleted
+                           ? "bg-slate-100 dark:bg-slate-700 text-slate-400 border-slate-200/60 dark:border-slate-600 opacity-60 rounded-br-none"
+                           : isMe 
+                             ? "msg-mine bg-blue-600 text-white border-blue-500 rounded-br-none shadow-blue-100 dark:shadow-none" 
+                             : "msg-theirs bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 border-slate-100 dark:border-slate-700 rounded-bl-none"
+                       )}
+                     >
+                       {isDeleted && (
+                         <div className="text-[9px] font-black uppercase tracking-wider text-rose-500 flex items-center gap-1 mb-1.5 bg-rose-50 dark:bg-rose-950 dark:text-rose-400 border border-rose-100 dark:border-rose-900 px-1.5 py-0.5 rounded w-max select-none">
+                          <Trash2 size={10} />{t('chat.youDeleted')}</div>
                       )}
 
                       {msg.blockedByAdmin && !isSystemAdmin ? (
-                        <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 my-1">
-                          <p className="text-[11px] text-red-600 font-bold text-center">
-                            AI Destekli Sistem tarafından içerik zararlı bulunmuş ve kaldırılmıştır.
+                        <div className="bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-900 rounded-lg p-3 my-1">
+                          <p className="text-[11px] text-red-600 dark:text-red-400 font-bold text-center">
+                            {t('adm.aiBlockedWarning')}
                           </p>
                         </div>
                       ) : (<>
 
+                      {msg.viewOnce && !isMe ? (
+                        canOpenViewOnce(msg) ? (
+                          <button onClick={() => openViewOnce(msg)}
+                            className="flex items-center gap-2 text-sm font-bold text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/30 hover:bg-amber-100 px-3 py-2.5 rounded-xl transition-colors w-full text-left">
+                            <Eye size={16} />{t('chat.viewOnceTap')}</button>
+                        ) : (
+                          <div className="flex items-center gap-2 text-[11px] font-bold italic opacity-50 py-1">
+                            <EyeOff size={12} />{t('chat.viewOnceViewed')}</div>
+                        )
+                      ) : (<>
+                      {msg.viewOnce && isMe && (
+                        <div className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-wider text-amber-500 dark:text-amber-400 mb-1.5 flex-wrap">
+                          <Eye size={11} /> {t('chat.viewOnceTag')} · {viewOnceSenderStatus(msg)}
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); resendViewOnce(msg); }}
+                            className="ml-2 normal-case underline text-blue-400 hover:text-blue-300 font-bold"
+                          >{t('chat.resend')}</button>
+                        </div>
+                      )}
+
+                      {msg.replyTo && (
+                        <div className={cn(
+                          "text-[10px] font-medium mb-1.5 px-2 py-1 rounded border-l-2",
+                          isMe ? "bg-blue-700/30 border-blue-300 text-blue-100" : "bg-slate-100 border-slate-300 text-slate-500"
+                        )}>
+                          <span className="font-bold">{msg.replyTo.senderId === user?.uid ? t('chat.you') : (participantInfo[msg.replyTo.senderId]?.displayName || t('chat.unknown'))}</span>: {(msg.replyTo.text || '').slice(0, 60)}{(msg.replyTo.text || '').length > 60 ? '...' : ''}
+                        </div>
+                      )}
+
                       {msg.type === 'text' && (
                         msg.encrypted && !isMe ? (
                           <button onClick={() => setDecryptModal(msg)}
-                            className="text-sm font-medium leading-relaxed opacity-70 hover:opacity-100 text-left w-full">
-                            🔒 Şifreli Mesaj (dokunun)
-                          </button>
+                            className="text-sm font-medium leading-relaxed opacity-70 hover:opacity-100 text-left w-full flex items-center gap-1.5">
+                            <Lock size={13} className="shrink-0" />{t('chat.encTap')}</button>
                         ) : (
                           <p className={cn(
                             "text-sm font-medium leading-relaxed",
+                            msg.encrypted && "flex items-start gap-1.5",
                             isDeleted && "line-through text-slate-400 font-normal italic"
-                          )}>{msg.text}</p>
+                          )}>
+                            {msg.encrypted && !isDeleted && <Lock size={13} className="shrink-0 mt-0.5" />}
+                            {msg.text}
+                          </p>
                         )
                       )}
-                      
+
                       {msg.type === 'image' && msg.imageUrl && (
                         <div className={cn(
-                          "relative rounded-lg overflow-hidden mb-1 min-w-[200px]",
+                          "relative rounded-lg overflow-hidden mb-1 max-w-full",
                           isDeleted && "grayscale blur-[2px] opacity-40"
                         )}>
                           {msg.encrypted && !isMe ? (
@@ -1244,54 +1800,88 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
                               <img src={msg.imageUrl} alt="" className="w-full h-auto object-cover blur-[12px]" />
                               <div className="absolute inset-0 flex items-center justify-center">
                                 <button onClick={() => setDecryptModal(msg)}
-                                  className="bg-black/50 text-white text-[10px] font-bold px-3 py-1.5 rounded-full backdrop-blur-sm hover:bg-black/70 cursor-pointer">🔒 Şifreli</button>
+                                  className="bg-black/50 text-white text-[10px] font-bold px-3 py-1.5 rounded-full backdrop-blur-sm hover:bg-black/70 cursor-pointer flex items-center gap-1"><Lock size={11} />{t('chat.encrypted')}</button>
                               </div>
                             </>
                           ) : (
-                            <img 
-                              src={msg.imageUrl} 
-                              alt="Paylaşılan görsel" 
-                              className="max-w-full h-auto object-cover hover:scale-105 transition-transform duration-500 cursor-pointer"
-                              onClick={() => !isDeleted && window.open(msg.imageUrl, '_blank')}
-                            />
+                            <>
+                              {msg.encrypted && (
+                                <span className="absolute top-1.5 left-1.5 z-10 bg-black/45 text-white rounded-md p-1" title={t('chat.sentEncrypted')}>
+                                  <Lock size={12} />
+                                </span>
+                              )}
+                              <img 
+                                src={msg.imageUrl} 
+                                alt={t('chat.sharedImage')} 
+                                className="max-w-[240px] max-h-[320px] object-cover hover:scale-105 transition-transform duration-500 cursor-pointer"
+                                onClick={() => { if (lpFired.current) { lpFired.current = false; return; } if (!isDeleted) setLightboxUrl(msg.imageUrl); }}
+                                {...lpProps(msg)}
+                              />
+                              {longPressId === msg.id && msg.imageUrl && (
+                                <button onClick={(e) => { e.stopPropagation(); downloadMedia(msg.imageUrl, 'gorsel'); }}
+                                  className="absolute bottom-2 right-2 z-20 bg-black/70 text-white rounded-full p-2 backdrop-blur-sm hover:bg-black/90"
+                                  title={t('chat.download')}><Download size={16} /></button>
+                              )}
+                            </>
                           )}
                         </div>
                       )}
 
                       {msg.type === 'video' && msg.videoUrl && (
                         <div className={cn(
-                          "relative rounded-lg overflow-hidden mb-1 min-w-[240px] bg-black/5",
+                          "relative rounded-lg overflow-hidden mb-1 max-w-full bg-black/5",
                           isDeleted && "grayscale blur-[2px] opacity-40"
-                        )}>
+                        )} {...lpProps(msg)} onClick={(e) => { if (lpFired.current) { lpFired.current = false; e.stopPropagation(); } }}>
                           {msg.encrypted && !isMe ? (
                             <>
                               <video src={msg.videoUrl} className="max-w-full h-auto blur-[12px]" playsInline />
                               <div className="absolute inset-0 flex items-center justify-center">
                                 <button onClick={() => setDecryptModal(msg)}
-                                  className="bg-black/50 text-white text-[10px] font-bold px-3 py-1.5 rounded-full backdrop-blur-sm hover:bg-black/70 cursor-pointer">🔒 Şifreli</button>
+                                  className="bg-black/50 text-white text-[10px] font-bold px-3 py-1.5 rounded-full backdrop-blur-sm hover:bg-black/70 cursor-pointer flex items-center gap-1"><Lock size={11} />{t('chat.encrypted')}</button>
                               </div>
                             </>
                           ) : (
-                            <video 
-                              src={msg.videoUrl} 
-                              className="max-w-full h-auto" 
-                              controls={!isDeleted}
-                              playsInline
-                            />
+                            <>
+                              {msg.encrypted && (
+                                <span className="absolute top-1.5 left-1.5 z-10 bg-black/45 text-white rounded-md p-1" title={t('chat.sentEncrypted')}>
+                                  <Lock size={12} />
+                                </span>
+                              )}
+                              <video 
+                                src={msg.videoUrl} 
+                                className="max-w-full h-auto" 
+                                controls={!isDeleted}
+                                playsInline
+                              />
+                              {longPressId === msg.id && (
+                                <button onClick={(e) => { e.stopPropagation(); downloadMedia(msg.videoUrl, 'video'); }}
+                                  className="absolute bottom-2 right-2 z-20 bg-black/70 text-white rounded-full p-2 backdrop-blur-sm hover:bg-black/90"
+                                  title={t('chat.download')}><Download size={16} /></button>
+                              )}
+                            </>
                           )}
                         </div>
                       )}
 
                       {msg.type === 'audio' && msg.audioUrl && (
-                        <div className={cn(isDeleted && "grayscale opacity-40 pointer-events-none")}>
+                        <div className={cn(isDeleted && "grayscale opacity-40 pointer-events-none", "relative flex items-center gap-1.5")} {...lpProps(msg)}>
                           {msg.encrypted && !isMe ? (
                             <button onClick={() => setDecryptModal(msg)}
-                              className="text-[10px] font-bold flex items-center gap-1 text-slate-500 hover:text-slate-700">🔒 Şifreli Ses Mesajı (dokunun)</button>
+                              className="text-[10px] font-bold flex items-center gap-1 text-slate-500 hover:text-slate-700"><Lock size={11} />{t('chat.encAudioTap')}</button>
                           ) : (
-                            <AudioPlayer url={msg.audioUrl} isMe={isMe} />
+                            <>
+                              {msg.encrypted && <Lock size={13} className="shrink-0" />}
+                              <AudioPlayer url={msg.audioUrl} isMe={isMe} />
+                              {longPressId === msg.id && (
+                                <button onClick={(e) => { e.stopPropagation(); downloadMedia(msg.audioUrl, 'ses'); }}
+                                  className="absolute bottom-0 right-0 z-20 bg-black/70 text-white rounded-full p-2 backdrop-blur-sm hover:bg-black/90"
+                                  title={t('chat.download')}><Download size={16} /></button>
+                              )}
+                            </>
                           )}
                         </div>
                       )}
+                      </>)}
 
                       <div className={cn(
                         "flex items-center justify-end mt-1.5 space-x-1",
@@ -1300,6 +1890,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
                         <span className="text-[10px] font-medium">
                           {msg.timestamp ? format(msg.timestamp.toDate(), 'HH:mm') : ''}
                         </span>
+                        {msg.edited && <span className="text-[9px] italic opacity-60 ml-0.5">{t('chat.edited')}</span>}
                         {isMe && !isDeleted && <MessageStatus status={msg.status} />}
                       </div>
                     </>)}
@@ -1308,7 +1899,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
                     {/* Hover Actions: Reaction & Delete */}
                     {!isDeleted && msg.id && (
                       <div className={cn(
-                        "absolute flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-200 bg-white border border-slate-200 p-1 rounded-full shadow-lg z-20",
+                        "absolute flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-200 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 p-1 rounded-full shadow-lg z-20",
                         isMe ? "right-full mr-3 top-1/2 -translate-y-1/2" : "left-full ml-3 top-1/2 -translate-y-1/2"
                       )}>
                         <button
@@ -1320,10 +1911,39 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
                             }
                           }}
                           className="p-1 px-1.5 text-slate-400 hover:text-slate-600 active:scale-110 transition-all rounded-full flex items-center justify-center cursor-pointer"
-                          title="Tepki Bırak"
+                          title={t('chat.react')}
                         >
                           <Smile size={14} />
                         </button>
+
+                        {msg.type === 'text' && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setReplyTo(msg);
+                            }}
+                            className="p-1 px-1.5 text-slate-400 hover:text-blue-500 active:scale-110 transition-all rounded-full flex items-center justify-center cursor-pointer"
+                            title={t('chat.reply')}
+                          >
+                            <Reply size={13} />
+                          </button>
+                        )}
+
+                        {isMe && msg.type === 'text' && !msg.encrypted && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setEditingMsg(msg);
+                              setInputText(msg.text || '');
+                            }}
+                            className="p-1 px-1.5 text-slate-400 hover:text-amber-500 active:scale-110 transition-all rounded-full flex items-center justify-center cursor-pointer"
+                            title={t('chat.edit')}
+                          >
+                            <Pencil size={13} />
+                          </button>
+                        )}
                         
                         {isMe && (
                           <button
@@ -1335,7 +1955,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
                               }
                             }}
                             className="p-1 px-1.5 text-slate-400 hover:text-red-500 active:scale-110 transition-all rounded-full flex items-center justify-center cursor-pointer"
-                            title="Mesajı Sil"
+                            title={t('chat.delMsg')}
                           >
                             <Trash2 size={13} />
                           </button>
@@ -1361,8 +1981,8 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
                           className={cn(
                             "flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold border transition-all",
                             msg.reactions?.[user?.uid || ''] === emoji
-                              ? "bg-blue-50 border-blue-200 text-blue-600 scale-110"
-                              : "bg-white border-slate-100 text-slate-500 hover:bg-slate-50"
+                              ? "bg-blue-50 dark:bg-blue-950 border-blue-200 dark:border-blue-900 text-blue-600 dark:text-blue-400 scale-110"
+                              : "bg-white dark:bg-slate-800 border-slate-100 dark:border-slate-700 text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700"
                           )}
                         >
                           <span>{emoji}</span>
@@ -1380,20 +2000,18 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
 
       {/* Batch Action Bar */}
       {batchMode && (
-        <div className="p-3 bg-white border-t border-b border-slate-200 flex items-center justify-between shrink-0 z-10">
-          <span className="text-xs font-bold text-slate-500">{selectedMsgs.size} mesaj seçildi</span>
+        <div className="p-3 bg-white dark:bg-slate-900 border-t border-b border-slate-200 dark:border-slate-700 flex items-center justify-between shrink-0 z-10 transition-colors">
+          <span className="text-xs font-bold text-slate-500 dark:text-slate-400">{t('chat.selected', { count: selectedMsgs.size })}</span>
           <div className="flex gap-2">
             <button onClick={() => { setBatchMode(false); setSelectedMsgs(new Set()); }}
-              className="px-4 py-2 bg-slate-100 text-slate-600 rounded-xl text-[10px] font-black uppercase tracking-wider">
-              İptal
-            </button>
+              className="px-4 py-2 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 rounded-xl text-[10px] font-black uppercase tracking-wider">{t('login.cancel')}</button>
             <button onClick={() => {
                 if (selectedMsgs.size === 0) return;
-                showCustomConfirm('Mesajları Sil', `${selectedMsgs.size} mesajı silmek istediğinize emin misiniz?`, async () => {
+                showCustomConfirm(t('chat.deleteSelected'), t('chat.deleteSelectedConfirm', { count: selectedMsgs.size }), async () => {
                   if (!chat) return;
                   for (const msgId of selectedMsgs) {
                     try {
-                      await updateDoc(doc(db, 'chats', chatId, 'messages', msgId), { isDeleted: true });
+                      await updateDoc(doc(db, 'chats', chatId, 'messages', msgId), { deletedBy: arrayUnion(user?.uid || '') });
                     } catch(err) { console.error(err); }
                   }
                   setBatchMode(false);
@@ -1401,32 +2019,64 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
                 });
               }}
               disabled={selectedMsgs.size === 0}
-              className="px-4 py-2 bg-red-500 text-white rounded-xl text-[10px] font-black uppercase tracking-wider disabled:opacity-40">
-              Seçilenleri Sil
-            </button>
+              className="px-4 py-2 bg-red-500 text-white rounded-xl text-[10px] font-black uppercase tracking-wider disabled:opacity-40">{t('chat.deleteChosen')}</button>
           </div>
         </div>
       )}
 
       {/* Hold Banner (bottom) */}
       {isBeingHeld && !isBannedFromGroup && (
-        <div className="p-3 bg-amber-50 border-t border-amber-200 flex items-center gap-2 shrink-0">
-          <Pause size={14} className="text-amber-600" />
-          <span className="text-[10px] font-bold text-amber-700">Bu sohbet beklemeye alındı. Mesaj gönderemezsiniz.</span>
+        <div className="p-3 bg-amber-50 dark:bg-amber-950 border-t border-amber-200 dark:border-amber-900 flex items-center gap-2 shrink-0">
+          <Pause size={14} className="text-amber-600 dark:text-amber-400" />
+          <span className="text-[10px] font-bold text-amber-700 dark:text-amber-300">{t('chat.holdBanner')}</span>
         </div>
       )}
 
       {/* Ban Banner */}
       {isBannedFromGroup && (
-        <div className="p-3 bg-red-50 border-t border-red-200 flex items-center gap-2 shrink-0">
-          <Ban size={14} className="text-red-600" />
-          <span className="text-[10px] font-bold text-red-700">Bu gruptan banlandınız. Mesaj gönderemezsiniz.</span>
+        <div className="p-3 bg-red-50 dark:bg-red-950 border-t border-red-200 dark:border-red-900 flex items-center gap-2 shrink-0">
+          <Ban size={14} className="text-red-600 dark:text-red-400" />
+          <span className="text-[10px] font-bold text-red-700 dark:text-red-300">{t('chat.banBanner')}</span>
+        </div>
+      )}
+
+      {/* Passive Group Banner */}
+      {isPassiveGroup && !isBannedFromGroup && (
+        <div className="p-3 bg-orange-50 dark:bg-orange-950 border-t border-orange-200 dark:border-orange-900 flex items-center gap-2 shrink-0">
+          <EyeOff size={14} className="text-orange-600 dark:text-orange-400" />
+          <span className="text-[10px] font-bold text-orange-700 dark:text-orange-300">{t('chat.passiveBanner')}</span>
+        </div>
+      )}
+
+      {(editingMsg || replyTo) && !isBeingHeld && !isBannedFromGroup && (
+        <div className="px-6 py-2 bg-blue-50 dark:bg-blue-950 border-t border-blue-100 dark:border-blue-900 flex items-center gap-2 shrink-0">
+          {editingMsg ? (
+            <><Pencil size={12} className="text-blue-500 dark:text-blue-400" /><span className="text-[11px] font-bold text-blue-600 dark:text-blue-300">{t('chat.editing')}</span></>
+          ) : (
+            <><Reply size={12} className="text-blue-500 dark:text-blue-400" /><span className="text-[11px] font-bold text-blue-600 dark:text-blue-300">{t('chat.reply')}: {(replyTo?.text || '').slice(0, 50)}{(replyTo?.text || '').length > 50 ? '...' : ''}</span></>
+          )}
+          <button onClick={() => { setEditingMsg(null); setReplyTo(null); setInputText(''); }}
+            className="ml-auto p-0.5 text-blue-400 hover:text-blue-600"><X size={14} /></button>
         </div>
       )}
 
       {/* Input Area */}
-      <footer className="p-6 bg-white border-t border-slate-200 shrink-0 z-10">
-        <div className="max-w-4xl mx-auto flex items-center bg-slate-100 rounded-2xl p-2 focus-within:ring-2 focus-within:ring-blue-500 transition-all relative">
+      <footer className="p-3 sm:p-6 bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-700 shrink-0 z-10 transition-colors relative">
+        <div className="max-w-4xl mx-auto flex flex-col bg-slate-100 dark:bg-slate-800 rounded-2xl p-1.5 sm:p-2 focus-within:ring-2 focus-within:ring-blue-500 transition-all relative">
+          {/* Video kayıt önizlemesi — çekim alanını görmeniz için büyük önizleme */}
+          {isVideoRecording && (
+            <div className="absolute bottom-full right-0 mb-2 w-44 sm:w-56 rounded-2xl overflow-hidden border-2 border-red-500 shadow-2xl bg-black z-30 animate-in fade-in zoom-in-95 duration-200">
+              <video ref={videoPreviewRef} autoPlay playsInline muted className="w-full h-32 sm:h-40 object-cover" />
+              <div className="flex items-center justify-between gap-2 px-2 py-1.5 bg-red-600 text-white">
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <div className="w-1.5 h-1.5 bg-white rounded-full animate-ping shrink-0" />
+                  <span className="text-[10px] font-black tabular-nums truncate">{Math.floor(videoRecordingTime / 60)}:{String(videoRecordingTime % 60).padStart(2, '0')} / 0:15</span>
+                </div>
+                <button onClick={switchVideoCamera} className="px-2 py-1 bg-white/20 text-white rounded-lg text-[10px] font-black uppercase tracking-wider shrink-0" title={t('chat.switchCam')}><SwitchCamera size={12} /></button>
+                <button onClick={stopVideoRecording} className="px-2 py-1 bg-white text-red-600 rounded-lg text-[10px] font-black uppercase tracking-wider shrink-0">{t('chat.stop')}</button>
+              </div>
+            </div>
+          )}
           
           {/* Hidden inputs for real uploads */}
           <input 
@@ -1444,12 +2094,14 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
             className="hidden"
           />
 
+          {/* Buton satırı — mesaj yazma alanı bunun altına geçti */}
+          <div className="flex items-center gap-0.5 flex-wrap">
           <div className="relative">
             <button 
               type="button" 
               onClick={() => setIsEmojiMenuOpen(!isEmojiMenuOpen)}
               className={cn(
-                "p-2 text-slate-400 hover:text-slate-600 transition-colors rounded-xl",
+                "p-1.5 sm:p-2 text-slate-400 hover:text-slate-600 transition-colors rounded-xl shrink-0",
                 isEmojiMenuOpen && "bg-slate-200 text-slate-700"
               )}
             >
@@ -1459,94 +2111,98 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
             {isEmojiMenuOpen && (
               <>
                 <div className="fixed inset-0 z-30" onClick={() => setIsEmojiMenuOpen(false)} />
-                <div className="absolute bottom-12 left-0 w-64 bg-white border border-slate-150 rounded-2xl shadow-xl p-3 z-40 grid grid-cols-5 gap-1.5 animate-in fade-in slide-in-from-bottom-2 duration-155">
-                  {['😀', '😂', '😍', '👍', '🔥', '🎉', '❤️', '🤔', '😎', '👏', '🙏', '😭', '😡', '😮', '🚀'].map(emoji => (
-                    <button
-                      type="button"
-                      key={emoji}
-                      onClick={() => {
-                        setInputText(prev => prev + emoji);
-                        setIsEmojiMenuOpen(false);
-                      }}
-                      className="w-10 h-10 flex items-center justify-center text-lg hover:bg-slate-50 active:scale-125 transition-all rounded-xl"
-                    >
-                      {emoji}
-                    </button>
-                  ))}
+                <div className="absolute bottom-12 left-0 w-72 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-xl z-40 animate-in fade-in slide-in-from-bottom-2 duration-150 flex flex-col" style={{maxHeight: '320px'}}>
+                  <div className="flex gap-1 p-2 border-b border-slate-100 dark:border-slate-700 overflow-x-auto shrink-0">
+                    {([
+                      ['sik','😀'], ['ele','👋'], ['kal','❤️'], ['dog','🐶'], ['yiye','🍕'], ['nes','🎮'], ['diger','🎉']
+                    ] as [string,string][]).map(([k, icon]) => (
+                      <button key={k} onClick={() => setEmojiCategory(k)}
+                        className={`text-[10px] px-2 py-1 rounded-full font-bold shrink-0 transition-colors ${emojiCategory === k ? 'bg-blue-100 dark:bg-blue-950 text-blue-600 dark:text-blue-400' : 'text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700'}`}>
+                        {icon}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="grid grid-cols-7 gap-0.5 p-2 overflow-y-auto flex-1">
+                    {(emojiCategories[emojiCategory] || []).map(emoji => (
+                      <button type="button" key={emoji}
+                        onClick={() => { setInputText(prev => prev + emoji); setIsEmojiMenuOpen(false); }}
+                        className="w-9 h-9 flex items-center justify-center text-lg hover:bg-slate-100 dark:hover:bg-slate-700 active:scale-125 transition-all rounded-lg">
+                        {emoji}
+                      </button>
+                    ))}
+                  </div>
                 </div>
               </>
             )}
           </div>
 
           <div className="relative">
-            <button 
-              type="button" 
-              onClick={() => { imageInputRef.current?.click(); setShowUploadMenu(false); }}
-              className="p-2 text-slate-400 hover:text-slate-600 transition-colors"
-              title="Fotoğraf/Video Yükle"
-            >
-              <Image size={20} />
-            </button>
             <button
               type="button"
               onClick={() => setShowUploadMenu(!showUploadMenu)}
-              className="p-1 text-slate-400 hover:text-slate-600 transition-colors absolute -bottom-1 -right-1 bg-white rounded-full shadow-sm border border-slate-200 w-4 h-4 flex items-center justify-center"
-              title="Dosya Seçenekleri"
+              className={cn(
+                "p-1.5 sm:p-2 text-slate-400 hover:text-slate-600 transition-colors shrink-0",
+                showUploadMenu && "bg-slate-200 text-slate-700"
+              )}
+              title={t('chat.photoVideoOptions')}
             >
-              <svg xmlns="http://www.w3.org/2000/svg" width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+              <Image size={20} />
             </button>
             {showUploadMenu && (
               <>
                 <div className="fixed inset-0 z-30" onClick={() => setShowUploadMenu(false)} />
-                <div className="absolute bottom-12 left-0 w-44 bg-white border border-slate-150 rounded-2xl shadow-xl py-1 z-40 animate-in fade-in slide-in-from-bottom-2 duration-150">
+                <div className="absolute bottom-12 left-0 w-44 bg-white dark:bg-slate-800 border border-slate-150 dark:border-slate-700 rounded-2xl shadow-xl py-1 z-40 animate-in fade-in slide-in-from-bottom-2 duration-150">
                   <button
                     type="button"
                     onClick={() => { imageInputRef.current?.click(); setShowUploadMenu(false); }}
-                    className="w-full text-left px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50 flex items-center gap-2 transition-colors"
+                    className="w-full text-left px-4 py-2.5 text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center gap-2 transition-colors"
                   >
-                    <Image size={14} /> Fotoğraf Yükle
-                  </button>
+                    <Image size={14} />{t('chat.uploadPhoto')}</button>
+                  <button
+                    type="button"
+                    onClick={() => { startPhotoCapture(); }}
+                    className="w-full text-left px-4 py-2.5 text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center gap-2 transition-colors"
+                  >
+                    <Camera size={14} />{t('chat.takePhoto')}</button>
                   <button
                     type="button"
                     onClick={() => { videoInputRef.current?.click(); setShowUploadMenu(false); }}
-                    className="w-full text-left px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50 flex items-center gap-2 transition-colors"
+                    className="w-full text-left px-4 py-2.5 text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center gap-2 transition-colors"
                   >
-                    <Video size={14} /> Video Yükle
-                  </button>
+                    <Video size={14} />{t('chat.uploadVideo')}</button>
                 </div>
               </>
             )}
           </div>
 
           {isVideoRecording ? (
-            <div className="flex items-center gap-3 px-4 py-1 bg-red-50 text-red-600 rounded-xl animate-in fade-in zoom-in-95 duration-200">
-              <video ref={videoPreviewRef} autoPlay playsInline muted className="w-10 h-10 rounded-lg object-cover bg-slate-200" />
+            <div className="flex items-center gap-2 px-3 py-1 bg-red-50 text-red-600 rounded-xl shrink-0 animate-in fade-in zoom-in-95 duration-200">
               <div className="w-2 h-2 bg-red-600 rounded-full animate-ping" />
               <span className="text-xs font-black tabular-nums">{Math.floor(videoRecordingTime / 60)}:{String(videoRecordingTime % 60).padStart(2, '0')} / 0:15</span>
-              <button onClick={stopVideoRecording} className="p-1 px-2 bg-red-600 text-white rounded-lg text-[10px] font-bold uppercase tracking-wider">Durdur</button>
+              <button onClick={stopVideoRecording} className="p-1 px-2 bg-red-600 text-white rounded-lg text-[10px] font-bold uppercase tracking-wider">{t('chat.stop')}</button>
             </div>
           ) : (
             <button 
               type="button" 
-              onClick={startVideoRecording}
-              className="p-2 text-slate-400 hover:text-red-500 transition-colors"
-              title="Video Kaydet"
+              onClick={handleVideoRecordClick}
+              className="p-1.5 sm:p-2 text-slate-400 hover:text-red-500 transition-colors shrink-0"
+              title={t('chat.recordVideo')}
             >
               <Video size={20} />
             </button>
           )}
 
           {isRecording ? (
-            <div className="flex items-center gap-3 px-4 py-1 bg-red-50 text-red-600 rounded-xl animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex items-center gap-2 px-3 py-1 bg-red-50 text-red-600 rounded-xl shrink-0 animate-in fade-in zoom-in-95 duration-200">
                <div className="w-2 h-2 bg-red-600 rounded-full animate-ping" />
                <span className="text-xs font-black tabular-nums">{Math.floor(recordingTime / 60)}:{String(recordingTime % 60).padStart(2, '0')}</span>
-               <button onClick={stopRecording} className="p-1 px-2 bg-red-600 text-white rounded-lg text-[10px] font-bold uppercase tracking-wider">Durur ve Gönder</button>
+               <button onClick={stopRecording} className="p-1 px-2 bg-red-600 text-white rounded-lg text-[10px] font-bold uppercase tracking-wider">{t('chat.stopAndSend')}</button>
             </div>
           ) : (
             <button 
               type="button" 
               onClick={startRecording}
-              className="p-2 text-slate-400 hover:text-red-500 transition-colors"
+              className="p-1.5 sm:p-2 text-slate-400 hover:text-red-500 transition-colors shrink-0"
             >
               <Mic size={20} />
             </button>
@@ -1560,22 +2216,45 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
               "p-1.5 sm:p-2 transition-colors shrink-0",
               encryptMode ? "text-amber-500 bg-amber-50 rounded-lg" : "text-slate-400 hover:text-slate-600"
             )}
-            title={encryptMode ? 'Şifreli Gönder: AÇIK' : 'Şifreli Gönder: KAPALI'}
+            title={encryptMode ? t('chat.encSendOn') : t('chat.encSendOff')}
           >
             <Lock size={18} />
           </button>
 
-          <form onSubmit={handleSend} className="flex-1 flex items-center">
+          {/* Tek Bakışlık Mesaj Butonu */}
+          <button
+            type="button"
+            onClick={() => setViewOnceMode(!viewOnceMode)}
+            className={cn(
+              "p-1.5 sm:p-2 transition-colors shrink-0",
+              viewOnceMode ? "text-purple-500 bg-purple-50 rounded-lg" : "text-slate-400 hover:text-slate-600"
+            )}
+            title={viewOnceMode ? t('chat.voOn') : t('chat.voOff')}
+          >
+            <Eye size={18} />
+          </button>
+
+          {/* Çeviri düğmesi */}
+          <TranslateToggle source={lang} target={trTarget} onPick={setTrTarget} />
+          </div>
+
+          {trTarget && (
+            <TranslateBox target={trTarget} original={inputText} onSend={(txt) => handleSend(undefined, txt)} />
+          )}
+
+          {/* Mesaj yazma alanı — butonların alt satırı */}
+          <form onSubmit={handleSend} className="flex items-center mt-1.5 pl-1">
             <input 
               type="text" 
               value={inputText}
               onChange={(e) => setInputText(e.target.value)}
-              placeholder={isBeingHeld ? "Sohbet beklemeye alındı..." : "Mesaj yaz..."}
-              className="flex-1 bg-transparent border-none focus:ring-0 text-sm py-2 px-4 text-slate-900 placeholder:text-slate-400"
+              disabled={sendBlocked}
+              placeholder={isPassiveGroup ? t('chat.passivePlaceholder') : isViewer ? t('chat.viewerPlaceholder') : isBeingHeld ? t('chat.holdPlaceholder') : t('chat.msgPlaceholder')}
+              className="flex-1 min-w-0 bg-transparent border-none focus:ring-0 text-sm py-2 px-2 sm:px-4 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 disabled:cursor-not-allowed"
             />
             <button 
               type="submit"
-              disabled={!inputText.trim()}
+              disabled={!inputText.trim() || sendBlocked}
               className={cn(
                 "p-2 rounded-xl transition-all flex items-center justify-center shadow-lg",
                 inputText.trim() 
@@ -1596,7 +2275,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
             initial={{ opacity: 0, scale: 0.9, y: 10 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.9, y: 10 }}
-            className="fixed z-[100] bg-white/80 backdrop-blur-xl border border-slate-200 shadow-2xl rounded-2xl p-2 flex gap-1 items-center"
+            className="fixed z-[100] bg-white/80 dark:bg-slate-800/80 backdrop-blur-xl border border-slate-200 dark:border-slate-700 shadow-2xl rounded-2xl p-2 flex gap-1 items-center"
             style={{ 
               top: Math.min(reactionMenu.y, window.innerHeight - 80), 
               left: Math.min(reactionMenu.x, window.innerWidth - 300) 
@@ -1607,12 +2286,116 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
               <button
                 key={emoji}
                 onClick={() => handleReaction(reactionMenu.msgId, emoji)}
-                className="w-10 h-10 flex items-center justify-center text-xl hover:bg-slate-100 rounded-xl transition-all active:scale-125"
+                className="w-10 h-10 flex items-center justify-center text-xl hover:bg-slate-100 dark:hover:bg-slate-700 rounded-xl transition-all active:scale-125"
               >
                 {emoji}
               </button>
             ))}
           </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Camera Picker Modal */}
+      <AnimatePresence>
+        {showCameraPicker && (
+          <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-in fade-in duration-200">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 10 }}
+              className="bg-white dark:bg-slate-900 rounded-3xl p-6 shadow-2xl border border-slate-100 dark:border-slate-800 max-w-sm w-full flex flex-col gap-4 text-center"
+            >
+              <div className="w-12 h-12 bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-400 rounded-2xl flex items-center justify-center mx-auto">
+                <Camera size={22} />
+              </div>
+              <div>
+                <h3 className="text-base font-black text-slate-900 dark:text-slate-100 leading-tight">{t('chat.pickCamera')}</h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400 font-bold mt-2">{t('chat.cameraHint')}</p>
+              </div>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => openCameraPreview('user')}
+                  className="flex-1 py-2.5 rounded-xl text-xs font-bold bg-blue-600 hover:bg-blue-700 active:scale-95 text-white transition-all"
+                >{t('chat.frontCam')}</button>
+                <button
+                  onClick={() => openCameraPreview('environment')}
+                  className="flex-1 py-2.5 rounded-xl text-xs font-bold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700 active:scale-95 transition-all border border-slate-200 dark:border-slate-700"
+                >{t('chat.backCam')}</button>
+              </div>
+              <button
+                onClick={() => setShowCameraPicker(false)}
+                className="w-full py-2 rounded-xl text-[11px] font-bold text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 transition-all"
+              >{t('chat.cancelBtn')}</button>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Video Camera Picker Modal */}
+      <AnimatePresence>
+        {showVideoCamPicker && (
+          <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-in fade-in duration-200">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 10 }}
+              className="bg-white dark:bg-slate-900 rounded-3xl p-6 shadow-2xl border border-slate-100 dark:border-slate-800 max-w-sm w-full flex flex-col gap-4 text-center"
+            >
+              <div className="w-12 h-12 bg-red-50 dark:bg-red-950 text-red-600 dark:text-red-400 rounded-2xl flex items-center justify-center mx-auto">
+                <Video size={22} />
+              </div>
+              <div>
+                <h3 className="text-base font-black text-slate-900 dark:text-slate-100 leading-tight">{t('chat.pickCamera')}</h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400 font-bold mt-2">{t('chat.cameraHint')}</p>
+              </div>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setVideoFacing('user')}
+                  className={cn("flex-1 py-2.5 rounded-xl text-xs font-bold active:scale-95 transition-all", videoFacing === 'user' ? 'bg-blue-600 text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700')}
+                >{t('chat.frontCam')}</button>
+                <button
+                  onClick={() => setVideoFacing('environment')}
+                  className={cn("flex-1 py-2.5 rounded-xl text-xs font-bold active:scale-95 transition-all", videoFacing === 'environment' ? 'bg-blue-600 text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700')}
+                >{t('chat.backCam')}</button>
+              </div>
+              <button
+                onClick={() => { setShowVideoCamPicker(false); startVideoRecording(videoFacing); }}
+                className="w-full py-2.5 rounded-xl text-xs font-bold bg-red-600 hover:bg-red-700 active:scale-95 text-white transition-all"
+              >{t('chat.startRecording')}</button>
+              <button
+                onClick={() => setShowVideoCamPicker(false)}
+                className="w-full py-2 rounded-xl text-[11px] font-bold text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 transition-all"
+              >{t('chat.cancelBtn')}</button>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Camera Preview Modal */}
+      <AnimatePresence>
+        {showCameraPreview && (
+          <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-black rounded-3xl shadow-2xl overflow-hidden w-full max-w-md flex flex-col"
+            >
+              <video ref={cameraPreviewRef} autoPlay playsInline muted className="w-full aspect-[3/4] object-cover bg-black" />
+              <div className="flex items-center justify-between gap-3 px-4 py-3 bg-black">
+                <button
+                  onClick={stopCameraPreview}
+                  className="px-3 py-2 rounded-xl text-xs font-bold text-slate-300 hover:bg-white/10 transition-all"
+                >{t('chat.cancelBtn')}</button>
+                <button
+                  onClick={takePhotoFromPreview}
+                  className="w-14 h-14 rounded-full bg-white border-4 border-slate-400 hover:scale-105 active:scale-95 transition-all shadow-lg"
+                  title={t('chat.snap')}
+                />
+                <div className="w-14" />
+              </div>
+            </motion.div>
+          </div>
         )}
       </AnimatePresence>
 
@@ -1624,24 +2407,22 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
               initial={{ opacity: 0, scale: 0.95, y: 10 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 10 }}
-              className="bg-white rounded-3xl p-6 shadow-2xl border border-slate-100 max-w-sm w-full flex flex-col gap-4 text-center relative z-[120]"
+              className="bg-white dark:bg-slate-900 rounded-3xl p-6 shadow-2xl border border-slate-100 dark:border-slate-800 max-w-sm w-full flex flex-col gap-4 text-center relative z-[120]"
               onClick={(e) => e.stopPropagation()}
             >
-              <div className="w-12 h-12 bg-blue-50 text-blue-600 rounded-2xl flex items-center justify-center mx-auto text-xl font-bold">
+              <div className="w-12 h-12 bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-400 rounded-2xl flex items-center justify-center mx-auto text-xl font-bold">
                 {customDialog.type === 'confirm' ? '❓' : 'ℹ️'}
               </div>
               <div>
-                <h3 className="text-base font-black text-slate-900 leading-tight">{customDialog.title}</h3>
-                <p className="text-xs text-slate-500 font-bold mt-2 leading-relaxed whitespace-pre-line">{customDialog.message}</p>
+                <h3 className="text-base font-black text-slate-900 dark:text-slate-100 leading-tight">{customDialog.title}</h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400 font-bold mt-2 leading-relaxed whitespace-pre-line">{customDialog.message}</p>
               </div>
               <div className="flex gap-3 justify-center mt-2">
                 {customDialog.type === 'confirm' && (
                   <button
                     onClick={() => setCustomDialog(null)}
-                    className="flex-1 py-2.5 rounded-xl text-xs font-bold text-slate-500 hover:bg-slate-50 active:scale-95 transition-all border border-slate-200 cursor-pointer"
-                  >
-                    Vazgeç
-                  </button>
+                    className="flex-1 py-2.5 rounded-xl text-xs font-bold text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 active:scale-95 transition-all border border-slate-200 dark:border-slate-700 cursor-pointer"
+                  >{t('chat.cancelBtn')}</button>
                 )}
                 <button
                   onClick={() => {
@@ -1651,9 +2432,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
                     setCustomDialog(null);
                   }}
                   className="flex-1 py-2.5 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white rounded-xl text-xs font-bold transition-all shadow-lg shadow-blue-600/10 cursor-pointer"
-                >
-                  Tamam
-                </button>
+                >{t('chat.ok')}</button>
               </div>
             </motion.div>
           </div>
@@ -1665,14 +2444,95 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
         {decryptModal && (
           <div className="fixed inset-0 z-[9998] flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-md" onClick={() => setDecryptModal(null)}>
             <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.9 }}
-              className="bg-white rounded-3xl p-6 shadow-2xl max-w-md w-full border border-slate-100" onClick={e => e.stopPropagation()}>
+              className="bg-white dark:bg-slate-900 rounded-3xl p-6 shadow-2xl max-w-md w-full border border-slate-100 dark:border-slate-800" onClick={e => e.stopPropagation()}>
               <div className="flex items-center justify-between mb-4">
-                <h3 className="text-sm font-black text-slate-900 flex items-center gap-2">🔒 Şifreli Mesaj</h3>
-                <button onClick={() => setDecryptModal(null)} className="p-1 hover:bg-slate-100 rounded-full text-slate-400"><X size={18} /></button>
+                <h3 className="text-sm font-black text-slate-900 dark:text-slate-100 flex items-center gap-2"><Lock size={14} />{t('chat.encryptedMsg')}</h3>
+                <button onClick={() => setDecryptModal(null)} className="p-1 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full text-slate-400"><X size={18} /></button>
               </div>
-              <DecryptContent msg={decryptModal} onClose={() => setDecryptModal(null)} />
+                <DecryptContent msg={decryptModal} onClose={() => setDecryptModal(null)} canBypass={isGroupAdmin} />
             </motion.div>
           </div>
+        )}
+      </AnimatePresence>
+
+      {/* ViewOnce Modal */}
+      <AnimatePresence>
+        {viewOnceModal && (
+          <div className="fixed inset-0 z-[9998] flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-md" onClick={() => closeViewOnce()}>
+            <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.9 }}
+              className="bg-white dark:bg-slate-900 rounded-3xl p-6 shadow-2xl max-w-md w-full border border-slate-100 dark:border-slate-800 max-h-[85vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-sm font-black text-slate-900 dark:text-slate-100 flex items-center gap-2"><Eye size={14} className="text-purple-500" />{t('chat.viewOnceMsg')}</h3>
+                <button onClick={() => closeViewOnce()} className="p-1 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full text-slate-400"><X size={18} /></button>
+              </div>
+              {viewOnceModal.encrypted && !viewOnceUnlocked ? (
+                <DecryptContent msg={viewOnceModal} onClose={() => { setViewOnceUnlocked(true); }} canBypass={isGroupAdmin} />
+              ) : (
+                <div className="space-y-3">
+                  {viewOnceModal.type === 'text' && (
+                    <p className="text-sm font-medium leading-relaxed text-slate-800 dark:text-slate-200">{viewOnceModal.text}</p>
+                  )}
+                  {viewOnceModal.type === 'image' && viewOnceModal.imageUrl && (
+                    <img src={viewOnceModal.imageUrl} alt="" className="w-full h-auto rounded-xl" />
+                  )}
+                  {viewOnceModal.type === 'video' && viewOnceModal.videoUrl && (
+                    <video src={viewOnceModal.videoUrl} className="w-full h-auto rounded-xl" controls playsInline />
+                  )}
+                  {viewOnceModal.type === 'audio' && viewOnceModal.audioUrl && (
+                    <audio src={viewOnceModal.audioUrl} controls className="w-full" />
+                  )}
+                  <button onClick={() => closeViewOnce()}
+                    className="w-full py-2.5 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs font-bold transition-all">{t('chat.close')}</button>
+                </div>
+              )}
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Resim Zoom Lightbox */}
+      <AnimatePresence>
+        {lightboxUrl && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[9999] bg-black/95 flex items-center justify-center"
+            onClick={() => { setLightboxUrl(null); setLightboxZoom(1); setLightboxPan({ x: 0, y: 0 }); }}
+            onWheel={(e) => setLightboxZoom(z => {
+              const nz = Math.min(8, Math.max(1, z - e.deltaY * 0.002));
+              if (nz <= 1) setLightboxPan({ x: 0, y: 0 });
+              return nz;
+            })}>
+            <img src={lightboxUrl} alt="" draggable={false}
+              className={cn("max-w-[92vw] max-h-[85vh] object-contain select-none touch-none", panning ? "cursor-grabbing" : lightboxZoom > 1 ? "cursor-grab" : "cursor-default")}
+              style={{ transform: `translate(${lightboxPan.x}px, ${lightboxPan.y}px) scale(${lightboxZoom})` }}
+              onPointerDown={(e) => {
+                if (lightboxZoom <= 1) return;
+                e.stopPropagation();
+                panStartRef.current = { x: e.clientX, y: e.clientY, px: lightboxPan.x, py: lightboxPan.y };
+                setPanning(true);
+                (e.target as HTMLElement).setPointerCapture(e.pointerId);
+              }}
+              onPointerMove={(e) => {
+                const s = panStartRef.current;
+                if (!s) return;
+                setLightboxPan({ x: s.px + (e.clientX - s.x), y: s.py + (e.clientY - s.y) });
+              }}
+              onPointerUp={() => { panStartRef.current = null; setPanning(false); }}
+              onPointerCancel={() => { panStartRef.current = null; setPanning(false); }}
+              onClick={e => e.stopPropagation()} />
+            <div className="absolute top-4 right-4 flex items-center gap-2" onClick={e => e.stopPropagation()}>
+              <button onClick={() => setLightboxZoom(z => Math.min(8, z + 0.5))}
+                className="bg-white/15 hover:bg-white/25 text-white w-9 h-9 rounded-full flex items-center justify-center font-bold text-lg">+</button>
+              <span className="text-white/70 text-xs font-bold w-12 text-center">%{Math.round(lightboxZoom * 100)}</span>
+              <button onClick={() => setLightboxZoom(z => {
+                const nz = Math.max(1, z - 0.5);
+                if (nz <= 1) setLightboxPan({ x: 0, y: 0 });
+                return nz;
+              })}
+                className="bg-white/15 hover:bg-white/25 text-white w-9 h-9 rounded-full flex items-center justify-center font-bold text-lg">−</button>
+              <button onClick={() => { setLightboxUrl(null); setLightboxZoom(1); setLightboxPan({ x: 0, y: 0 }); }}
+                className="bg-white/15 hover:bg-white/25 text-white w-9 h-9 rounded-full flex items-center justify-center ml-2"><X size={18} /></button>
+            </div>
+          </motion.div>
         )}
       </AnimatePresence>
 
@@ -1681,107 +2541,137 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
         {showGroupAdmin && chat?.type === 'group' && (
           <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-md" onClick={() => setShowGroupAdmin(false)}>
             <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.9 }}
-              className="bg-white rounded-3xl shadow-2xl max-w-lg w-full border border-slate-100 max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
+              className="bg-white dark:bg-slate-900 rounded-3xl shadow-2xl max-w-lg w-full border border-slate-100 dark:border-slate-800 max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
               
               {/* Header */}
-              <div className="p-6 border-b border-slate-100 flex items-center justify-between shrink-0">
+              <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between shrink-0">
                 <div className="flex items-center gap-3">
                   <Shield size={22} className="text-amber-500" />
-                  <h3 className="text-lg font-black text-slate-900 tracking-tight">Grup Yönetimi</h3>
+                  <h3 className="text-lg font-black text-slate-900 dark:text-slate-100 tracking-tight">{t('chat.groupAdmin')}</h3>
                 </div>
-                <button onClick={() => setShowGroupAdmin(false)} className="p-1 hover:bg-slate-100 rounded-full text-slate-400"><X size={20} /></button>
+                <button onClick={() => setShowGroupAdmin(false)} className="p-1 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full text-slate-400"><X size={20} /></button>
               </div>
 
               <div className="flex-1 overflow-y-auto custom-scrollbar p-6 space-y-6">
                 {/* Group Name Edit */}
-                <div className="bg-slate-50 rounded-2xl p-4 border border-slate-100">
-                  <h4 className="text-xs font-black text-slate-500 uppercase tracking-wider mb-3">Grup Adı</h4>
+                <div className="bg-slate-50 dark:bg-slate-800 rounded-2xl p-4 border border-slate-100 dark:border-slate-700">
+                  <h4 className="text-xs font-black text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-3">{t('chat.groupName')}</h4>
                   {showEditGroupName ? (
                     <div className="flex gap-2">
                       <input type="text" value={editGroupName} onChange={e => setEditGroupName(e.target.value)}
-                        placeholder="Yeni grup adı..."
-                        className="flex-1 bg-white border-2 border-slate-200 rounded-xl px-4 py-2 text-sm font-bold outline-none focus:border-blue-500 transition-all"
+                        placeholder={t('chat.newGroupName')}
+                        className="flex-1 bg-white dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-700 rounded-xl px-4 py-2 text-sm font-bold outline-none focus:border-blue-500 transition-all text-slate-900 dark:text-slate-100"
                         autoFocus onKeyDown={e => e.key === 'Enter' && handleEditGroupName()} />
-                      <button onClick={handleEditGroupName} className="px-4 py-2 bg-blue-600 text-white rounded-xl text-xs font-bold hover:bg-blue-700 transition-all">Kaydet</button>
-                      <button onClick={() => setShowEditGroupName(false)} className="px-4 py-2 bg-slate-200 text-slate-600 rounded-xl text-xs font-bold hover:bg-slate-300 transition-all">İptal</button>
+                      <button onClick={handleEditGroupName} className="px-4 py-2 bg-blue-600 text-white rounded-xl text-xs font-bold hover:bg-blue-700 transition-all">{t('chat.save')}</button>
+                      <button onClick={() => setShowEditGroupName(false)} className="px-4 py-2 bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-xl text-xs font-bold hover:bg-slate-300 dark:hover:bg-slate-600 transition-all">{t('login.cancel')}</button>
                     </div>
                   ) : (
                     <div className="flex items-center justify-between">
-                      <p className="text-sm font-bold text-slate-700">{chat.groupMetadata?.name}</p>
-                      <button onClick={() => { setEditGroupName(chat.groupMetadata?.name || ''); setShowEditGroupName(true); }}
-                        className="px-3 py-1.5 bg-blue-50 text-blue-600 rounded-xl text-[10px] font-bold hover:bg-blue-100 transition-all flex items-center gap-1">
-                        <Settings size={12} /> Düzenle
-                      </button>
+                      <p className="text-sm font-bold text-slate-700 dark:text-slate-200">{chat.groupMetadata?.name}</p>
+                      {canManageGroup && (
+                        <button onClick={() => { setEditGroupName(chat.groupMetadata?.name || ''); setShowEditGroupName(true); }}
+                          className="px-3 py-1.5 bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-400 rounded-xl text-[10px] font-bold hover:bg-blue-100 dark:hover:bg-blue-900 transition-all flex items-center gap-1">
+                          <Settings size={12} />{t('chat.edit')}</button>
+                      )}
                     </div>
                   )}
                 </div>
 
-                {/* Admin Transfer */}
-                <div className="bg-slate-50 rounded-2xl p-4 border border-slate-100">
-                  <h4 className="text-xs font-black text-slate-500 uppercase tracking-wider mb-3">Yönetici Devret</h4>
+                {canManageGroup && (
+                <div className="bg-slate-50 dark:bg-slate-800 rounded-2xl p-4 border border-slate-100 dark:border-slate-700">
+                  <h4 className="text-xs font-black text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-3">{t('chat.transferAdmin')}</h4>
                   {showTransferAdmin ? (
                     <div className="space-y-2 max-h-40 overflow-y-auto">
                       {loadingMembers ? (
-                        <p className="text-xs text-slate-400 text-center py-4">Yükleniyor...</p>
+                        <p className="text-xs text-slate-400 text-center py-4">{t('chat.loading')}</p>
                       ) : (
                         allMembers.filter(m => m.uid !== user?.uid).map(m => (
                           <button key={m.uid} onClick={() => handleTransferAdmin(m.uid)}
-                            className="w-full flex items-center gap-3 p-3 bg-white rounded-xl hover:bg-blue-50 border border-slate-200 hover:border-blue-200 transition-all text-left">
+                            className="w-full flex items-center gap-3 p-3 bg-white dark:bg-slate-900 rounded-xl hover:bg-blue-50 dark:hover:bg-blue-950 border border-slate-200 dark:border-slate-700 hover:border-blue-200 transition-all text-left">
                             <img src={m.photoURL} className="w-8 h-8 rounded-full object-cover" />
-                            <span className="text-sm font-bold text-slate-700">{m.displayName}</span>
+                            <span className="text-sm font-bold text-slate-700 dark:text-slate-200">{m.displayName}</span>
                           </button>
                         ))
                       )}
-                      <button onClick={() => setShowTransferAdmin(false)} className="w-full py-2 text-xs font-bold text-slate-500 hover:text-slate-700 transition-colors">İptal</button>
+                      <button onClick={() => setShowTransferAdmin(false)} className="w-full py-2 text-xs font-bold text-slate-500 hover:text-slate-700 transition-colors">{t('login.cancel')}</button>
                     </div>
                   ) : (
                     <button onClick={() => { loadGroupMembers(); setShowTransferAdmin(true); }}
-                      className="px-3 py-1.5 bg-amber-50 text-amber-600 rounded-xl text-[10px] font-bold hover:bg-amber-100 transition-all">
-                      Yöneticiyi Devret
-                    </button>
+                      className="px-3 py-1.5 bg-amber-50 dark:bg-amber-950 text-amber-600 dark:text-amber-400 rounded-xl text-[10px] font-bold hover:bg-amber-100 dark:hover:bg-amber-900 transition-all">{t('chat.transferAdminBtn')}</button>
                   )}
+                </div>
+                )}
+
+                <div className="bg-slate-50 dark:bg-slate-800 rounded-2xl p-4 border border-slate-100 dark:border-slate-700">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <h4 className="text-xs font-black text-slate-500 dark:text-slate-400 uppercase tracking-wider">{t('chat.holdToggle')}</h4>
+                      <p className="text-[10px] text-slate-400 font-bold mt-1">{t('chat.holdToggleDesc')}</p>
+                    </div>
+                    <button
+                      onClick={handleToggleHoldEnabled}
+                      disabled={!canManageGroup}
+                      className={cn(
+                        "shrink-0 px-3 py-1.5 rounded-xl text-[10px] font-bold transition-all",
+                        !canManageGroup ? "opacity-40 cursor-not-allowed bg-slate-200 dark:bg-slate-700 text-slate-400"
+                          : chat.groupMetadata?.holdEnabled === false
+                            ? "bg-slate-200 dark:bg-slate-700 text-slate-500 dark:text-slate-300 hover:bg-slate-300"
+                            : "bg-amber-100 dark:bg-amber-950 text-amber-600 dark:text-amber-400 hover:bg-amber-200"
+                      )}
+                    >
+                      {chat.groupMetadata?.holdEnabled === false ? t('chat.disabled') : t('chat.enabled')}
+                    </button>
+                  </div>
                 </div>
 
                 {/* Kick/Ban Member */}
-                <div className="bg-slate-50 rounded-2xl p-4 border border-slate-100">
-                  <h4 className="text-xs font-black text-slate-500 uppercase tracking-wider mb-3">Üyeler</h4>
+                <div className="bg-slate-50 dark:bg-slate-800 rounded-2xl p-4 border border-slate-100 dark:border-slate-700">
+                  <h4 className="text-xs font-black text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-3">{t('chat.members')}</h4>
                   {loadingMembers ? (
-                    <p className="text-xs text-slate-400 text-center py-4">Yükleniyor...</p>
+                    <p className="text-xs text-slate-400 text-center py-4">{t('chat.loading')}</p>
                   ) : (
                     <div className="space-y-2 max-h-60 overflow-y-auto">
                       {allMembers.map(m => {
                         const isAdmin = m.uid === chat.groupMetadata?.adminId;
                         const isMe = m.uid === user?.uid;
                         const bannedInfo = chat.groupMetadata?.bannedUsers?.find(b => b.uid === m.uid);
+                        const memberRole = chat.groupMetadata?.roles?.[m.uid] || 'editor';
                         return (
                           <div key={m.uid} className={cn("flex items-center gap-3 p-3 rounded-xl border transition-all", 
-                            bannedInfo ? "bg-red-50 border-red-200" : "bg-white border-slate-100")}>
+                            bannedInfo ? "bg-red-50 dark:bg-red-950 border-red-200 dark:border-red-900" : "bg-white dark:bg-slate-900 border-slate-100 dark:border-slate-700")}>
                             <img src={m.photoURL} className="w-8 h-8 rounded-full object-cover" />
                             <div className="flex-1 min-w-0">
-                              <p className="text-sm font-bold text-slate-700 truncate flex items-center gap-2">
+                              <p className="text-sm font-bold text-slate-700 dark:text-slate-200 truncate flex items-center gap-2">
                                 {m.displayName}
-                                {isAdmin && <span className="text-[8px] bg-amber-100 text-amber-600 px-1.5 py-0.5 rounded-full font-black uppercase tracking-wider">Admin</span>}
-                                {isMe && <span className="text-[8px] bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded-full font-black uppercase tracking-wider">Sen</span>}
+                                {isAdmin && <span className="text-[8px] bg-amber-100 text-amber-600 px-1.5 py-0.5 rounded-full font-black uppercase tracking-wider">{t('side.admin')}</span>}
+                                {!isAdmin && <span className={cn("text-[8px] px-1.5 py-0.5 rounded-full font-black uppercase tracking-wider", memberRole === 'viewer' ? "bg-purple-100 text-purple-600 dark:bg-purple-950 dark:text-purple-400" : "bg-blue-100 text-blue-600 dark:bg-blue-950 dark:text-blue-400")}>{memberRole === 'viewer' ? t('chat.roleViewer') : t('chat.roleEditor')}</span>}
+                                {isMe && <span className="text-[8px] bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded-full font-black uppercase tracking-wider">{t('chat.you')}</span>}
                               </p>
                               {bannedInfo && (
                                 <p className="text-[10px] text-red-500 font-bold">
-                                  Banlı {bannedInfo.bannedUntil ? `(süre: ${bannedInfo.bannedUntil?.seconds ? new Date(bannedInfo.bannedUntil.seconds*1000).toLocaleDateString() : 'Süresiz'})` : '(Süresiz)'}
+                                  {t('chat.banned')} {bannedInfo.bannedUntil ? `(${t('chat.until')}${bannedInfo.bannedUntil?.seconds ? new Date(bannedInfo.bannedUntil.seconds*1000).toLocaleDateString() : t('chat.indefinite')})` : `(${t('chat.indefinite')})`}
                                 </p>
                               )}
                             </div>
-                            {!isAdmin && !isMe && !bannedInfo && (
+                            {canManageGroup && !isAdmin && !isMe && (
+                              <button onClick={() => handleToggleRole(m.uid, memberRole === 'viewer' ? 'editor' : 'viewer')}
+                                className={cn("px-2 py-1 rounded-lg text-[9px] font-bold transition-all", memberRole === 'viewer'
+                                  ? "bg-purple-50 text-purple-600 hover:bg-purple-100"
+                                  : "bg-blue-50 text-blue-600 hover:bg-blue-100")}>
+                                {memberRole === 'viewer' ? t('chat.makeEditor') : t('chat.makeViewer')}
+                              </button>
+                            )}
+                            {canManageGroup && !isAdmin && !isMe && !bannedInfo && (
                               <div className="flex gap-1">
-                                <button onClick={() => { setKickMemberId(m.uid); setShowKickMember(true); }}
+                                <button onClick={() => { setKickMemberId(m.uid); setKickMode('kick'); setKickDuration(0); setShowKickMember(true); }}
                                   className="px-2 py-1 bg-red-50 text-red-600 rounded-lg text-[9px] font-bold hover:bg-red-100 transition-all flex items-center gap-1">
-                                  <UserX size={10} /> At
-                                </button>
+                                  <UserX size={10} />{t('chat.kick')}</button>
                               </div>
                             )}
-                            {bannedInfo && isGroupAdmin && (
+                            {bannedInfo && canManageGroup && (
                               <button onClick={() => handleUnbanMember(m.uid)}
                                 className="px-2 py-1 bg-green-50 text-green-600 rounded-lg text-[9px] font-bold hover:bg-green-100 transition-all flex items-center gap-1">
-                                <UserCheck size={10} /> Ban Kaldır
-                              </button>
+                                <UserCheck size={10} />{t('chat.unban')}</button>
                             )}
                           </div>
                         );
@@ -1790,49 +2680,155 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ chatId }) => {
                   )}
                 </div>
 
-                {/* Kick Duration Modal */}
+                {canManageGroup && joinRequests.length > 0 && (
+                <div className="bg-slate-50 dark:bg-slate-800 rounded-2xl p-4 border border-slate-100 dark:border-slate-700">
+                  <h4 className="text-xs font-black text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-3">{t('chat.joinRequests')} ({joinRequests.length})</h4>
+                  <div className="space-y-2 max-h-48 overflow-y-auto">
+                    {joinRequests.map(r => (
+                      <div key={r.uid} className="flex items-center gap-3 p-3 bg-white dark:bg-slate-900 rounded-xl border border-slate-100 dark:border-slate-700">
+                        <img src={r.photoURL} className="w-8 h-8 rounded-full object-cover" />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-bold text-slate-700 dark:text-slate-200 truncate">{r.displayName}</p>
+                          <p className="text-[10px] text-slate-400 font-bold">UIN: #{r.uin || t('chat.none')}</p>
+                        </div>
+                        <button onClick={() => handleJoinRequest(r.uid, true)}
+                          className="px-2 py-1 bg-green-50 text-green-600 rounded-lg text-[9px] font-bold hover:bg-green-100 transition-all flex items-center gap-1">
+                          <UserCheck size={10} />{t('chat.approve')}</button>
+                        <button onClick={() => handleJoinRequest(r.uid, true, 'editor')}
+                          className="px-2 py-1 bg-blue-50 text-blue-600 rounded-lg text-[9px] font-bold hover:bg-blue-100 transition-all flex items-center gap-1">
+                          <UserCheck size={10} />{t('chat.approveAsEditor')}</button>
+                        <button onClick={() => handleJoinRequest(r.uid, false)}
+                          className="px-2 py-1 bg-red-50 text-red-600 rounded-lg text-[9px] font-bold hover:bg-red-100 transition-all flex items-center gap-1">
+                          <UserX size={10} />{t('chat.reject')}</button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                )}
+
+                {/* Kick Mode Modal */}
                 {showKickMember && kickMemberId && (
-                  <div className="bg-amber-50 rounded-2xl p-4 border border-amber-200">
-                    <h4 className="text-xs font-black text-amber-700 uppercase tracking-wider mb-3">Kullanıcıyı Gruptan At</h4>
-                    <p className="text-[10px] text-amber-600 font-bold mb-3">Süreli ban eklemek istiyor musunuz? (0 = sadece at, süreli ban yok)</p>
+                <div className="bg-amber-50 dark:bg-amber-950 rounded-2xl p-4 border border-amber-200 dark:border-amber-900">
+                    <h4 className="text-xs font-black text-amber-700 dark:text-amber-300 uppercase tracking-wider mb-3">{t('chat.kickUser')}</h4>
+                    <div className="flex flex-col gap-1.5 mb-3">
+                      <button onClick={() => setKickMode('kick')}
+                        className={cn("text-left px-3 py-2 rounded-xl text-[11px] font-bold border transition-all", kickMode === 'kick' ? "bg-white dark:bg-slate-900 border-amber-400 text-amber-700 dark:text-amber-300" : "border-amber-200 dark:border-amber-800 text-amber-600 dark:text-amber-400 opacity-70 hover:opacity-100")}>{t('chat.kickOnly')}</button>
+                      <button onClick={() => setKickMode('temp')}
+                        className={cn("text-left px-3 py-2 rounded-xl text-[11px] font-bold border transition-all", kickMode === 'temp' ? "bg-white dark:bg-slate-900 border-amber-400 text-amber-700 dark:text-amber-300" : "border-amber-200 dark:border-amber-800 text-amber-600 dark:text-amber-400 opacity-70 hover:opacity-100")}>{t('chat.kickTemp')}</button>
+                      <button onClick={() => setKickMode('untilAllowed')}
+                        className={cn("text-left px-3 py-2 rounded-xl text-[11px] font-bold border transition-all", kickMode === 'untilAllowed' ? "bg-white dark:bg-slate-900 border-amber-400 text-amber-700 dark:text-amber-300" : "border-amber-200 dark:border-amber-800 text-amber-600 dark:text-amber-400 opacity-70 hover:opacity-100")}>{t('chat.kickUntilAllowedLong')}</button>
+                    </div>
+                    {kickMode === 'temp' && (
                     <div className="flex items-center gap-2 mb-4">
-                      <input type="number" value={kickDuration} onChange={e => setKickDuration(Number(e.target.value))} min={0}
-                        className="w-20 bg-white border-2 border-amber-200 rounded-xl px-3 py-2 text-sm font-bold text-center outline-none focus:border-amber-500 transition-all" />
+                      <input type="number" value={kickDuration} onChange={e => setKickDuration(Number(e.target.value))} min={1}
+                        className="w-20 bg-white dark:bg-slate-900 border-2 border-amber-200 dark:border-amber-800 rounded-xl px-3 py-2 text-sm font-bold text-center outline-none focus:border-amber-500 transition-all text-slate-900 dark:text-slate-100" />
                       <select value={kickDurationUnit} onChange={e => setKickDurationUnit(e.target.value as any)}
-                        className="bg-white border-2 border-amber-200 rounded-xl px-3 py-2 text-sm font-bold outline-none focus:border-amber-500 transition-all">
-                        <option value="minutes">Dakika</option>
-                        <option value="hours">Saat</option>
-                        <option value="days">Gün</option>
+                        className="bg-white dark:bg-slate-900 border-2 border-amber-200 dark:border-amber-800 rounded-xl px-3 py-2 text-sm font-bold outline-none focus:border-amber-500 transition-all text-slate-900 dark:text-slate-100">
+                        <option value="minutes">{t('chat.minutes')}</option>
+                        <option value="hours">{t('chat.hours')}</option>
+                        <option value="days">{t('chat.days')}</option>
                       </select>
                     </div>
+                    )}
                     <div className="flex gap-2">
-                      <button onClick={() => handleKickMember(kickMemberId)}
-                        className="flex-1 py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold transition-all">
-                        {kickDuration > 0 ? 'Banla ve At' : 'Sadece At'}
+                      <button onClick={() => handleKickMember(kickMemberId)} disabled={kickMode === 'temp' && kickDuration <= 0}
+                        className={cn("flex-1 py-2.5 rounded-xl text-xs font-bold transition-all text-white", kickMode === 'temp' && kickDuration <= 0 ? "bg-red-300 cursor-not-allowed" : "bg-red-600 hover:bg-red-700")}>
+                        {kickMode === 'kick' ? t('chat.kickOnlyBtn') : kickMode === 'temp' ? t('chat.kickBanBtn') : t('chat.kickUntilBtn')}
                       </button>
-                      <button onClick={() => { setShowKickMember(false); setKickMemberId(null); setKickDuration(0); }}
-                        className="flex-1 py-2.5 bg-slate-200 text-slate-600 rounded-xl text-xs font-bold hover:bg-slate-300 transition-all">
-                        İptal
-                      </button>
+                      <button onClick={() => { setShowKickMember(false); setKickMemberId(null); setKickDuration(0); setKickMode('kick'); }}
+                        className="flex-1 py-2.5 bg-slate-200 text-slate-600 rounded-xl text-xs font-bold hover:bg-slate-300 transition-all">{t('login.cancel')}</button>
                     </div>
                   </div>
                 )}
               </div>
 
               {/* Footer Info */}
-              <div className="p-4 border-t border-slate-100 bg-slate-50 rounded-b-3xl shrink-0">
-                <p className="text-[9px] text-slate-400 font-bold text-center">
-                  Sadece grup yöneticisi bu ayarları değiştirebilir
-                </p>
+              <div className="p-4 border-t border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-800 rounded-b-3xl shrink-0">
+                <p className="text-[9px] text-slate-400 font-bold text-center">{t('chat.adminOnlySettings')}</p>
               </div>
             </motion.div>
           </div>
         )}
       </AnimatePresence>
 
+      {/* Group Info Modal */}
+      {showGroupInfo && chat?.type === 'group' && (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-md" onClick={() => setShowGroupInfo(false)}>
+          <div className="bg-white dark:bg-slate-800 rounded-3xl w-full max-w-md max-h-[80vh] flex flex-col overflow-hidden shadow-2xl" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between p-4 border-b border-slate-100 dark:border-slate-700 shrink-0">
+              <div>
+                <h3 className="text-sm font-black text-slate-900 dark:text-slate-100 uppercase tracking-wider">{t('chat.groupInfo')}</h3>
+                <p className="text-[10px] text-slate-400 font-bold mt-0.5">{chat.groupMetadata?.name || t('chat.group')} • {chat.participants.length} {t('side.members')}</p>
+              </div>
+              <button onClick={() => setShowGroupInfo(false)} className="p-1 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-full transition-colors"><X size={20} className="text-slate-500" /></button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-4 space-y-4">
+              {loadingMembers ? (
+                <p className="text-xs text-slate-400 text-center py-8 font-bold">{t('chat.loading')}</p>
+              ) : (
+                <>
+                  {(() => {
+                    const adminId = chat.groupMetadata?.adminId;
+                    const admin = allMembers.find(m => m.uid === adminId);
+                    const others = allMembers.filter(m => m.uid !== adminId);
+                    return (
+                      <>
+                        {admin && (
+                          <div>
+                            <p className="text-[10px] font-black uppercase tracking-wider text-amber-500 mb-2">{t('chat.admin')}</p>
+                            <button onClick={() => setViewProfileMember(admin)}
+                              className="w-full flex items-center gap-3 p-3 bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-900 rounded-2xl hover:bg-amber-100 dark:hover:bg-amber-900 transition-all text-left">
+                              <img src={admin.photoURL} className="w-10 h-10 rounded-full object-cover" />
+                              <div className="flex-1 min-w-0">
+                                <p className="text-sm font-bold text-slate-800 dark:text-slate-100 truncate flex items-center gap-2">
+                                  {admin.displayName}
+                                  <span className="text-[8px] bg-amber-500 text-white px-1.5 py-0.5 rounded-full font-black uppercase">{t('side.admin')}</span>
+                                </p>
+                                <p className="text-[10px] text-slate-500 dark:text-slate-400 font-bold">UIN: #{admin.uin || t('chat.none')}</p>
+                              </div>
+                            </button>
+                          </div>
+                        )}
+                        <div>
+                          <p className="text-[10px] font-black uppercase tracking-wider text-slate-400 mb-2">{t('chat.others')}</p>
+                          <div className="space-y-2">
+                            {others.length === 0 && (
+                              <p className="text-xs text-slate-400 text-center py-4 font-medium">{t('chat.noOthers')}</p>
+                            )}
+                            {others.map(m => (
+                              <button key={m.uid} onClick={() => setViewProfileMember(m)}
+                                className="w-full flex items-center gap-3 p-3 bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-700 rounded-2xl hover:bg-blue-50 dark:hover:bg-blue-950 hover:border-blue-200 dark:hover:border-blue-900 transition-all text-left">
+                                <img src={m.photoURL} className="w-10 h-10 rounded-full object-cover" />
+                                <div className="flex-1 min-w-0">
+                                  <p className="text-sm font-bold text-slate-700 dark:text-slate-200 truncate flex items-center gap-2">
+                                    {m.displayName}
+                                    {m.uid === user?.uid && <span className="text-[8px] bg-blue-500 text-white px-1.5 py-0.5 rounded-full font-black uppercase">{t('chat.you')}</span>}
+                                  </p>
+                                  <p className="text-[10px] text-slate-500 dark:text-slate-400 font-bold">UIN: #{m.uin || t('chat.none')}</p>
+                                </div>
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      </>
+                    );
+                  })()}
+                </>
+              )}
+            </div>
+            <div className="p-3 border-t border-slate-100 dark:border-slate-700 shrink-0">
+              <p className="text-[9px] text-slate-400 font-bold text-center">{t('chat.tapToViewProfile')}</p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Profile Modal */}
       {showProfile && otherUser && (
-        <ProfileModal user={otherUser} onClose={() => setShowProfile(false)} />
+        <ProfileModal user={otherUser} onClose={() => setShowProfile(false)} readOnly />
+      )}
+      {viewProfileMember && (
+        <ProfileModal user={viewProfileMember} onClose={() => setViewProfileMember(null)} readOnly />
       )}
     </div>
   );

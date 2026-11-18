@@ -1,0 +1,39 @@
+{
+  "project_info": {
+    "project_number": "428645064821",
+    "project_id": "genel-a189b",
+    "storage_bucket": "genel-a189b.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:428645064821:android:9f121d531ccf9a5bc0983c",
+        "android_client_info": {
+          "package_name": "com.nexus.messenger"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "428645064821-n6hdl6n2aaqgprh2orjla2p2pfnampsc.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDnyLomB7JHAA5Vw1t4jtG-fHmWMw7FwT4"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "428645064821-n6hdl6n2aaqgprh2orjla2p2pfnampsc.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
