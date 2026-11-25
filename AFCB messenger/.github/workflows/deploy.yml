@@ -17,11 +17,13 @@ jobs:
           node-version: 22
 
       - run: npm install
+        working-directory: 'AFCB messenger/görüntülü-görüşme-ve-mesajlaşma'
       - run: npm run build
         env:
           BASE_URL: /nexus-messenger/
+        working-directory: 'AFCB messenger/görüntülü-görüşme-ve-mesajlaşma'
 
       - uses: peaceiris/actions-gh-pages@v3
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./dist
+          publish_dir: 'AFCB messenger/görüntülü-görüşme-ve-mesajlaşma/dist'
