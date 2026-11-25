@@ -261,33 +261,37 @@ export default function ChatArea({
       </div>
 
       {/* Sesli okuma ayarları */}
-      <div className="px-5 py-3 border-b border-slate-850 bg-slate-950/50 flex flex-wrap gap-3 items-center text-xs">
-        <label className="flex items-center gap-1.5 cursor-pointer select-none">
-          <input
-            type="checkbox"
-            checked={speakEnabled}
-            onChange={(e) => setSpeakEnabled(e.target.checked)}
-            className="accent-indigo-500"
-          />
-          <span className="text-slate-300">Sesli okuma etkin</span>
-        </label>
+      <div className="px-5 py-3 border-b border-indigo-500/40 bg-indigo-900/20 flex flex-wrap gap-3 items-center justify-between">
+        <div className="flex items-center gap-2">
+          <label className="flex items-center gap-1.5 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={speakEnabled}
+              onChange={(e) => setSpeakEnabled(e.target.checked)}
+              className="w-5 h-5 rounded accent-indigo-500"
+            />
+            <span className={`text-sm font-semibold ${speakEnabled ? 'text-emerald-400' : 'text-slate-400'}`}>
+              Sesli Okuma: {speakEnabled ? 'Açık' : 'Kapalı'}
+            </span>
+          </label>
+        </div>
         {speakEnabled && (
-          <div className="flex flex-wrap gap-3 items-center">
-            <label className="text-slate-400">Ses:</label>
+          <div className="flex flex-wrap gap-3 items-center text-sm">
+            <label className="text-indigo-200">Ses:</label>
             <select
               value={speakVoice?.name ?? ''}
               onChange={(e) => {
                 const v = voices.find(x => x.name === e.target.value);
                 setSpeakVoice(v ?? null);
               }}
-              className="bg-slate-950 border border-slate-800 text-slate-300 rounded px-2 py-1 text-[11px]"
+              className="bg-slate-950 border border-indigo-500 text-white rounded px-2 py-1 text-sm"
             >
               {voices.map(v => (
                 <option key={v.name} value={v.name}>{v.name} ({v.lang})</option>
               ))}
             </select>
             <div className="flex items-center gap-1">
-              <label className="text-slate-400 text-[10px]">Hız</label>
+              <label className="text-indigo-200">Hız</label>
               <input
                 type="range"
                 min="0.5"
@@ -295,7 +299,7 @@ export default function ChatArea({
                 step="0.1"
                 value={speakRate}
                 onChange={(e) => setSpeakRate(parseFloat(e.target.value))}
-                className="w-20 accent-indigo-500"
+                className="w-24 accent-indigo-500"
               />
             </div>
           </div>
